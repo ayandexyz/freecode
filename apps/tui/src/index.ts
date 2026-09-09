@@ -1827,7 +1827,9 @@ async function submitPrompt(
     // interrupt, session.error reject) — no-op when nothing is live.
     finalizeAssistantText();
     activeTurnSessionId = null;
-    editor.setText("");
+    // Deliberately no editor.setText(""): pi-tui already emptied the editor
+    // before onSubmit fired, so clearing here only wiped a draft the user
+    // typed while the turn was running.
   }
 }
 
