@@ -1,68 +1,45 @@
 // =============================================================================
-// Stream event -> one line of a subagent's activity log.
+// Stream event -> one replayable line of a subagent's activity log.
 //
 // A subagent's AgentLoop publishes ordinary StreamEvents under its OWN session
 // id, which no frontend is subscribed to — so without this they are emitted and
 // dropped. The registry folds them into a ring buffer instead, which is what
-// the /agents panel tails.
+// the /agents viewer replays on open.
 //
-// This is a summary, not a transcript: tool calls and assistant text only.
-// Reasoning is omitted deliberately (it is the bulk of the bytes and the least
-// useful thing to watch scroll past), and `text` / `done` are skipped because
-// the deltas already carried the same characters.
+// The buffer holds JSON lines of the SNAPSHOT events only: tool calls, their
+// results, the turn-end `text` / `thinking` snapshots, and errors. Deltas are
+// skipped because the snapshot that follows carries the same characters, and
+// `tool_output` because it is a progress tail the result supersedes. A viewer
+// that opens mid-run seeds from these and then follows the live deltas itself,
+// so it renders a subagent exactly the way the main transcript is rendered.
 // =============================================================================
 
 import type { StreamEvent } from "@thisisayande/freecode-shared";
 
-/** Longest argument summary rendered beside a tool name. */
-const ARG_CHARS = 60;
+/** Longest tool result kept per event — the ring buffer is shared by all of them. */
+const RESULT_CHARS = 8_192;
 
 /**
- * The one argument worth showing per tool, in the order we would guess it.
- * A tool with none of these renders bare — better than dumping a JSON blob
- * into a five-row viewport.
- */
-const ARG_KEYS = [
-  "command",
-  "file_path",
-  "path",
-  "pattern",
-  "query",
-  "url",
-  "task",
-  "description",
-];
-
-function summarizeArgs(args: Record<string, unknown>): string {
-  for (const key of ARG_KEYS) {
-    const value = args[key];
-    if (typeof value === "string" && value.length > 0) {
-      const line = value.split("\n")[0];
-      return line.length > ARG_CHARS ? `${line.slice(0, ARG_CHARS)}…` : line;
-    }
-  }
-  return "";
-}
-
-/**
- * Returns the text to append for this event, or undefined to ignore it.
- * Returned text is appended verbatim, so callers own their own newlines.
+ * Returns the line to append for this event, or undefined to ignore it.
+ * Returned text is appended verbatim and ends in a newline, so a reader can
+ * split on "\n" and JSON.parse each line (skipping a partial first line the
+ * ring buffer may have cut).
  */
 export function formatActivity(event: StreamEvent): string | undefined {
   switch (event.type) {
-    case "tool_start": {
-      const arg = summarizeArgs(event.args ?? {});
-      return `\n> ${event.toolName}${arg ? `(${arg})` : ""}\n`;
-    }
-    case "tool_complete":
-      return event.success ? undefined : `  ! ${event.toolName} failed\n`;
-    case "text_delta":
-      return event.delta;
+    case "tool_start":
+    case "thinking":
+    case "text":
     case "error":
-      return `\n! ${event.content}\n`;
+      return `${JSON.stringify(event)}\n`;
+    case "tool_complete": {
+      const result =
+        event.result.length > RESULT_CHARS
+          ? `${event.result.slice(0, RESULT_CHARS)}\n… (${event.result.length - RESULT_CHARS} more chars)`
+          : event.result;
+      return `${JSON.stringify({ ...event, result })}\n`;
+    }
     default:
-      // thinking/thinking_delta/text/done/tool_output and every panel event:
-      // either noise, or characters the deltas already delivered.
       return undefined;
   }
 }

@@ -9,16 +9,11 @@ import {
   updateMessage,
   getMessages,
   getMessageByQueueId,
+  messageStore,
 } from "../state/message-store.js";
-import {
-  createMessageComponent,
-  ThinkingMessage,
-  StreamingAssistantMessage,
-} from "./message-row.js";
+import { createMessageComponent } from "./message-row.js";
 import type { MessageType, MessageInstance } from "./message-types.js";
-import { ToolProgressMessage } from "./tool-progress-message.js";
-import { ToolResultMessage, FILE_UPDATE_TOOLS } from "./tool-result-message.js";
-import { ToolGroupMessage } from "./tool-group-message.js";
+import { Transcript } from "./transcript.js";
 
 /**
  * Add a user message to the store and return the message instance
@@ -56,85 +51,18 @@ export function promoteQueuedToUser(queueId: string): MessageInstance | undefine
   return updateMessage(existing.id, existing.content, component);
 }
 
-/**
- * Add an assistant message to the store and return the message instance
- */
-export function createAssistantMessage(content: string): MessageInstance {
-  sealToolGroups();
-  const component = createMessageComponent("assistant", content);
-  return addMessage("assistant", content, component);
-}
+export const createAssistantMessage = (content: string): MessageInstance =>
+  mainTranscript.createAssistantMessage(content);
 
-// The assistant row currently streaming in, if any. One per internal turn:
-// the turn-end `text` snapshot settles it, and the next turn's first delta
-// starts a fresh row — which is how prose emitted between tool calls stays
-// in the transcript instead of being dropped.
-let liveAssistant: {
-  instance: MessageInstance;
-  component: StreamingAssistantMessage;
-} | null = null;
+/** The main conversation's transcript, over the singleton store. */
+export const mainTranscript = new Transcript(messageStore);
 
-/**
- * Append a streamed `text_delta` chunk, creating the live assistant row on
- * the first delta of an internal turn.
- */
-export function appendAssistantDelta(delta: string): MessageInstance {
-  if (liveAssistant && !liveAssistant.component.done) {
-    liveAssistant.component.append(delta);
-    return liveAssistant.instance;
-  }
-  sealToolGroups();
-  const component = new StreamingAssistantMessage(delta);
-  const instance = addMessage("assistant", delta, component);
-  liveAssistant = { instance, component };
-  return instance;
-}
-
-/**
- * Settle the live streaming row with the turn's authoritative `text`
- * snapshot. With no live row and a snapshot in hand (the non-streaming
- * provider path emits no deltas), the snapshot renders as a settled
- * assistant message. Without either, this is a no-op — it doubles as the
- * "close any dangling stream" call on the abort/error paths.
- */
-export function finalizeAssistantText(content?: string): MessageInstance | null {
-  if (liveAssistant) {
-    const { instance, component } = liveAssistant;
-    liveAssistant = null;
-    component.finalize(content);
-    // Same component, refreshed content — keeps message.content truthful for
-    // anything reading the store, and the notify re-renders the row settled.
-    return updateMessage(instance.id, component.content, component) ?? instance;
-  }
-  if (content) {
-    return createAssistantMessage(`**FreeCode:** ${content}`);
-  }
-  return null;
-}
-
-/**
- * Append a streamed `thinking_delta` chunk into the open thinking block,
- * creating it on the first chunk. The turn-end `thinking` snapshot still
- * flows through createThinkingMessage, which replaces the whole buffer.
- */
-export function appendThinkingDelta(
-  delta: string,
-  startTime?: number,
-): MessageInstance {
-  const messages = getMessages();
-  const lastMessage = messages[messages.length - 1];
-  if (
-    lastMessage &&
-    lastMessage.component instanceof ThinkingMessage &&
-    !lastMessage.component.done
-  ) {
-    lastMessage.component.appendContent(delta);
-    return lastMessage;
-  }
-  sealToolGroups();
-  const component = new ThinkingMessage(delta, startTime);
-  return addMessage("thinking", delta, component);
-}
+export const appendAssistantDelta = (delta: string): MessageInstance =>
+  mainTranscript.appendAssistantDelta(delta);
+export const finalizeAssistantText = (content?: string): MessageInstance | null =>
+  mainTranscript.finalizeAssistantText(content);
+export const appendThinkingDelta = (delta: string, startTime?: number): MessageInstance =>
+  mainTranscript.appendThinkingDelta(delta, startTime);
 
 /**
  * Add a system message to the store and return the message instance.
@@ -221,106 +149,31 @@ export function updateInProgressMessage(
   return updateMessage(id, phrase, component);
 }
 
-export function createToolProgressMessage(
+export const createToolProgressMessage = (
   toolCallId: string,
   toolName: string,
   args: Record<string, unknown>,
-): MessageInstance {
-  const component = new ToolProgressMessage({
-    toolCallId,
-    toolName,
-    args,
-    outputLines: [],
-  });
-  return addMessage("tool", toolName, component);
-}
-
-/**
- * Closes every open tool group. A user prompt, an assistant reply, or a
- * thinking block ends the run of calls it belongs to, so the next call starts
- * a fresh group below the new message.
- */
-export function sealToolGroups(): void {
-  for (const msg of getMessages()) {
-    if (msg.component instanceof ToolGroupMessage) msg.component.seal();
-  }
-}
-
-/**
- * The group still accepting calls, if any. Tool progress rows and the
- * in-progress line are skipped: with parallel tools, a sibling that is still
- * running sits between the group and the result now arriving, and that must
- * not start a second group.
- */
-function findOpenToolGroup(): ToolGroupMessage | undefined {
-  const messages = getMessages();
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]!;
-    if (msg.component instanceof ToolGroupMessage) {
-      return msg.component.isSealed ? undefined : msg.component;
-    }
-    if (msg.component instanceof ToolProgressMessage) continue;
-    if (msg.type === "in_progress") continue;
-    // Ambient notices (cache status, recovery lines) interleave with tool
-    // calls but are not part of the conversation, so they must not chop one
-    // run of calls into a group per call.
-    if (msg.type === "system") continue;
-    return undefined;
-  }
-  return undefined;
-}
-
-export function createToolResultMessage(
+): MessageInstance =>
+  mainTranscript.createToolProgressMessage(toolCallId, toolName, args);
+export const sealToolGroups = (): void => mainTranscript.sealToolGroups();
+export const createToolResultMessage = (
   toolCallId: string,
   toolName: string,
   args: Record<string, unknown>,
   result: string | undefined,
   success: boolean,
   duration_ms?: number,
-): MessageInstance {
-  const options = { toolCallId, toolName, args, result, success, duration_ms };
-
-  // File updates carry the diff view — the one tool body worth showing
-  // unprompted. They stand alone instead of folding into a collapsed group,
-  // and they seal the current run so the next call starts a fresh group.
-  if (FILE_UPDATE_TOOLS.has(toolName.toLowerCase())) {
-    sealToolGroups();
-    return addMessage("tool", toolName, new ToolResultMessage(options));
-  }
-
-  const open = findOpenToolGroup();
-  if (open) {
-    open.add(options);
-    // Same store entry, new content — the list re-renders it in place.
-    return updateMessage(
-      getMessages().find((m) => m.component === open)!.id,
-      toolName,
-      open,
-    )!;
-  }
-
-  const group = new ToolGroupMessage();
-  group.add(options);
-  return addMessage("tool", toolName, group);
-}
-
-/**
- * Create or update a thinking message - yellow/dim yellow text showing LLM reasoning
- */
-export function createThinkingMessage(content: string, startTime?: number): MessageInstance {
-  const messages = getMessages();
-  const lastMessage = messages[messages.length - 1];
-
-  // Update the streaming thinking block in place, preserving its startTime.
-  if (lastMessage && lastMessage.component instanceof ThinkingMessage) {
-    lastMessage.component.updateContent(content);
-    return lastMessage;
-  }
-
-  sealToolGroups();
-  const component = createMessageComponent("thinking", content, startTime);
-  return addMessage("thinking", content, component);
-}
+): MessageInstance =>
+  mainTranscript.createToolResultMessage(
+    toolCallId,
+    toolName,
+    args,
+    result,
+    success,
+    duration_ms,
+  );
+export const createThinkingMessage = (content: string, startTime?: number): MessageInstance =>
+  mainTranscript.createThinkingMessage(content, startTime);
 
 /**
  * Get the current in-progress message, if any
@@ -344,7 +197,7 @@ export { subscribeToMessages };
  * Clear all messages from the store
  */
 export function clearAllMessages(): void {
-  liveAssistant = null;
+  mainTranscript.reset();
   clearMessages();
 }
 

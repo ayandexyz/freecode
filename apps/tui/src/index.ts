@@ -98,15 +98,10 @@ import {
   updateInProgressMessage,
   subscribeToMessages,
   onMessagesChange,
-  createToolProgressMessage,
-  createToolResultMessage,
-  createThinkingMessage,
-  appendThinkingDelta,
-  appendAssistantDelta,
   finalizeAssistantText,
-  ToolProgressMessage,
   type MessageInstance,
   loadSessionMessages,
+  mainTranscript,
 } from "./components/index.js";
 import { getMessageByQueueId } from "./state/message-store.js";
 import {
@@ -120,6 +115,7 @@ import {
 } from "./components/message-row.js";
 import { getMessages, clearMessages } from "./state/message-store.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
+import { parseAgentActivity } from "@thisisayande/freecode-shared";
 import { PromptEditor, stripImageTokens } from "./components/prompt-editor.js";
 import { ResumePicker } from "./components/resume-picker.js";
 import { MaskedInput } from "./components/masked-input.js";
@@ -140,6 +136,7 @@ import { createMcpSelector } from "./components/mcp-picker.js";
 import { ShellsPanel } from "./components/shells-panel.js";
 import { AgentsPanel } from "./components/agents-panel.js";
 import { AgentViewer } from "./components/agent-viewer.js";
+import { Transcript } from "./components/transcript.js";
 import { SearchableSelectList } from "./components/searchable-select-list.js";
 import { QuestionModal } from "./components/question-modal.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
@@ -290,10 +287,6 @@ let apiKeyPrompt: Text | null = null;
 
 let editor: PromptEditor;
 let messageList: VirtualMessageList;
-const toolMessageComponents = new Map<
-  string,
-  { progress: ToolProgressMessage; id: number; args: Record<string, unknown> }
->();
 
 const terminal = new ProcessTerminal();
 // SafeTUI, not TUI: it clamps every rendered line to a single terminal row, so
@@ -794,23 +787,26 @@ async function openAgentView(agentId: string): Promise<void> {
   if (!sessionId || !agent) return;
 
   if (!agentViewer) {
-    agentViewer = new AgentViewer({
-      onStop: (id) => {
-        void agentsStop(sessionId, id).then(() => refreshAgents());
+    agentViewer = new AgentViewer(
+      {
+        onStop: (id) => {
+          void agentsStop(sessionId, id).then(() => refreshAgents());
+        },
+        onBack: () => closeAgentView(),
       },
-      onBack: () => closeAgentView(),
-    });
+      tui,
+    );
     agentViewer.setMaxRows(() => Math.max(6, terminal.rows - 8));
   }
 
   // Seed from core: stream events only cover what arrived while this TUI was
   // listening, and the agent may have been working since before that.
-  let activity = "";
+  let activity: StreamEvent[] = [];
   try {
     const output = await agentsOutput(sessionId, agentId, 0);
-    if (output.found) activity = output.text;
+    if (output.found) activity = parseAgentActivity(output.text);
   } catch {
-    // Fall back to an empty buffer; live chunks still arrive.
+    // Fall back to an empty transcript; live events still arrive.
   }
   agentViewer.open(agent, activity);
   viewerOpenedRunning = agent.status === "running";
@@ -826,6 +822,7 @@ function closeAgentView(): void {
   if (!agentViewer) return;
   const idx = tui.children.indexOf(agentViewer);
   if (idx !== -1) tui.children.splice(idx, 1, messageList);
+  agentViewer.destroy();
   agentViewer = null;
   viewerOpenedRunning = false;
   tui.setFocus(focusTarget());
@@ -1310,8 +1307,6 @@ async function loadCurrentModel(): Promise<void> {
   }
 }
 
-let globalThinkingStartTime: number | null = null;
-
 function handleToolEvent(event: StreamEvent) {
   // Core broadcasts EVERY bus event on stdout (server.ts) and the client hands
   // all of them here, so without this a subagent's text, reasoning and tool
@@ -1333,44 +1328,18 @@ function handleToolEvent(event: StreamEvent) {
     ownSessionId &&
     event.sessionId !== ownSessionId
   ) {
+    // The one subagent being watched gets its events drawn into its own
+    // transcript, through the same renderer as the main one. Every other
+    // subagent's are dropped: core's ring buffer replays them on open.
+    if (event.sessionId === agentViewer?.agentId()) agentViewer.apply(event);
     return;
   }
 
-  const isThinking =
-    event.type === "thinking" || event.type === "thinking_delta";
-
-  if (isThinking) {
-    if (globalThinkingStartTime === null) {
-      globalThinkingStartTime = Date.now();
-    }
-  } else {
-    // First non-thinking event ends the current reasoning block: freeze its
-    // elapsed timer so the header collapses to "Thought (Ns)".
-    const messages = getMessages();
-    const last = messages[messages.length - 1];
-    if (last?.component instanceof ThinkingMessage && !last.component.done) {
-      last.component.setDone();
-      globalThinkingStartTime = null;
-      tui.requestRender();
-    }
-  }
+  // The transcript rows themselves. What follows are the side effects the
+  // main conversation layers on top (token estimates, the todo panel, …).
+  if (Transcript.handles(event.type)) mainTranscript.apply(event);
 
   switch (event.type) {
-    case "tool_start": {
-      const toolMsg = createToolProgressMessage(
-        event.toolCallId,
-        event.toolName,
-        event.args,
-      );
-      const progressComponent = toolMsg.component as ToolProgressMessage;
-      progressComponent.setTui(tui);
-      toolMessageComponents.set(event.toolCallId, {
-        progress: progressComponent,
-        id: toolMsg.id,
-        args: event.args,
-      });
-      break;
-    }
     // Background shells. Handled whether or not the /shells card is open so
     // that opening it later shows the whole run, not just the tail since the
     // keypress.
@@ -1391,16 +1360,10 @@ function handleToolEvent(event: StreamEvent) {
       void refreshAgents();
       break;
     }
-    case "agent_output": {
-      // Only the agent actually being watched is buffered in the TUI. Core's
-      // ring buffer holds the rest and `agents.output` seeds it on open, so
-      // there is nothing to gain from mirroring every agent here.
-      if (agentViewer?.agentId() === event.agentId) {
-        agentViewer.append(event.chunk);
-        tui.requestRender();
-      }
+    case "agent_output":
+      // The watched agent's live events reach its viewer through the session
+      // filter above; core's ring buffer (this chunk) is only for seeding.
       break;
-    }
     case "agent_exit": {
       void refreshAgents();
       break;
@@ -1409,35 +1372,7 @@ function handleToolEvent(event: StreamEvent) {
       void refreshShells();
       break;
     }
-    case "tool_output": {
-      const entry = toolMessageComponents.get(event.toolCallId);
-      if (entry) {
-        // Only the last 5 lines are ever shown, so don't split a large
-        // output in full — a 4KB tail is more than 5 terminal rows.
-        const tail =
-          event.content.length > 4096
-            ? event.content.slice(-4096)
-            : event.content;
-        entry.progress.updateOutput(tail.split("\n").slice(-5));
-      }
-      tui.requestRender();
-      break;
-    }
     case "tool_complete": {
-      const entry = toolMessageComponents.get(event.toolCallId);
-      if (entry) {
-        entry.progress.invalidate();
-        removeMessageById(entry.id);
-        toolMessageComponents.delete(event.toolCallId);
-      }
-      createToolResultMessage(
-        event.toolCallId,
-        event.toolName,
-        entry?.args ?? {},
-        event.result,
-        event.success,
-        event.duration_ms,
-      );
       // The tool result gets fed back into context for the next internal
       // turn, so grow the live ↓ estimate along with it (~4 chars/token).
       bumpLiveInputTokens(Math.round(event.result.length / 4));
@@ -1448,46 +1383,16 @@ function handleToolEvent(event: StreamEvent) {
       }
       break;
     }
-    case "thinking": {
-      // Turn-end reasoning snapshot — authoritative, replaces whatever the
-      // thinking_delta stream accumulated (it wins over any dropped chunk).
-      createThinkingMessage(
-        event.content,
-        globalThinkingStartTime || Date.now(),
-      );
-      tui.requestRender();
-      break;
-    }
-    case "text_delta": {
-      // Live prose: append into the streaming assistant row (created on the
-      // first delta of each internal turn). Also drive the in-progress
-      // line's live output-token estimate from the streamed text
-      // (~4 chars/token) so the number tracks real generation.
+    case "text_delta":
+    case "thinking_delta": {
+      // Drive the in-progress line's live output-token estimate from the
+      // streamed text (~4 chars/token) so the number tracks real generation.
       streamedChars += event.delta.length;
       setLiveOutputTokens(Math.round(streamedChars / 4));
-      appendAssistantDelta(event.delta);
-      tui.requestRender();
       break;
     }
     case "text": {
-      // Authoritative per-internal-turn snapshot (core emits it citation-
-      // stripped at every turn's end, final turn included). Settles the live
-      // streaming row — or, on the non-streaming provider path where no
-      // deltas ever arrive, is itself the whole render. This is also what
-      // keeps prose emitted between tool calls in the transcript: each turn
-      // settles its own row and the next turn starts a new one.
-      finalizeAssistantText(event.content);
       renderedTextThisRun = true;
-      tui.requestRender();
-      break;
-    }
-    case "thinking_delta": {
-      streamedChars += event.delta.length;
-      setLiveOutputTokens(Math.round(streamedChars / 4));
-      // Streams into the open thinking block, so expanding it (Ctrl+T)
-      // mid-turn shows live reasoning instead of waiting for the snapshot.
-      appendThinkingDelta(event.delta, globalThinkingStartTime || Date.now());
-      tui.requestRender();
       break;
     }
     case "memory_saved": {

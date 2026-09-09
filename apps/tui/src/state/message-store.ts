@@ -7,7 +7,7 @@ import type {
 
 type Subscriber = (messages: MessageInstance[]) => void;
 
-class MessageStoreImpl {
+export class MessageStore {
   private messages: MessageInstance[] = [];
   private subscribers = new Set<Subscriber>();
   private idCounter = 0;
@@ -167,7 +167,7 @@ class MessageStoreImpl {
 // sessions degrade. Default keeps ~2000 messages, roughly the last few
 // hundred turns; the virtual list only renders the visible window anyway.
 const DEFAULT_MAX_MESSAGES = 2000;
-export const messageStore = new MessageStoreImpl({
+export const messageStore = new MessageStore({
   maxMessages: DEFAULT_MAX_MESSAGES,
 });
 

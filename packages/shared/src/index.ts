@@ -63,4 +63,4 @@ export type {
   ParamType,
 } from "./ipc/protocol.js";
 
-export { METHODS, REQUIRED_PARAMS } from "./ipc/protocol.js";
+export { METHODS, REQUIRED_PARAMS, parseAgentActivity } from "./ipc/protocol.js";
