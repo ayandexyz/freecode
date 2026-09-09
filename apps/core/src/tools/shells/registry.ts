@@ -21,10 +21,24 @@ export const SHELL_BUFFER_CHARS = 256_000;
 const TRIM_BLOCK = SHELL_BUFFER_CHARS >> 2;
 /** Ceiling on concurrent shells per session — a runaway loop can't fork-bomb. */
 export const MAX_SHELLS_PER_SESSION = 16;
+/** SIGTERM → SIGKILL escalation, for a process that ignores the polite one. */
+export const KILL_ESCALATION_MS = 2000;
+/**
+ * How long after `exit` to wait for `close`. `close` can never fire while a
+ * grandchild holds the pipe open, so settle shortly after `exit` regardless —
+ * the same race the foreground path guards against.
+ */
+const CLOSE_GRACE_MS = 250;
 
 export interface ShellStartOptions {
   command: string;
   cwd: string;
+  /**
+   * Session that started the shell. Registries are keyed by ROOT session, so
+   * a subagent's shells sit in its root's registry; this is what lets the
+   * subagent's teardown take only its own shells with it.
+   */
+  owner?: string;
   /** Notified on every chunk so the loop can relay it to the TUI live. */
   onData?: (id: string, chunk: string) => void;
   /** Notified once the process settles, for the same reason. */
@@ -35,6 +49,7 @@ interface Shell {
   id: string;
   command: string;
   cwd: string;
+  owner?: string;
   status: ShellStatus;
   exitCode: number | null;
   startedAt: number;
@@ -45,8 +60,11 @@ interface Shell {
   /** Absolute offset the model's `bashoutput` has consumed up to. */
   modelCursor: number;
   kill: (signal: NodeJS.Signals) => void;
-  /** Kept on the record so kill() can fire it too, not just the exit handler. */
+  /** Kept on the record so killAll() can fire it too, not just the exit handler. */
   notifyExit?: (id: string, status: ShellStatus, code: number | null) => void;
+  /** Set by kill(): SIGKILL escalation pending; also marks the exit as ours. */
+  killTimer?: NodeJS.Timeout;
+  closeGrace?: NodeJS.Timeout;
 }
 
 export class ShellRegistry {
@@ -72,6 +90,7 @@ export class ShellRegistry {
       id,
       command: options.command,
       cwd: options.cwd,
+      owner: options.owner,
       status: "running",
       exitCode: null,
       startedAt: Date.now(),
@@ -98,6 +117,7 @@ export class ShellRegistry {
 
     const settle = (status: ShellStatus, code: number | null): void => {
       if (shell.status !== "running") return;
+      this.clearTimers(shell);
       shell.status = status;
       shell.exitCode = code;
       shell.endedAt = Date.now();
@@ -108,12 +128,17 @@ export class ShellRegistry {
       append(`\n<shell_error>\n${err.message}\n</shell_error>\n`);
       settle("failed", null);
     });
-    // `close` can never fire while a grandchild holds the pipe open, so settle
-    // on `exit` — the same race the foreground path guards against.
-    child.on("exit", (code, signal) => {
-      if (signal) settle("killed", code);
+    // Settle on `close`, not `exit`: `exit` can fire with stdio still
+    // undrained, so a `completed` shell would be missing its last lines. The
+    // grace timer covers a grandchild holding the pipe open past `exit`.
+    const finish = (code: number | null, signal: NodeJS.Signals | null): void => {
+      if (signal || shell.killTimer) settle("killed", code);
       else settle(code === 0 ? "completed" : "failed", code);
+    };
+    child.on("exit", (code, signal) => {
+      shell.closeGrace = setTimeout(() => finish(code, signal), CLOSE_GRACE_MS);
     });
+    child.on("close", finish);
 
     return this.summarize(shell);
   }
@@ -173,21 +198,21 @@ export class ShellRegistry {
   }
 
   /**
-   * SIGTERM the process group. Returns false for an unknown id or one that has
-   * already settled, so the caller can say which happened.
+   * SIGTERM the process group, escalating to SIGKILL after KILL_ESCALATION_MS
+   * if it has not exited. The record stays `running` until the process really
+   * exits (so killAll/remove still see it and the real exit code is recorded);
+   * the exit handler then settles it as `killed`. Returns false for an unknown
+   * id, one already settled, or one a kill is already pending on.
    */
   kill(id: string): boolean {
     const shell = this.shells.get(id);
-    if (!shell || shell.status !== "running") return false;
+    if (!shell || shell.status !== "running" || shell.killTimer) return false;
     shell.kill("SIGTERM");
-    // Settle here rather than waiting for the `exit` handler, so a second kill
-    // is a no-op and the UI flips immediately instead of after the signal
-    // lands. That short-circuits the exit handler's own settle(), so the exit
-    // notification has to be fired here or a model-initiated killbash would
-    // never reach the frontend and its shell counter would stay stale.
-    shell.status = "killed";
-    shell.endedAt = Date.now();
-    shell.notifyExit?.(id, "killed", null);
+    shell.killTimer = setTimeout(() => {
+      shell.kill("SIGKILL");
+      this.forceSettle(shell);
+    }, KILL_ESCALATION_MS);
+    shell.killTimer.unref();
     return true;
   }
 
@@ -196,12 +221,44 @@ export class ShellRegistry {
     for (const shell of this.shells.values()) {
       if (shell.status === "running") {
         shell.kill("SIGKILL");
-        shell.status = "killed";
-        shell.endedAt = Date.now();
-        shell.notifyExit?.(shell.id, "killed", null);
+        this.forceSettle(shell);
       }
     }
     this.shells.clear();
+  }
+
+  /**
+   * Subagent teardown: kill and forget only the shells `owner` started. The
+   * registry is the root's, so killAll() here would take the parent's dev
+   * server down with the subagent.
+   */
+  disposeOwned(owner: string): void {
+    for (const shell of [...this.shells.values()]) {
+      if (shell.owner !== owner) continue;
+      if (shell.status === "running") {
+        shell.kill("SIGKILL");
+        this.forceSettle(shell);
+      }
+      this.shells.delete(shell.id);
+    }
+  }
+
+  /**
+   * Settle without waiting for the exit handler. That short-circuits the
+   * handler's own settle(), so the exit notification has to be fired here or
+   * the frontend's shell counter would stay stale.
+   */
+  private forceSettle(shell: Shell): void {
+    if (shell.status !== "running") return;
+    this.clearTimers(shell);
+    shell.status = "killed";
+    shell.endedAt = Date.now();
+    shell.notifyExit?.(shell.id, "killed", null);
+  }
+
+  private clearTimers(shell: Shell): void {
+    if (shell.killTimer) clearTimeout(shell.killTimer);
+    if (shell.closeGrace) clearTimeout(shell.closeGrace);
   }
 
   private runningCount(): number {

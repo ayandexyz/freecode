@@ -70,7 +70,9 @@ async function executeKillBash(
       title: summary.command.split("\n")[0].slice(0, 50),
       output: killed
         ? `Killed ${params.bash_id}. Any output it produced is still readable with bashoutput.`
-        : `${params.bash_id} had already finished (${summary.status}).`,
+        : summary.status === "running"
+          ? `${params.bash_id} already has a kill pending; it will settle once the process exits.`
+          : `${params.bash_id} had already finished (${summary.status}).`,
       metadata: { shellId: params.bash_id, killed },
     },
   };

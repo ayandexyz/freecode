@@ -12,7 +12,7 @@ import { createAgentLoop } from "./loop.js";
 import { BusEvents } from "../bus/index.js";
 import { createSessionStore, type SessionStore } from "../session/store.js";
 import { getAgentRegistry } from "./registry/index.js";
-import { disposeShellRegistry } from "../tools/shells/index.js";
+import { disposeSubagentShells } from "../tools/shells/index.js";
 import { logger } from "../utils/logger.js";
 
 export interface SubagentResult {
@@ -178,7 +178,7 @@ export async function executeSubagent(
     // A subagent's session id is synthetic and `endSession` never sees it, so
     // a background shell it started would outlive it with nothing holding a
     // handle to kill it — and be invisible in /shells, which keys on the root.
-    disposeShellRegistry(id);
+    disposeSubagentShells(id);
   }
 }
 

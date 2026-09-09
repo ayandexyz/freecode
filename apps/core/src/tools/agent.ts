@@ -16,7 +16,7 @@ import { coerceBoolean } from "./coerce-args.js";
 import { createRecorder } from "../rollout/recorder.js";
 import { listProviders } from "../providers/registry.js";
 import { getAgentRegistry } from "../agent/registry/index.js";
-import { disposeShellRegistry } from "./shells/index.js";
+import { disposeSubagentShells } from "./shells/index.js";
 
 interface AgentParams {
   task: string;
@@ -325,7 +325,7 @@ async function executeSubagent(
     // A subagent runs under a synthetic session id that `endSession` never
     // sees, so a background shell it started would otherwise outlive it and
     // stay unkillable — invisible to /shells, which is keyed by the root.
-    disposeShellRegistry(subagentId);
+    disposeSubagentShells(subagentId);
   }
 }
 
