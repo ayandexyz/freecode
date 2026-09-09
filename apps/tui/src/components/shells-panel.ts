@@ -24,6 +24,8 @@ export interface ShellsPanelCallbacks {
   /** Drop a settled shell from the roster. Core refuses a running one. */
   onRemove: (shellId: string) => void;
   onClose: () => void;
+  /** Selection moved onto a shell with no buffered output yet: seed it from core. */
+  onSelect?: (shellId: string) => void;
 }
 
 function elapsed(shell: ShellSummary): string {
@@ -243,13 +245,11 @@ export class ShellsPanel implements Component {
       return;
     }
     if (matchesKey(data, Key.up)) {
-      this.selected = Math.max(0, this.selected - 1);
-      this.outputScroll = 0;
+      this.moveSelection(-1);
       return;
     }
     if (matchesKey(data, Key.down)) {
-      this.selected = Math.min(this.shells.length - 1, this.selected + 1);
-      this.outputScroll = 0;
+      this.moveSelection(1);
       return;
     }
     if (matchesKey(data, Key.pageUp)) {
@@ -277,6 +277,15 @@ export class ShellsPanel implements Component {
         this.callbacks.onRemove(shell.id);
       }
     }
+  }
+
+  private moveSelection(delta: number): void {
+    const next = Math.max(0, Math.min(this.shells.length - 1, this.selected + delta));
+    if (next === this.selected) return;
+    this.selected = next;
+    this.outputScroll = 0;
+    const id = this.shells[next]?.id;
+    if (id && !this.outputs.has(id)) this.callbacks.onSelect?.(id);
   }
 
   invalidate(): void {}

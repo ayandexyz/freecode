@@ -215,6 +215,7 @@ async function clearSession(): Promise<void> {
       agentMode: currentAgentMode,
     })) as SessionInfo;
     currentSession = fresh;
+    resetSessionPanels();
   } catch (error) {
     // Keep the old session rather than leaving the UI pointing at nothing.
     showMessage(
@@ -282,6 +283,8 @@ let agentsTimer: NodeJS.Timeout | null = null;
  * Null whenever the main agent owns the main area.
  */
 let agentViewer: AgentViewer | null = null;
+/** True while the viewer watches an agent that was running when opened. */
+let viewerOpenedRunning = false;
 let apiKeyEditor: Input | null = null;
 let apiKeyPrompt: Text | null = null;
 
@@ -647,10 +650,40 @@ function ensureShellsPanel(): ShellsPanel {
         void shellsRemove(sessionId, shellId).then(() => refreshShells());
       },
       onClose: () => hideShellsPanel(),
+      onSelect: (shellId) => void seedShellOutput(shellId),
     });
     shellsPanel.setMaxRows(() => Math.max(10, Math.floor(terminal.rows * 0.6)));
   }
   return shellsPanel;
+}
+
+/**
+ * Seed a shell's buffer from core: stream events only cover what arrived
+ * while this TUI was listening, and the shell may predate it.
+ */
+async function seedShellOutput(shellId: string): Promise<void> {
+  const sessionId = currentSession?.sessionId;
+  if (!sessionId || !shellsPanel) return;
+  try {
+    const output = await shellsOutput(sessionId, shellId, 0);
+    if (output.found) shellsPanel.setOutput(shellId, output.text);
+    tui.requestRender();
+  } catch {
+    // Fall back to whatever the stream events already delivered.
+  }
+}
+
+/**
+ * A session switch invalidates both rosters: they are keyed by session in
+ * core, so a chip counting the previous session's shells or agents is a lie.
+ * Panels are recreated lazily by the next event, exactly like first use.
+ */
+function resetSessionPanels(): void {
+  hideShellsPanel();
+  hideAgentsPanel();
+  closeAgentView();
+  shellsPanel = null;
+  agentsPanel = null;
 }
 
 /** Re-read the roster so status, exit codes and elapsed times stay honest. */
@@ -675,7 +708,7 @@ function hideShellsPanel(): void {
     if (idx !== -1) tui.children.splice(idx, 1);
   }
   shellsPanelOpen = false;
-  tui.setFocus(editor);
+  tui.setFocus(focusTarget());
   tui.requestRender();
 }
 
@@ -708,18 +741,8 @@ async function showShellsPanel(): Promise<void> {
     return;
   }
 
-  // Seed the selected shell's buffer from core: stream events only cover what
-  // arrived while this TUI was listening, and the panel may be opening on a
-  // shell that has been running since before it existed.
   const selected = panel.selectedShellId();
-  if (selected) {
-    try {
-      const output = await shellsOutput(sessionId, selected, 0);
-      if (output.found) panel.setOutput(selected, output.text);
-    } catch {
-      // Fall back to whatever the stream events already delivered.
-    }
-  }
+  if (selected) await seedShellOutput(selected);
 
   shellsPanelOpen = true;
   const editorIdx = tui.children.indexOf(editor);
@@ -790,6 +813,7 @@ async function openAgentView(agentId: string): Promise<void> {
     // Fall back to an empty buffer; live chunks still arrive.
   }
   agentViewer.open(agent, activity);
+  viewerOpenedRunning = agent.status === "running";
 
   const listIdx = tui.children.indexOf(messageList);
   if (listIdx !== -1) tui.children.splice(listIdx, 1, agentViewer);
@@ -803,7 +827,8 @@ function closeAgentView(): void {
   const idx = tui.children.indexOf(agentViewer);
   if (idx !== -1) tui.children.splice(idx, 1, messageList);
   agentViewer = null;
-  tui.setFocus(editor);
+  viewerOpenedRunning = false;
+  tui.setFocus(focusTarget());
   tui.requestRender();
 }
 
@@ -819,8 +844,11 @@ async function refreshAgents(): Promise<void> {
       const agent = agents.find((a) => a.id === watching);
       agentViewer?.update(agent);
       // The agent being watched just finished: hand the main area back, since
-      // the work has returned to the conversation this replaced.
-      if (!agent || agent.status !== "running") closeAgentView();
+      // the work has returned to the conversation this replaced. A viewer
+      // opened on an already-settled agent stays put until the user leaves.
+      if (!agent || (viewerOpenedRunning && agent.status !== "running")) {
+        closeAgentView();
+      }
     }
     tui.requestRender();
   } catch {
@@ -838,7 +866,7 @@ function hideAgentsPanel(): void {
     if (idx !== -1) tui.children.splice(idx, 1);
   }
   agentsPanelOpen = false;
-  tui.setFocus(agentViewer ?? editor);
+  tui.setFocus(focusTarget());
   tui.requestRender();
 }
 
@@ -1205,6 +1233,7 @@ async function showResumePicker(): Promise<void> {
           const result = await sessionResume(sessionId);
           currentSession = { sessionId: result.sessionId };
           resetSessionCacheTotals();
+          resetSessionPanels();
           hideTodoPanel(); // clear any prior session's pinned todos
           if (result.messages && result.messages.length > 0) {
             loadSessionMessages(result.messages);
@@ -2785,6 +2814,7 @@ async function resumeFromArgs(id: string): Promise<void> {
     const result = await sessionResume(id);
     currentSession = { sessionId: result.sessionId };
     resetSessionCacheTotals();
+    resetSessionPanels();
     hideTodoPanel(); // clear any prior session's pinned todos
     if (result.messages && result.messages.length > 0) {
       loadSessionMessages(result.messages);

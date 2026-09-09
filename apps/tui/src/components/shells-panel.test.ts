@@ -209,3 +209,21 @@ test("a dismissed shell's output buffer is released, not leaked", () => {
   p.setShells([shell({ id: "bash_2" })]);
   assert.doesNotMatch(strip(p.render(70)), /gone soon/);
 });
+
+test("moving onto a shell with no buffered output asks for a seed once", () => {
+  const seeded: string[] = [];
+  const p = new ShellsPanel({
+    onKill: () => {},
+    onRemove: () => {},
+    onClose: () => {},
+    onSelect: (id) => seeded.push(id),
+  });
+  p.setShells([shell(), shell({ id: "bash_2" })]);
+  p.setOutput("bash_1", "already here");
+  p.handleInput(KEY_DOWN);
+  assert.deepEqual(seeded, ["bash_2"]);
+  p.setOutput("bash_2", "seeded");
+  p.handleInput(`${ESC}[A`);
+  p.handleInput(KEY_DOWN);
+  assert.deepEqual(seeded, ["bash_2"], "a buffered shell is not re-seeded");
+});
