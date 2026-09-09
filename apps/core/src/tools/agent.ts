@@ -110,6 +110,16 @@ async function executeSubagent(
     : undefined;
   let sessionStore: SessionStore | undefined;
 
+  // Cheap cap check BEFORE a session exists on disk: `register()` below is
+  // what refuses the spawn for real, but it needs the id, and fork() is what
+  // mints the id — so without this a refused spawn left a session behind.
+  const agents = getAgentRegistry();
+  try {
+    agents.assertCanRegister(parentSessionId);
+  } catch (error) {
+    return { success: false, error: String((error as Error).message ?? error) };
+  }
+
   const baseDir = path.join(os.homedir(), ".freecode");
   sessionStore = await createSessionStore(baseDir);
   const forking = coerceBoolean(params.forkContext) && !!ctx.sessionId;
@@ -136,7 +146,12 @@ async function executeSubagent(
     provider = parentMeta?.provider;
     model = parentMeta?.model;
   }
+  const projectPath = ctx.projectPath ?? ctx.cwd;
+  // Anything that gives up after this point must not leave the session behind.
+  const discardSession = () =>
+    sessionStore!.deleteSession(subagentId, projectPath, true).catch(() => {});
   if (!provider) {
+    if (forking) await discardSession();
     return {
       success: false,
       error: `agent: no valid provider (agentType "${params.agentType ?? ""}" is not registered, and the parent session has none)`,
@@ -170,7 +185,6 @@ async function executeSubagent(
   // have to be able to refuse the spawn, and the registry is what knows how
   // deep in the tree this parent already is. A refusal is a tool error the
   // model reads and acts on, not an exception.
-  const agents = getAgentRegistry();
   const rootId = agents.rootOf(parentSessionId);
   try {
     agents.register({
@@ -188,8 +202,13 @@ async function executeSubagent(
       },
     });
   } catch (error) {
+    await discardSession();
     return { success: false, error: String((error as Error).message ?? error) };
   }
+  // `k` in the /agents panel settles the record to "killed" before the loop
+  // exists (stop() fires the interrupt on attach), so the loop's own result
+  // cannot be trusted to say so — the record is the source of truth.
+  const killed = () => agents.get(subagentId)?.status === "killed";
 
   // Read-only unless the spawner opts out. `explore` is not advisory: mutating
   // tools are filtered out of the tool list entirely (tools/defs-cache.ts), so
@@ -221,6 +240,8 @@ async function executeSubagent(
     if (startResult.additionalContext) {
       console.log(`[AgentTool] SubagentStart hook added context`);
     }
+    // Stopped from the panel while the hook ran: nothing to run.
+    if (killed()) throw new Error("interrupted");
 
     BusEvents.subagentStarted(
       subagentId,
@@ -247,36 +268,43 @@ async function executeSubagent(
       sessionId: subagentId,
       provider,
       model,
-      projectPath: ctx.projectPath ?? ctx.cwd,
+      projectPath,
       agentMode: subagentMode,
     });
+
+    // The loop reports its own interrupt as a clean completion (that is the
+    // right answer for a user's Ctrl+C at the top level); a killed subagent
+    // is a failure to the parent that delegated to it.
+    const interrupted = killed();
+    const success = result.success && !interrupted;
+    const message = interrupted ? "interrupted" : result.message;
 
     BusEvents.subagentCompleted(
       subagentId,
       params.agentType || "agent",
       parentSessionId,
-      result.success,
-      result.message,
+      success,
+      message,
     );
-    parentRecorder?.recordSubagentStop(subagentId, result.message ?? "");
-    settleStatus = result.success ? "completed" : "failed";
+    parentRecorder?.recordSubagentStop(subagentId, message ?? "");
+    settleStatus = success ? "completed" : "failed";
 
     await hooks.runSubagentStop(params.task, hookCtx);
 
     // A failure has to carry its reason. Without this the model is handed a
     // bare "Status: FAILED" and can only guess — which is exactly what it did
     // when the missing-session ENOENT above was still live.
-    if (!result.success) {
+    if (!success) {
       console.error(
-        `[agent] Subagent ${subagentId} returned failure: ${result.message ?? "(no message)"}`,
+        `[agent] Subagent ${subagentId} returned failure: ${message ?? "(no message)"}`,
       );
     }
     const output = [
       `Subagent: ${params.task}`,
-      `Status: ${result.success ? "SUCCESS" : "FAILED"}`,
+      `Status: ${success ? "SUCCESS" : "FAILED"}`,
       `Turns: ${result.turnCount}`,
       `Iterations: ${result.iterationCount}`,
-      !result.success && result.message ? `Reason: ${result.message}` : "",
+      !success && message ? `Reason: ${message}` : "",
       result.content ? `\nOutput:\n${result.content}` : "",
     ]
       .filter(Boolean)
@@ -289,7 +317,7 @@ async function executeSubagent(
         output,
         metadata: {
           subagentId,
-          success: result.success,
+          success,
           turns: result.turnCount,
         },
       },
@@ -323,8 +351,8 @@ async function executeSubagent(
     // the loop to unwind.
     agents.settle(subagentId, settleStatus);
     // A subagent runs under a synthetic session id that `endSession` never
-    // sees, so a background shell it started would otherwise outlive it and
-    // stay unkillable — invisible to /shells, which is keyed by the root.
+    // sees, so a background shell it started would otherwise outlive it. Its
+    // shells live in the root's registry, so take only its own.
     disposeSubagentShells(subagentId);
   }
 }

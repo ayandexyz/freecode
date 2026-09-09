@@ -384,6 +384,15 @@ function createError(
   return { jsonrpc: "2.0", id, error: { code, message, data } };
 }
 
+/**
+ * Scope an agents.* call to the caller's session, the way shells.* are scoped
+ * by their per-session registry: an agent is addressable only through the root
+ * that spawned it. An unregistered id is its own root, so it never matches.
+ */
+function agentInRoot(sessionId: string | undefined, agentId: string): boolean {
+  return !sessionId || getAgentRegistry().rootOf(agentId) === sessionId;
+}
+
 export const methodHandlers: Record<
   string,
   (params: Record<string, unknown>) => Promise<unknown>
@@ -872,25 +881,42 @@ export const methodHandlers: Record<
   "agents.output": async (
     params: Record<string, unknown>,
   ): Promise<unknown> => {
-    const { agentId, cursor } = params as {
-      sessionId: string;
+    const { sessionId, agentId, cursor } = params as {
+      sessionId?: string;
       agentId: string;
       cursor?: number;
     };
+    if (!agentInRoot(sessionId, agentId)) {
+      return {
+        found: false,
+        text: "",
+        status: "failed",
+        droppedChars: 0,
+        nextCursor: 0,
+      };
+    }
     return getAgentRegistry().readFrom(agentId, cursor ?? 0);
   },
 
   "agents.stop": async (
     params: Record<string, unknown>,
   ): Promise<{ stopped: boolean }> => {
-    const { agentId } = params as { sessionId: string; agentId: string };
+    const { sessionId, agentId } = params as {
+      sessionId?: string;
+      agentId: string;
+    };
+    if (!agentInRoot(sessionId, agentId)) return { stopped: false };
     return { stopped: getAgentRegistry().stop(agentId) };
   },
 
   "agents.remove": async (
     params: Record<string, unknown>,
   ): Promise<{ removed: boolean }> => {
-    const { agentId } = params as { sessionId: string; agentId: string };
+    const { sessionId, agentId } = params as {
+      sessionId?: string;
+      agentId: string;
+    };
+    if (!agentInRoot(sessionId, agentId)) return { removed: false };
     return { removed: getAgentRegistry().remove(agentId) };
   },
 

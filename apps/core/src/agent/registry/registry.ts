@@ -65,6 +65,8 @@ interface AgentRecord {
   /** Characters dropped off the front of `buf`; also the buffer's base offset. */
   droppedChars: number;
   interrupt?: () => void;
+  /** `stop()` arrived before the loop existed; fire the interrupt on attach. */
+  pendingStop?: boolean;
   onActivity?: (id: string, chunk: string) => void;
   onExit?: (id: string, status: AgentStatus) => void;
 }
@@ -79,19 +81,9 @@ export class AgentRegistry {
    * which is the whole point of capping here rather than silently truncating.
    */
   register(options: AgentRegisterOptions): AgentSummary {
+    this.assertCanRegister(options.parentId);
     const depth = this.depthOf(options.parentId) + 1;
-    if (depth > MAX_AGENT_DEPTH) {
-      throw new Error(
-        `Subagents may not spawn subagents (depth limit ${MAX_AGENT_DEPTH}). Do this task directly instead of delegating it.`,
-      );
-    }
-
     const rootId = this.rootOf(options.parentId);
-    if (this.runningCount(rootId) >= MAX_AGENTS_PER_ROOT) {
-      throw new Error(
-        `Too many subagents running (${MAX_AGENTS_PER_ROOT}). Wait for one to finish before spawning another.`,
-      );
-    }
 
     const record: AgentRecord = {
       id: options.id,
@@ -114,13 +106,41 @@ export class AgentRegistry {
   }
 
   /**
+   * The cap check on its own, for a caller that must allocate something (a
+   * session on disk) before it knows the id to register under. Throws the
+   * same errors `register` would; `register` still re-checks.
+   */
+  assertCanRegister(parentId: string): void {
+    if (this.depthOf(parentId) + 1 > MAX_AGENT_DEPTH) {
+      throw new Error(
+        `Subagents may not spawn subagents (depth limit ${MAX_AGENT_DEPTH}). Do this task directly instead of delegating it.`,
+      );
+    }
+    if (this.runningCount(this.rootOf(parentId)) >= MAX_AGENTS_PER_ROOT) {
+      throw new Error(
+        `Too many subagents running (${MAX_AGENTS_PER_ROOT}). Wait for one to finish before spawning another.`,
+      );
+    }
+  }
+
+  /**
    * Late-bind the cancel handle. The loop does not exist yet when the agent is
    * registered — registration has to happen first so the depth check can refuse
-   * the spawn before anything is constructed.
+   * the spawn before anything is constructed. A `stop()` that landed in that
+   * window is honoured here instead of being lost.
    */
   attachInterrupt(id: string, interrupt: () => void): void {
     const record = this.agents.get(id);
-    if (record) record.interrupt = interrupt;
+    if (!record) return;
+    record.interrupt = interrupt;
+    if (record.pendingStop) {
+      record.pendingStop = false;
+      try {
+        interrupt();
+      } catch {
+        // Same as stop(): the row is already settled, nothing to unwind.
+      }
+    }
   }
 
   /** Mark an agent finished. Idempotent: the first settle wins. */
@@ -181,10 +201,14 @@ export class AgentRegistry {
   stop(id: string): boolean {
     const record = this.agents.get(id);
     if (!record || record.status !== "running") return false;
-    try {
-      record.interrupt?.();
-    } catch {
-      // An interrupt that throws must not leave the row stuck on "running".
+    if (record.interrupt) {
+      try {
+        record.interrupt();
+      } catch {
+        // An interrupt that throws must not leave the row stuck on "running".
+      }
+    } else {
+      record.pendingStop = true;
     }
     record.status = "killed";
     record.endedAt = Date.now();

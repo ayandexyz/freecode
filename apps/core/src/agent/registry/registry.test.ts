@@ -167,3 +167,31 @@ test("the bus subscription is released once the registry empties", () => {
   BusEvents.stream("a1", { type: "text_delta", delta: "late" });
   assert.equal(reg.readFrom("a1", 0).found, false);
 });
+
+test("a stop that lands before the interrupt is attached fires on attach", () => {
+  const reg = new AgentRegistry();
+  // The loop does not exist yet when the agent is registered: `k` in the
+  // panel during the SubagentStart hook used to settle the row and lose the
+  // interrupt entirely, so the loop ran to completion behind a "killed" row.
+  spawn(reg, "a1", "root");
+  assert.equal(reg.stop("a1"), true);
+  assert.equal(reg.get("a1")?.status, "killed");
+
+  let interrupted = 0;
+  reg.attachInterrupt("a1", () => interrupted++);
+  assert.equal(interrupted, 1, "pending stop must be honoured on attach");
+
+  // Not re-fired: a second attach is a fresh handle, not a second stop.
+  reg.attachInterrupt("a1", () => interrupted++);
+  assert.equal(interrupted, 1);
+  reg.disposeAll();
+});
+
+test("assertCanRegister refuses what register would, without registering", () => {
+  const reg = new AgentRegistry();
+  spawn(reg, "a1", "root");
+  assert.throws(() => reg.assertCanRegister("a1"), /may not spawn subagents/);
+  assert.doesNotThrow(() => reg.assertCanRegister("root"));
+  assert.equal(reg.listForRoot("root").length, 1);
+  reg.disposeAll();
+});

@@ -141,22 +141,21 @@ export async function executeSubagent(
       model: config.model ?? model,
       agentMode: readOnly ? "explore" : "build",
     });
-    settleStatus = result.success ? "completed" : "failed";
+    // The loop reports an interrupt as success; a subagent killed from the
+    // /agents panel is a failure to whoever delegated to it.
+    const interrupted = agents.get(id)?.status === "killed";
+    const success = result.success && !interrupted;
+    const message = interrupted ? "interrupted" : result.message;
+    settleStatus = success ? "completed" : "failed";
 
     // Emit subagent completed event
-    BusEvents.subagentCompleted(
-      id,
-      config.type,
-      "",
-      result.success,
-      result.message,
-    );
+    BusEvents.subagentCompleted(id, config.type, "", success, message);
 
     return {
-      success: result.success,
+      success,
       type: config.type,
       content: result.content,
-      message: result.message,
+      message,
       turnCount: result.turnCount,
       iterationCount: result.iterationCount,
     };
@@ -177,7 +176,8 @@ export async function executeSubagent(
     agents.settle(id, settleStatus);
     // A subagent's session id is synthetic and `endSession` never sees it, so
     // a background shell it started would outlive it with nothing holding a
-    // handle to kill it — and be invisible in /shells, which keys on the root.
+    // handle to kill it. Its shells live in the root's registry, so take only
+    // its own.
     disposeSubagentShells(id);
   }
 }
