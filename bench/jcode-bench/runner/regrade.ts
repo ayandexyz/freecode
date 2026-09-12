@@ -49,9 +49,12 @@ function restoreSubmission(artifactDir: string, upstream: string, task: string, 
   // Strip the upstream prefix so the hunks land on `submission/...` in taskDir.
   const diff = fs.readFileSync(path.join(artifactDir, "submission.diff"), "utf-8");
   if (!diff.trim()) return;
-  const strip = path.join(upstream, "tasks", task).split(path.sep).filter(Boolean).length;
-  const r = spawnSync("patch", ["-p" + strip, "-d", taskDir, "--batch", "--forward"], {
-    input: diff,
+  // The two sides carry different absolute prefixes (upstream vs the tmp
+  // workspace), so no single -p strips both; rewrite the headers to
+  // `submission/...` and apply at -p0.
+  const rewritten = diff.replace(/^(---|\+\+\+) \S*?\/submission\//gm, "$1 submission/");
+  const r = spawnSync("patch", ["-p0", "-d", taskDir, "--batch", "--forward"], {
+    input: rewritten,
     encoding: "utf-8",
   });
   if (r.status !== 0) throw new Error(`patch failed:\n${r.stdout}${r.stderr}`);
