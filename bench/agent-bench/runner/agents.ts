@@ -61,9 +61,17 @@ export function agentVersion(spec: AgentSpec, image?: string): string {
   return (r.stdout || r.stderr).trim().split("\n")[0]!.slice(0, 80);
 }
 
-function render(spec: AgentSpec, prompt: string): string[] {
+/**
+ * `{benchDir}` in argv resolves like it does in `env`: this directory on the
+ * host, the ro mount in a container. It is how an adapter can point at a
+ * checkout's own build (bench/jcode-bench/agents/freecode-dev.json).
+ */
+function render(spec: AgentSpec, prompt: string, benchDir: string): string[] {
   return spec.run.map((arg) =>
-    arg.replaceAll("{prompt}", prompt).replaceAll("{model}", spec.model),
+    arg
+      .replaceAll("{prompt}", prompt)
+      .replaceAll("{model}", spec.model)
+      .replaceAll("{benchDir}", benchDir),
   );
 }
 
@@ -156,7 +164,11 @@ export function runAgent(
     ),
     ...extraEnv,
   };
-  const agentArgv = render(spec, prompt);
+  const agentArgv = render(
+    spec,
+    prompt,
+    containerize ? BENCH_MOUNT : path.join(AGENT_DIR, ".."),
+  );
   const argv = containerize ? dockerArgv(containerize, agentArgv) : agentArgv;
   const [cmd, ...args] = argv;
   const out = fs.createWriteStream(path.join(artifactDir, "stdout.log"));
