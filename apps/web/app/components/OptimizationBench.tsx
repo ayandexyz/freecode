@@ -183,7 +183,13 @@ function TaskBlock({ task }: { task: OptTaskView }) {
                   {fmtDate(r.date)}
                 </td>
                 <td className="py-2 text-muted-foreground">
-                  {r.verified ? (r.fullGate ? "full" : "sampled") : "failed"}
+                  {r.verified
+                    ? r.fullGate
+                      ? "full"
+                      : r.fullGateTimedOut
+                        ? "sampled ‡"
+                        : "sampled"
+                    : "failed"}
                 </td>
               </tr>
             ))}
@@ -192,6 +198,12 @@ function TaskBlock({ task }: { task: OptTaskView }) {
         {task.rows.some((r) => r.timedOut) && (
           <p className="mt-2 text-[10px] text-muted-foreground">
             † hit the runner&apos;s wall-clock cap; the submission as left was still graded.
+          </p>
+        )}
+        {task.rows.some((r) => r.fullGateTimedOut) && (
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            ‡ the full exhaustive gate ran past the grading cap, so this is the sampled gate&apos;s
+            score until a regrade finishes it.
           </p>
         )}
       </div>

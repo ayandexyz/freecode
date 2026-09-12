@@ -42,6 +42,7 @@ export interface PublishedRun {
   bestAt: number | null;
   final: number | null;
   finalFullGate: boolean;
+  finalTimedOut?: boolean;
   grades: number;
   activeMs: number;
   durationMs: number;
@@ -76,6 +77,7 @@ export function toPublished(t: TrialRecord, runId: string): PublishedRun {
     bestAt: t.bestAt,
     final: t.final,
     finalFullGate: t.finalFullGate,
+    ...(t.finalTimedOut ? { finalTimedOut: true } : {}),
     grades: t.grades,
     activeMs: t.activeMs,
     durationMs: t.durationMs,

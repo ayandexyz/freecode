@@ -78,7 +78,7 @@ FREECODE_AUTO_POKE=1 pnpm bench:jcode --tasks utf16-transcode             # with
 | `--trials` | `1` | per (task, agent). jcode's own variance note: run-to-run spread ≈ 0.1, so a single-cell gap under that says nothing |
 | `--timeout` | 2h | wall-clock cap on the agent. Time is **recorded, not judged**: a timed-out run's submission is still graded, and marked † |
 | `--no-full-gate` | off | skip `--full` on the final grade (float-print's full gate checks all 2³² floats and takes a while) |
-| `--final-timeout` | 1h | cap on that final grade |
+| `--final-timeout` | 1h | cap on the full final gate. Past it the harness grades the **sampled** gate instead and flags the row (`finalTimedOut`, ‡ on the page) — a slow verifier is not a wrong submission. float-print's 2³² gate took over an hour here. Finish it later with `pnpm bench:jcode:regrade results/<run>` (no cap, free) |
 | `--no-meter` | off | skip the recording proxy (adapter debugging only) |
 | `--fresh` | off | empty the task's page file before publishing |
 | `JCODE_BENCH_DIR` | `.cache/upstream` (cloned on first run) | a local checkout of the task repo, for offline runs or a pinned commit |
@@ -103,11 +103,17 @@ Artifacts (git-ignored): `bench/jcode-bench/results/<run>/<task>/trial-N/<agent>
 `submission.diff`, `final-grade.log`, `proxy.jsonl`, `usage.json`,
 `audit.json`; plus `report.json` at the run root. Published (committed):
 `apps/web/app/data/jcode-bench/<task>.json` — every run kept, keyed by
-(runId, agent, trial). Re-publish an old run without paying:
+(runId, agent, trial). Re-publish an old run without paying, or finish its full gates:
 
 ```bash
 pnpm bench:jcode:publish bench/jcode-bench/results/<run> [--fresh]
+pnpm bench:jcode:regrade bench/jcode-bench/results/<run> [--task T] [--agent A] [--all]   # full gate, no cap, rewrites report.json + republishes
 ```
+
+`regrade` rebuilds each trial's workspace from the artifact's `submission/`
+(kept whole since the first run; older runs fall back to `submission.diff`)
+and runs `./grade --full`. By default it takes trials whose final grade timed
+out, failed, or was sampled; `--all` regrades everything.
 
 **No isolation yet.** The agent runs on the host, so the proxy sees only what
 is pointed at it (AGENT-BENCH.md §3) and the network is open. Recorded as

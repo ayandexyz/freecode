@@ -15,6 +15,8 @@ export interface FinalGrade {
   score: number | null;
   fullGate: boolean;
   verified: boolean;
+  /** The grader hit `timeoutMs` — not a verdict either way. */
+  timedOut: boolean;
   stdout: string;
   stderr: string;
   durationMs: number;
@@ -25,22 +27,55 @@ export function finalGrade(
   opts: { full: boolean; timeoutMs: number },
 ): FinalGrade {
   const started = Date.now();
-  const r = spawnSync("python3", ["grade", ...(opts.full ? ["--full"] : []), "--quiet"], {
-    cwd: taskDir,
-    encoding: "utf-8",
-    timeout: opts.timeoutMs,
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  // coreutils `timeout` rather than spawnSync's own: the grader forks the
+  // verifier, and spawnSync's timeout kills only python, leaving a 2^32
+  // verify running for an hour after the run moved on. `timeout` signals
+  // the whole group. Exit 124 is its "timed out".
+  const r = spawnSync(
+    "timeout",
+    [
+      "-k",
+      "10",
+      String(Math.ceil(opts.timeoutMs / 1000)),
+      "python3",
+      "grade",
+      ...(opts.full ? ["--full"] : []),
+      "--quiet",
+    ],
+    { cwd: taskDir, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
+  );
   const stdout = r.stdout ?? "";
+  const timedOut = r.status === 124;
   const score = r.status === 0 ? parseFinalScore(stdout) : null;
   return {
     score,
     fullGate: opts.full,
     verified: r.status === 0 && score !== null,
+    timedOut,
     stdout,
     stderr: r.stderr ?? "",
     durationMs: Date.now() - started,
   };
+}
+
+/**
+ * The full gate first; if it runs past `timeoutMs`, the sampled gate instead.
+ *
+ * float-print's full gate checks all 2^32 floats and took over an hour on a
+ * laptop against a Ryu-style submission. A run that reported that as
+ * "FAILED verification" published a wrong submission where there was only a
+ * slow verifier. The sampled grade is the same `./grade` the agent used;
+ * `finalFullGate: false` + `finalTimedOut: true` say exactly what happened,
+ * and `regrade.ts` can finish the full gate later with no cap.
+ */
+export function finalGradeWithFallback(
+  taskDir: string,
+  opts: { full: boolean; timeoutMs: number },
+): FinalGrade {
+  const first = finalGrade(taskDir, opts);
+  if (!opts.full || !first.timedOut) return first;
+  const sampled = finalGrade(taskDir, { full: false, timeoutMs: opts.timeoutMs });
+  return { ...sampled, timedOut: true };
 }
 
 /** The grader needs cc, python3 and valgrind. Say which is missing before spending. */

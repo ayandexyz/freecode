@@ -23,7 +23,7 @@ import { meterEnv, upstreamFor } from "../../agent-bench/proxy/env.js";
 import { persistTrialMeter } from "../../agent-bench/proxy/fold.js";
 import { startProxy } from "../../agent-bench/proxy/server.js";
 import { buildCurve, parseScores, stepsOnly, summarize } from "./curve.js";
-import { checkToolchain, finalGrade } from "./grade.js";
+import { checkToolchain, finalGradeWithFallback } from "./grade.js";
 import { taskPrompt } from "./prompt.js";
 import { publish } from "./publish.js";
 import { ensureUpstream, listTasks, stageTask, submissionDiff, taskOneLiner } from "./tasks.js";
@@ -127,13 +127,17 @@ async function main() {
           const curve = buildCurve(parseScores(scoresText), startedAt);
           const { best, bestAt, activeMs } = summarize(curve);
 
-          // The submission as left, and its official grade.
+          // The submission as left — the whole directory, so a regrade can
+          // rebuild the workspace byte for byte — and its official grade.
+          fs.cpSync(path.join(taskDir, "submission"), path.join(artifactDir, "submission"), {
+            recursive: true,
+          });
           fs.writeFileSync(
             path.join(artifactDir, "submission.diff"),
             submissionDiff(upstream.dir, task, taskDir),
           );
           process.stdout.write(`${curve.length} grades, best ${best === null ? "—" : best.toFixed(3)} · final… `);
-          const fin = finalGrade(taskDir, { full: fullGate, timeoutMs: finalTimeoutMs });
+          const fin = finalGradeWithFallback(taskDir, { full: fullGate, timeoutMs: finalTimeoutMs });
           fs.writeFileSync(path.join(artifactDir, "final-grade.log"), fin.stdout + fin.stderr);
 
           const usage = proxyOrigin ? persistTrialMeter(artifactDir, spec.model) : undefined;
@@ -155,6 +159,7 @@ async function main() {
             activeMs,
             final: fin.score,
             finalFullGate: fin.fullGate,
+            ...(fin.timedOut ? { finalTimedOut: true } : {}),
             curve: stepsOnly(curve),
             harnessFlags,
             artifactDir: path.relative(ROOT, artifactDir),
@@ -173,7 +178,7 @@ async function main() {
           report.trials.push(record);
           console.log(
             fin.verified
-              ? `${fin.score!.toFixed(4)} (${(2 ** fin.score!).toFixed(2)}x)${fin.fullGate ? " full gate" : ""}` +
+              ? `${fin.score!.toFixed(4)} (${(2 ** fin.score!).toFixed(2)}x)${fin.fullGate ? " full gate" : fin.timedOut ? " SAMPLED (full gate timed out — regrade)" : " sampled"}` +
                   (usage ? `  ${usage.turns} turns` : "") +
                   (run.timedOut ? "  TIMED OUT" : "")
               : `FAILED verification — no score${run.timedOut ? "  TIMED OUT" : ""}`,

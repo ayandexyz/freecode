@@ -24,6 +24,7 @@ export interface RawOptRun {
   bestAt: number | null;
   final: number | null;
   finalFullGate: boolean;
+  finalTimedOut?: boolean;
   grades: number;
   activeMs: number;
   durationMs: number;
@@ -60,6 +61,8 @@ export interface OptRow {
   speedup: number | null;
   verified: boolean;
   fullGate: boolean;
+  /** The full gate timed out and `final` is a sampled grade awaiting a regrade. */
+  fullGateTimedOut: boolean;
   grades: number;
   activeMs: number;
   timedOut: boolean;
@@ -123,6 +126,7 @@ export function deriveOptView(raw: RawOptTask[]): OptView {
         speedup: r.final === null ? null : 2 ** r.final,
         verified: r.final !== null,
         fullGate: r.finalFullGate,
+        fullGateTimedOut: !!r.finalTimedOut,
         grades: r.grades,
         activeMs: r.activeMs,
         timedOut: r.timedOut,

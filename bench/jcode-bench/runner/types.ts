@@ -51,6 +51,11 @@ export interface TrialRecord {
   final: number | null;
   /** Whether that final grade ran the task's full exhaustive gate (`--full`). */
   finalFullGate: boolean;
+  /**
+   * The full gate ran past `--final-timeout` and `final` is the SAMPLED gate
+   * instead. Not a verdict: `pnpm bench:jcode:regrade` finishes the full gate.
+   */
+  finalTimedOut?: boolean;
   curve: CurvePoint[];
   /** Harness gates in force for this trial, from the operator's env. */
   harnessFlags: Record<string, string>;
