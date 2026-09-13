@@ -17,7 +17,7 @@ const helpCommand: Command = {
 - **/help** - Show this help message
 - **/clear** - Clear all messages
 - **/model** - Select an API model (uses your API key)
-- **/web** - Select a web session (free, ask-only — no tools)
+- **/web** - Select a web-session provider (free, spends requests not tokens)
 - **/effort** - Set reasoning effort (low/medium/high/xhigh/max)
 - **/resume** - Resume a previous session
 - **/compact** - Summarize older turns to free up context
@@ -63,7 +63,7 @@ const modelCommand: Command = {
 
 const webCommand: Command = {
   name: "web",
-  description: "Select a web session (free, ask-only — no tools)",
+  description: "Select a web-session provider (free, spends requests not tokens)",
   execute: (_args, ctx) => {
     ctx.showWebSelector?.();
   },
