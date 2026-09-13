@@ -1,0 +1,45 @@
+{
+  "task": "float-print",
+  "oneLiner": "Print a float32 as the shortest decimal string that parses back to the same bits. This is the \"shortest round-trip float printing\" problem: an active research area (Grisu 2010, Ryu 2018, Dragonbox 2020), and the printing hot path of every serializer, REPL, and JSON encoder.",
+  "generatedAt": "2026-09-12T12:22:56.246Z",
+  "runs": [
+    {
+      "runId": "2026-09-12T10-25-41-067Z",
+      "trial": 1,
+      "agent": "freecode",
+      "agentVersion": "0.31.0",
+      "model": "minimax/MiniMax-M3",
+      "autonomy": "--agent danger: no permission prompts; no turn cap (the wall clock is the cap)",
+      "harnessFlags": {},
+      "upstreamCommit": "2a169ab",
+      "date": "2026-09-12T10:25:41.341Z",
+      "best": 5.7704,
+      "bestAt": 836659,
+      "final": null,
+      "finalFullGate": true,
+      "grades": 2,
+      "activeMs": 836659,
+      "durationMs": 898130,
+      "timedOut": false,
+      "curve": [
+        {
+          "t": 52659,
+          "score": 0,
+          "best": 0,
+          "fullGate": false
+        },
+        {
+          "t": 836659,
+          "score": 5.7704,
+          "best": 5.7704,
+          "fullGate": false
+        }
+      ],
+      "turns": 64,
+      "inputTokens": 5448795,
+      "outputTokens": 57951,
+      "usd": 0.5216747399999999,
+      "auditOk": true
+    }
+  ]
+}
