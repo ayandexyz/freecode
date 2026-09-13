@@ -20,7 +20,9 @@ It talks to roughly **198 providers** derived from [models.dev](https://models.d
 — Anthropic, OpenAI, Gemini, DeepSeek, Groq, Mistral, xAI, MiniMax, Z.ai, and
 every OpenAI-compatible endpoint behind them — through one generic driver. You
 can also sign in with an **Anthropic Pro/Max subscription** instead of an API
-key — opt-in, and [read the stance first](#install).
+key — opt-in, and [read the stance first](#install) — or pick a
+**web-session provider** (`/web`) that talks to Gemini through your signed-in
+browser session, spending a request quota rather than tokens.
 
 Everything intelligent lives in one CLI backend. The TUI, the VS Code extension,
 the web UI, and the desktop app are presentation layers that speak JSON-RPC to it.
@@ -62,6 +64,17 @@ freecode auth login anthropic
 > away. Full stance:
 > [Anthropic subscription login](https://freecode.website/getting-started/anthropic-subscription).
 
+Using a web session instead of a key at all: `/web` in the TUI lists
+**web-session providers** (`gemini-web` today). It calls the Gemini web client's
+own endpoint — anonymously by default; a cookie from a signed-in tab in
+`config.json`'s `web` block buys the Pro model. No token accounting exists on
+that path, so the budget is **requests, not tokens**: the session throttles by
+returning empty replies, and FreeCode spaces tool-loop requests, retries an
+empty reply on a 20 s clock, and caps `@file` inlining at 45 KB because history
+is re-sent every turn. Tool use rides a text protocol (`[TOOL_CALLS]` / `FINAL:`)
+that can be switched off with `FREECODE_GEMINI_WEB_TOOLS=0`. It is not browser
+automation — nothing drives a browser.
+
 ## What it does
 
 - **One agentic loop.** The model receives your prompt, project context, and a
@@ -69,6 +82,9 @@ freecode auth login anthropic
   Independent tool calls run in parallel batches.
 - **Real streaming, native tool calling, extended thinking, prompt caching**, and
   usage accounting across every provider, through the Vercel AI SDK.
+- **Web-session providers** — `/web` runs the same loop over a signed-in Gemini
+  web session instead of an API key: throttle-aware retries, request spacing,
+  and a payload budget, since the quota there is requests rather than tokens.
 - **Agent modes** — `plan`, `build`, `review`, `explore`, `danger` — enforced by a
   permission layer with per-rule allow/ask/deny and path-scoped rules in
   `.freecode/settings.json`.
@@ -148,9 +164,10 @@ freecode update          re-run the installer
 **Key principle:** frontends only render and speak IPC. No provider calls, no
 file reading, no tool execution outside `apps/core`.
 
-> A legacy browser-automation path (Playwright, driving a signed-in ChatGPT or
-> Gemini session) still exists under `apps/core/src/browser/` and `gemini-web`.
-> It is not the default execution path.
+> A legacy browser-automation path (Playwright, driving a signed-in ChatGPT
+> session) still exists under `apps/core/src/browser/`. It is not the default
+> execution path, and it is distinct from `providers/gemini-web/`, which is a
+> live web-session provider that never drives a browser.
 
 ## Running from a clone
 

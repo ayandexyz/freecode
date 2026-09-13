@@ -1,0 +1,20 @@
+{
+  "id": "freecode-dev",
+  "versionCmd": ["git", "rev-parse", "--short", "HEAD"],
+  "run": [
+    "node",
+    "{benchDir}/../../apps/core/dist/cli.js",
+    "run",
+    "{prompt}",
+    "--model",
+    "{model}",
+    "--agent",
+    "danger"
+  ],
+  "model": "minimax/MiniMax-M3",
+  "autonomy": "--agent danger: no permission prompts; no turn cap",
+  "env": {
+    "MINIMAX_API_KEY": "${MINIMAX_API_KEY}"
+  },
+  "notes": "The CURRENT CHECKOUT's core (apps/core/dist — run `pnpm build` first), not the installed release binary. Exists so a gate experiment (FREECODE_AUTO_POKE=1 etc.) can run code that has the gate; the released `freecode` adapter stays the comparable number. Version is the repo commit, since the dist has no version of its own."
+}

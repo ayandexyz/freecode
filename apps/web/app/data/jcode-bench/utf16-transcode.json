@@ -1,0 +1,191 @@
+{
+  "task": "utf16-transcode",
+  "oneLiner": "Convert UTF-16LE to UTF-8. This is the boundary between JavaScript, Windows, and Java on one side and the rest of the world on the other: every string crossing it pays this function.",
+  "generatedAt": "2026-09-12T11:41:36.926Z",
+  "runs": [
+    {
+      "runId": "2026-09-12T10-25-20-249Z",
+      "trial": 1,
+      "agent": "claude-code",
+      "agentVersion": "mise ~/.config/mise/config.toml tools: claude@2.1.267",
+      "model": "MiniMax-M3",
+      "autonomy": "--dangerously-skip-permissions: all permission checks bypassed",
+      "harnessFlags": {},
+      "upstreamCommit": "2a169ab",
+      "date": "2026-09-12T11:00:39.415Z",
+      "best": 0.0961,
+      "bestAt": 1350585,
+      "final": null,
+      "finalFullGate": true,
+      "grades": 13,
+      "activeMs": 1400585,
+      "durationMs": 2449602,
+      "timedOut": false,
+      "curve": [
+        {
+          "t": 120585,
+          "score": 0,
+          "best": 0,
+          "fullGate": false
+        },
+        {
+          "t": 1091585,
+          "score": 0.0284,
+          "best": 0.0284,
+          "fullGate": false
+        },
+        {
+          "t": 1204585,
+          "score": 0.0393,
+          "best": 0.0393,
+          "fullGate": false
+        },
+        {
+          "t": 1253585,
+          "score": 0.0519,
+          "best": 0.0519,
+          "fullGate": false
+        },
+        {
+          "t": 1309585,
+          "score": 0.0525,
+          "best": 0.0525,
+          "fullGate": false
+        },
+        {
+          "t": 1350585,
+          "score": 0.0961,
+          "best": 0.0961,
+          "fullGate": false
+        },
+        {
+          "t": 1400585,
+          "score": -0.0904,
+          "best": 0.0961,
+          "fullGate": false
+        }
+      ],
+      "turns": 92,
+      "inputTokens": 7166095,
+      "outputTokens": 140537,
+      "usd": 0.6313612200000001,
+      "auditOk": false
+    },
+    {
+      "runId": "2026-09-12T10-25-20-249Z",
+      "trial": 1,
+      "agent": "freecode",
+      "agentVersion": "0.31.0",
+      "model": "minimax/MiniMax-M3",
+      "autonomy": "--agent danger: no permission prompts; no turn cap (the wall clock is the cap)",
+      "harnessFlags": {},
+      "upstreamCommit": "2a169ab",
+      "date": "2026-09-12T10:25:20.638Z",
+      "best": 0.3926,
+      "bestAt": 1742362,
+      "final": 0.3905,
+      "finalFullGate": true,
+      "grades": 56,
+      "activeMs": 2098362,
+      "durationMs": 2103503,
+      "timedOut": false,
+      "curve": [
+        {
+          "t": 11362,
+          "score": 0,
+          "best": 0,
+          "fullGate": false
+        },
+        {
+          "t": 116362,
+          "score": 0.3364,
+          "best": 0.3364,
+          "fullGate": false
+        },
+        {
+          "t": 205362,
+          "score": 0.3369,
+          "best": 0.3369,
+          "fullGate": false
+        },
+        {
+          "t": 417362,
+          "score": 0.3379,
+          "best": 0.3379,
+          "fullGate": false
+        },
+        {
+          "t": 466362,
+          "score": 0.339,
+          "best": 0.339,
+          "fullGate": false
+        },
+        {
+          "t": 498362,
+          "score": 0.3393,
+          "best": 0.3393,
+          "fullGate": false
+        },
+        {
+          "t": 807362,
+          "score": 0.3405,
+          "best": 0.3405,
+          "fullGate": false
+        },
+        {
+          "t": 1403362,
+          "score": 0.3406,
+          "best": 0.3406,
+          "fullGate": false
+        },
+        {
+          "t": 1495362,
+          "score": 0.362,
+          "best": 0.362,
+          "fullGate": false
+        },
+        {
+          "t": 1524362,
+          "score": 0.3784,
+          "best": 0.3784,
+          "fullGate": false
+        },
+        {
+          "t": 1554362,
+          "score": 0.3837,
+          "best": 0.3837,
+          "fullGate": false
+        },
+        {
+          "t": 1658362,
+          "score": 0.3846,
+          "best": 0.3846,
+          "fullGate": false
+        },
+        {
+          "t": 1685362,
+          "score": 0.3901,
+          "best": 0.3901,
+          "fullGate": false
+        },
+        {
+          "t": 1742362,
+          "score": 0.3926,
+          "best": 0.3926,
+          "fullGate": false
+        },
+        {
+          "t": 2098362,
+          "score": 0.3899,
+          "best": 0.3926,
+          "fullGate": false
+        }
+      ],
+      "turns": 315,
+      "inputTokens": 69917772,
+      "outputTokens": 172814,
+      "usd": 4.50715944,
+      "auditOk": true
+    }
+  ]
+}

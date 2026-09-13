@@ -1,0 +1,179 @@
+{
+  "task": "json-unescape",
+  "oneLiner": "Decode JSON string escape sequences. This is the hot path of every JSON parser.",
+  "generatedAt": "2026-09-12T11:42:31.390Z",
+  "runs": [
+    {
+      "runId": "2026-09-12T10-25-31-308Z",
+      "trial": 1,
+      "agent": "claude-code",
+      "agentVersion": "mise ~/.config/mise/config.toml tools: claude@2.1.267",
+      "model": "MiniMax-M3",
+      "autonomy": "--dangerously-skip-permissions: all permission checks bypassed",
+      "harnessFlags": {},
+      "upstreamCommit": "2a169ab",
+      "date": "2026-09-12T11:18:03.642Z",
+      "best": 1.0694,
+      "bestAt": 1237358,
+      "final": 1.063,
+      "finalFullGate": true,
+      "grades": 14,
+      "activeMs": 1237358,
+      "durationMs": 1454037,
+      "timedOut": false,
+      "curve": [
+        {
+          "t": 89358,
+          "score": 0,
+          "best": 0,
+          "fullGate": false
+        },
+        {
+          "t": 597358,
+          "score": 0.8993,
+          "best": 0.8993,
+          "fullGate": false
+        },
+        {
+          "t": 801358,
+          "score": 1.0432,
+          "best": 1.0432,
+          "fullGate": false
+        },
+        {
+          "t": 1207358,
+          "score": 1.0615,
+          "best": 1.0615,
+          "fullGate": false
+        },
+        {
+          "t": 1213358,
+          "score": 1.0627,
+          "best": 1.0627,
+          "fullGate": false
+        },
+        {
+          "t": 1220358,
+          "score": 1.0631,
+          "best": 1.0631,
+          "fullGate": false
+        },
+        {
+          "t": 1229358,
+          "score": 1.068,
+          "best": 1.068,
+          "fullGate": false
+        },
+        {
+          "t": 1237358,
+          "score": 1.0694,
+          "best": 1.0694,
+          "fullGate": false
+        }
+      ],
+      "turns": 34,
+      "inputTokens": 1486864,
+      "outputTokens": 50623,
+      "usd": 0.1759524,
+      "auditOk": false
+    },
+    {
+      "runId": "2026-09-12T10-25-31-308Z",
+      "trial": 1,
+      "agent": "freecode",
+      "agentVersion": "0.31.0",
+      "model": "minimax/MiniMax-M3",
+      "autonomy": "--agent danger: no permission prompts; no turn cap (the wall clock is the cap)",
+      "harnessFlags": {},
+      "upstreamCommit": "2a169ab",
+      "date": "2026-09-12T10:25:31.588Z",
+      "best": 0.3121,
+      "bestAt": 2735412,
+      "final": 0.3074,
+      "finalFullGate": true,
+      "grades": 64,
+      "activeMs": 3134412,
+      "durationMs": 3135143,
+      "timedOut": false,
+      "curve": [
+        {
+          "t": 38412,
+          "score": 0,
+          "best": 0,
+          "fullGate": false
+        },
+        {
+          "t": 252412,
+          "score": 0.2656,
+          "best": 0.2656,
+          "fullGate": false
+        },
+        {
+          "t": 499412,
+          "score": 0.2663,
+          "best": 0.2663,
+          "fullGate": false
+        },
+        {
+          "t": 657412,
+          "score": 0.2988,
+          "best": 0.2988,
+          "fullGate": false
+        },
+        {
+          "t": 792412,
+          "score": 0.3017,
+          "best": 0.3017,
+          "fullGate": false
+        },
+        {
+          "t": 843412,
+          "score": 0.3021,
+          "best": 0.3021,
+          "fullGate": false
+        },
+        {
+          "t": 1115412,
+          "score": 0.3055,
+          "best": 0.3055,
+          "fullGate": false
+        },
+        {
+          "t": 1562412,
+          "score": 0.3061,
+          "best": 0.3061,
+          "fullGate": false
+        },
+        {
+          "t": 1674412,
+          "score": 0.3077,
+          "best": 0.3077,
+          "fullGate": false
+        },
+        {
+          "t": 2176412,
+          "score": 0.3105,
+          "best": 0.3105,
+          "fullGate": false
+        },
+        {
+          "t": 2735412,
+          "score": 0.3121,
+          "best": 0.3121,
+          "fullGate": false
+        },
+        {
+          "t": 3134412,
+          "score": 0.298,
+          "best": 0.3121,
+          "fullGate": false
+        }
+      ],
+      "turns": 296,
+      "inputTokens": 55309076,
+      "outputTokens": 176150,
+      "usd": 3.62377104,
+      "auditOk": true
+    }
+  ]
+}
