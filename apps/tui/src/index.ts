@@ -1875,12 +1875,14 @@ async function submitPrompt(
         tokenInfo += ` · session ${sessionRate}%`;
       }
 
+      // Trailing newline: the elapsed line closes the run, so a blank row
+      // separates it from the next prompt.
       createSystemMessage(
-        `${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`,
+        `${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})\n`,
       );
     } else {
       createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);
-      createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
+      createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}\n`);
     }
   } catch (error) {
     removeMessageById(inProgressMsg.id);
