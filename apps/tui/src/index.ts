@@ -178,10 +178,11 @@ let modeLoaded = false;
 // Guards against overlapping clipboard reads from a Ctrl+V key burst.
 let isReadingClipboard = false;
 // Context-window usage widget (top-right overlay): hidden until the first
-// prompt is sent, then shows live tokens/limit + a progress bar + percent.
+// prompt is sent, then shows tokens/limit and the last run's cache hit rate.
 let hasFirstMessage = false;
 let contextTokens = 0;
 let contextLimitTokens = 0;
+let contextCacheRate: number | undefined;
 // Cached once at TUI startup so the pinned logo header can show tool/MCP
 // counts without each render making an async IPC call. `-1` until the loader
 // resolves; the header renders `…` while the values are still pending.
@@ -233,6 +234,7 @@ async function clearSession(): Promise<void> {
   resetSessionCacheTotals();
   resetLiveUsageTotals();
   contextTokens = 0;
+  contextCacheRate = undefined;
   hasFirstMessage = false;
   messageCount = 0;
   idleNudgeShownAt = null;
@@ -325,6 +327,7 @@ const contextBox = new ContextBox(
   () => hasFirstMessage,
   () => contextTokens,
   () => contextLimitTokens,
+  () => contextCacheRate,
 );
 const contextBoxOverlay = tui.showOverlay(contextBox, {
   anchor: "top-right",
@@ -1844,19 +1847,10 @@ async function submitPrompt(
       // Feed the top-right context-usage overlay's progress bar.
       contextTokens = contextTokensUsed;
       contextLimitTokens = contextLimit;
+      // The run's cache hit rate lives in the top-right widget, not here.
+      contextCacheRate =
+        cachedTokens > 0 ? cacheHitRate(inTokens, cachedTokens) : undefined;
       let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
-      // The rate, not the raw count: "cached: 89.2k" is only meaningful next to
-      // the input it was measured against, which meant doing the division by
-      // eye every turn. claude-code and opencode both stop at the raw number.
-      const hitRate = cacheHitRate(inTokens, cachedTokens);
-      if (cachedTokens > 0 && hitRate !== undefined) {
-        const writeTokens = result.usage?.cacheCreationInputTokens ?? 0;
-        tokenInfo += ` cache ${hitRate}% (${formatTokenCount(cachedTokens)} read`;
-        // Writes bill at ~1.25x, so a high read rate bought by constant
-        // rewriting is not the win it looks like. Only shown when non-zero.
-        tokenInfo +=
-          writeTokens > 0 ? `, ${formatTokenCount(writeTokens)} write)` : ")";
-      }
 
       // Restart the idle clock, and re-arm the nudge for the next quiet gap.
       lastTurnCompletedAt = Date.now();
@@ -1971,16 +1965,7 @@ editor.onSubmit = async (value: string) => {
             }
           },
           showContextReport: openContextReport,
-          showCostReport: async () => {
-            try {
-              const data = await getUsage();
-              showCostModal(data, sessionRuns > 0 ? sessionUsage : undefined);
-            } catch (err) {
-              showMessage(
-                `*Error fetching usage: ${err instanceof Error ? err.message : String(err)}*`,
-              );
-            }
-          },
+          showCostReport: openCostReport,
           createUserMessage: (content: string) => createUserMessage(content),
           createAssistantMessage: (content: string) =>
             createAssistantMessage(content),
@@ -2235,6 +2220,19 @@ async function openContextReport(): Promise<void> {
   }
 }
 
+/** Fetch usage and open the cost card — `/cost` and a click on the top-right
+ * cache line both land here. */
+async function openCostReport(): Promise<void> {
+  try {
+    const data = await getUsage();
+    showCostModal(data, sessionRuns > 0 ? sessionUsage : undefined);
+  } catch (err) {
+    showMessage(
+      `*Error fetching usage: ${err instanceof Error ? err.message : String(err)}*`,
+    );
+  }
+}
+
 function hideContextModal(): void {
   if (!contextOverlay) return;
   contextOverlay.hide();
@@ -2483,15 +2481,17 @@ function jumpButtonHit(cx: number, cy: number): boolean {
   );
 }
 
-/** Whether a click at (cx, cy) — 1-based — landed on the top-right context
- * usage line. Mirrors the overlay's own visibility: hidden on narrow terminals
- * and rendered empty until a limit is known. */
-function contextBoxHit(cx: number, cy: number): boolean {
-  if (terminal.columns < 60) return false;
+/** Which row of the top-right context widget a click at (cx, cy) — 1-based —
+ * landed on: 1 is the tokens/limit line, 2 the cache line, 0 a miss. Mirrors
+ * the overlay's own visibility: hidden on narrow terminals and rendered empty
+ * until a limit is known. */
+function contextBoxHit(cx: number, cy: number): number {
+  if (terminal.columns < 60) return 0;
   const width = contextBox.width();
-  if (contextBox.render(width).length === 0) return false;
+  const height = contextBox.render(width).length;
   const left = terminal.columns - width + 1; // 1-based, flush right
-  return cy === 1 && cx >= left && cx < left + width;
+  if (cy < 1 || cy > height || cx < left || cx >= left + width) return 0;
+  return cy;
 }
 
 function extractSelectionText(): string {
@@ -2548,8 +2548,10 @@ tui.addInputListener((data) => {
 
     // Checked before the selection handling below, since the pill sits on top
     // of the history and a press there must not start a drag-select.
-    if (button === 0 && !isDrag && contextBoxHit(cx, cy)) {
-      void openContextReport();
+    // Top-right widget: the usage line opens /context, the cache line /cost.
+    const widgetRow = button === 0 && !isDrag ? contextBoxHit(cx, cy) : 0;
+    if (widgetRow > 0) {
+      void (widgetRow === 1 ? openContextReport() : openCostReport());
       return { consume: true };
     }
 
