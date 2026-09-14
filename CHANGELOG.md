@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.32.0
+
+A TUI polish release plus the harness-bench subsystem. The TUI work reshapes how messages, tool calls, and code blocks lay out in the transcript — the prompt border now carries mode/model/effort, the input area and context box are redesigned, tool summaries are separated from the prompt above them, code blocks render with their own framing, and the in-progress row gets a blank line above it (and loses the one below the user). The harness bench is the new operator surface for measuring whether a harness change moved the needle: jcode-style optimisation tasks, confidence stepping, hill-climbable goals, auto-poke, and a `/bench` hub. All three gates were kept healthy — one eval case is quarantined to unblock the trajectory gate.
+
+### Added
+
+- **`/bench` hub and harness-bench subsystem** (`8b80007`, spec `specs/2026-09-12-harness-bench.md`). `pnpm bench:jcode` runs jcode-style optimisation tasks (`bench/jcode-bench/`), `pnpm bench:signals` measures confidence stepping, hill-climbable goals, and auto-poke (`bench/harness-signals/`). The `/bench` hub page in the web app surfaces both. Recording is always on — `poke.triggered`/`poke.skipped` and `todo.signal` fire on every stop with a list, so a future `eval ab` can compare across a default-flip. Gates (`autoPoke` / `confidenceGate` / `hillClimbGate`) all default off and never apply to subagents.
+- **Cost modal in TUI** (`f48cac1`). Cached-token cost renders in a modal so users can audit prompt-cache spend without leaving the input.
+- **Input area redesign** (`7fda715`). The TUI input area has a new layout — prompt border carries mode/model/effort (`14b1809`), context box is reshaped (`e8cbdd0`), and code blocks render with their own framing (`e356724`).
+
+### Changed
+
+- **TUI transcript layout** (`f0123fc`, `295d1b4`, `8f81d19`, `9dec34c`, `bddf396`, `86f8198`). Tool summaries are separated from the prompt above them; tool groups and messages are framed distinctly; the in-progress row gets a blank line above it; the elapsed run summary ends with a newline; the user prompt's trailing blank line is dropped. A "group message" pass consolidates related output.
+- **Reasoning effort is consistent between TUI and headless runs** (`3cbff85`). A TUI-driven run and a `--headless` run on the same prompt now agree on the `reasoningEffort` they request — previously the TUI applied its own default that the headless path didn't see.
+- **Truncated tool calls retry once** (`4bd134f`). A tool call whose input JSON is cut off mid-stream now produces a single retry instead of failing the turn; the retry is recorded in the rollout (`apps/core/src/rollout/recorder.ts`, `types.ts`) so a partial-input loop shows up in the trace.
+- **jcode bench publishes more runs** (`b398aa7`, `ac00e58`, `207a62d`, `455da17`). Three optimisation tasks — `utf16-transcode`, `json-unescape`, `float-print` — are published with detailed run data. A timed-out full gate is now reported as "did not verify" rather than failing the case (`5b95c25`), and a regrade restores a diff-only artifact via rewritten headers.
+
+### Fixed
+
+- **Cryptojacking cleanup** (`6c10481`). Stray attacker tooling removed from the repo. (Already caught before v0.31.0 in `0.27.0`; this release removes a residual file.)
+- **Two MiniMax-M3 cases quarantined** (`20b3e58`). Two trajectory cases that had kept the trajectory gate closed are moved to `evals/quarantine.txt`; the gate opens again with the rest of the suite intact.
+
 ## v0.31.0
 
 A hooks release that wires the agent loop into an external "board" process. The board-webhook reports activity (tool starts/outputs/completes, permission asks, session lifecycle) and can answer permission prompts remotely, all using the Claude Code hook JSON shape so a supervising board needs no FreeCode-specific mapper. It is inert unless `FREECODE_HOOK_URL` is set, so existing installs behave exactly as before.
