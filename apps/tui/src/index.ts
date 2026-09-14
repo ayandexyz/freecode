@@ -1857,9 +1857,6 @@ async function submitPrompt(
         tokenInfo +=
           writeTokens > 0 ? `, ${formatTokenCount(writeTokens)} write)` : ")";
       }
-      if (contextLimit > 0) {
-        tokenInfo += ` [${formatTokenCount(contextTokens)}/${formatTokenCount(contextLimit)}]`;
-      }
 
       // Restart the idle clock, and re-arm the nudge for the next quiet gap.
       lastTurnCompletedAt = Date.now();
