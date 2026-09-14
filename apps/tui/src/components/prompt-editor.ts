@@ -27,22 +27,39 @@ export function formatHistoryIndicator(
 
 /**
  * Build a bottom-border strip with the history indicator spliced just after
- * the leading dashes. Re-emits the entire line through `borderColor` so the
- * ANSI seams stay consistent (mixing colored and uncolored runs would leak
- * the color's reset code into the middle).
+ * the leading dashes and the status label (model, effort, mode) set in from
+ * the right, grok-build style. Dashes and indicator are emitted through
+ * `borderColor` in whole runs so the ANSI seams stay consistent; the label
+ * is dim so it reads as chrome, not input. A label that does not fit beside
+ * the indicator is dropped rather than wrapping the line.
  */
+export function buildBottomBorder(
+  width: number,
+  borderColor: (s: string) => string,
+  indicator: string | null,
+  label: string | null,
+  sideDashes = 2,
+): string {
+  const left = indicator ? ` ${indicator} ` : "";
+  const leftCount = Math.min(sideDashes, Math.max(0, width - left.length));
+  let right = label ? ` ${label} ` : "";
+  // Two trailing dashes: one stays, one becomes the corner.
+  if (right && leftCount + left.length + right.length + 2 > width) right = "";
+  const midCount = Math.max(0, width - leftCount - left.length - right.length - (right ? 2 : 0));
+  return (
+    borderColor("─".repeat(leftCount) + left + "─".repeat(midCount)) +
+    (right ? chalk.dim(right) + borderColor("──") : "")
+  );
+}
+
+/** `buildBottomBorder` with only the history indicator. */
 export function buildHistoryBorder(
   indicator: string,
   width: number,
   borderColor: (s: string) => string,
   sideDashes = 2,
 ): string {
-  const text = ` ${indicator} `;
-  const textVisible = text.length;
-  const dashCount = Math.max(0, width - textVisible);
-  const leftCount = Math.min(sideDashes, dashCount);
-  const rightCount = Math.max(0, dashCount - leftCount);
-  return borderColor("─".repeat(leftCount) + text + "─".repeat(rightCount));
+  return buildBottomBorder(width, borderColor, indicator, null, sideDashes);
 }
 
 /** pi-tui's left padding for `paddingX: 4` — what a content row starts with. */
@@ -176,6 +193,12 @@ export class PromptEditor extends Editor {
   private images = new Map<number, PendingImage>();
   /** Next 1-based token ID; reset per submitted prompt, like pi's paste IDs. */
   private nextImageId = 1;
+  /**
+   * Plain text set into the right end of the bottom border — model, effort
+   * and mode, so the box itself says what a prompt will run against. Read at
+   * render time, so a mode cycle or model change needs only a re-render.
+   */
+  statusLabel?: () => string;
 
   constructor(tui: TUI, theme: EditorTheme) {
     // Four columns: the left side border, a space, the `❯` prompt glyph and a
@@ -291,15 +314,17 @@ export class PromptEditor extends Editor {
     editorLines[0] = withCorners(editorLines[0] ?? "", "╭", "╮");
     editorLines[bottomIdx] = withCorners(editorLines[bottomIdx] ?? "", "╰", "╯");
 
-    // While paging through history with up/down, stamp `[N/total]` onto the
-    // bottom border so the user knows how far they've gone. pi-tui keeps
-    // historyIndex private, so reach for the runtime field TypeScript hides.
-    // We rebuild the border from scratch (rather than editing the existing
-    // colored line in place) to keep ANSI consistent at the seams.
+    // The bottom border carries the status label (model · mode) at its right
+    // end and, while paging through history with up/down, `[N/total]` at its
+    // left so the user knows how far they've gone. pi-tui keeps historyIndex
+    // private, so reach for the runtime field TypeScript hides. The border
+    // is rebuilt from scratch (rather than editing the existing colored line
+    // in place) to keep ANSI consistent at the seams.
     const indicator = this.historyIndicator();
-    if (indicator !== null) {
+    const label = this.statusLabel?.() || null;
+    if (indicator !== null || label !== null) {
       editorLines[bottomIdx] = withCorners(
-        buildHistoryBorder(indicator, width, this.borderColor),
+        buildBottomBorder(width, this.borderColor, indicator, label),
         "╰",
         "╯",
       );

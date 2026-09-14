@@ -14,27 +14,16 @@ chalk.level = 3;
 const ANSI = /\u001b\[[0-9;]*m/g;
 
 function line(running: number, width = 100, agents = 0): string {
-  const modeLine = new ModeLine(
-    () => false,
-    () => "build",
-    () => "anthropic",
-    () => "claude-opus-5",
-    () => "high",
-    () => running,
-    () => agents,
-  );
-  return modeLine.render(width)[0];
+  const modeLine = new ModeLine(() => false, () => running, () => agents);
+  return modeLine.render(width)[0] ?? "";
 }
 
 const strip = (s: string): string => s.replace(ANSI, "");
 
-test("shows a /shells chip with the running count, left of Effort", () => {
+test("shows a /shells chip with the running count, right-aligned", () => {
   const rendered = strip(line(2));
   assert.match(rendered, /\/shells \(2\)/);
-  assert.ok(
-    rendered.indexOf("/shells") < rendered.indexOf("Effort:"),
-    "the chip belongs left of Effort",
-  );
+  assert.equal(rendered.length, 100);
 });
 
 test("no chip when nothing is running", () => {
@@ -49,52 +38,27 @@ test("the chip is painted, not plain text", () => {
 });
 
 test("the chip is width-neutral: it never lengthens the line", () => {
-  // The whole point of the width guard. Where the chip fits, the gap absorbs
-  // it; where it does not, it is dropped. Either way the line measures the
-  // same as it would with no chip at all — a line one column too long wraps
-  // and pushes the input box off screen.
-  //
-  // Note this asserts equality with the chipless line, NOT equality with
-  // `width`: ModeLine already overflows below ~76 columns on mode+model alone,
-  // which is a pre-existing bug and not this change's to fix.
+  // A line one column too long wraps and pushes the input box off screen.
   for (const width of [70, 80, 90, 100, 120, 140]) {
-    assert.equal(
-      strip(line(3, width)).length,
-      strip(line(0, width)).length,
-      `chip changed the line length at ${width}`,
-    );
+    assert.equal(strip(line(3, width)).length, width);
   }
-  // And at a width that does fit, that shared length is exactly the terminal.
-  assert.equal(strip(line(3, 120)).length, 120);
 });
 
 test("the chip drops out rather than overflowing a narrow terminal", () => {
-  // Mode and model are the line's job; the count is one keystroke away in
-  // /shells, so on a terminal too narrow for both the chip is what yields.
-  assert.doesNotMatch(strip(line(3, 80)), /\/shells/);
+  // The count is one keystroke away in /shells, so on a terminal too narrow
+  // for it the chip is what yields.
+  assert.doesNotMatch(strip(line(3, 10)), /\/shells/);
   assert.match(strip(line(3, 100)), /\/shells \(3\)/);
 });
 
-test("defaults to no chip when the count getter is not supplied", () => {
-  // The parameter is optional so existing call sites keep compiling; they must
-  // not start rendering a chip they never asked for.
-  const modeLine = new ModeLine(
-    () => false,
-    () => "build",
-    () => "anthropic",
-    () => "claude-opus-5",
-    () => "high",
-  );
-  assert.doesNotMatch(strip(modeLine.render(100)[0]), /\/shells/);
+test("renders nothing when neither chip is showing", () => {
+  const modeLine = new ModeLine(() => false);
+  assert.deepEqual(modeLine.render(100), []);
 });
 
 test("shows an /agents chip with the running subagent count", () => {
   const rendered = strip(line(0, 100, 3));
   assert.match(rendered, /\/agents \(3\)/);
-  assert.ok(
-    rendered.indexOf("/agents") < rendered.indexOf("Effort:"),
-    "the chip belongs left of Effort",
-  );
 });
 
 test("no /agents chip when nothing is delegating", () => {
@@ -111,31 +75,21 @@ test("both chips fit together, agents outside shells", () => {
   assert.match(rendered, /\/shells \(2\)/);
   assert.ok(
     rendered.indexOf("/agents") < rendered.indexOf("/shells"),
-    "agents sits outside shells, which stays nearest Effort",
+    "agents sits outside shells",
   );
 });
 
 test("neither chip lengthens the line, alone or together", () => {
   for (const width of [70, 80, 90, 100, 120, 140]) {
-    const bare = strip(line(0, width, 0)).length;
-    assert.equal(
-      strip(line(0, width, 3)).length,
-      bare,
-      `agents chip at ${width}`,
-    );
-    assert.equal(
-      strip(line(2, width, 3)).length,
-      bare,
-      `both chips at ${width}`,
-    );
+    assert.equal(strip(line(0, width, 3)).length, width, `agents chip at ${width}`);
+    assert.equal(strip(line(2, width, 3)).length, width, `both chips at ${width}`);
   }
 });
 
 test("under a squeeze the agents chip yields before the shells one", () => {
-  // Budget is spent right-to-left, so the chip nearest Effort survives. Asserted
-  // as an invariant over every width rather than at one magic column: the exact
-  // threshold moves with the model name, the property must not.
-  for (let width = 60; width <= 160; width++) {
+  // Budget is spent right-to-left, so the shells chip survives. Asserted as
+  // an invariant over every width rather than at one magic column.
+  for (let width = 5; width <= 60; width++) {
     const rendered = strip(line(2, width, 3));
     if (rendered.includes("/agents")) {
       assert.ok(
@@ -147,7 +101,7 @@ test("under a squeeze the agents chip yields before the shells one", () => {
   // And there is genuinely a width where only one of them fits, or the
   // assertion above is vacuous.
   const widths = [];
-  for (let width = 60; width <= 160; width++) {
+  for (let width = 5; width <= 60; width++) {
     const rendered = strip(line(2, width, 3));
     if (rendered.includes("/shells") && !rendered.includes("/agents")) {
       widths.push(width);
@@ -160,30 +114,6 @@ test("under a squeeze the agents chip yields before the shells one", () => {
 });
 
 test("defaults to no /agents chip when the count getter is not supplied", () => {
-  const modeLine = new ModeLine(
-    () => false,
-    () => "build",
-    () => "anthropic",
-    () => "claude-opus-5",
-    () => "high",
-    () => 1,
-  );
-  assert.doesNotMatch(strip(modeLine.render(120)[0]), /\/agents/);
-});
-
-// No effort level set means the provider's own default was used, which is not
-// "low" — the TUI used to default the field and so reported a budget it had
-// silently chosen. Rendering a level here that no turn actually sent is the
-// bug this asserts against.
-test("renders 'default' when no effort level is set", () => {
-  const modeLine = new ModeLine(
-    () => false,
-    () => "build",
-    () => "anthropic",
-    () => "claude-opus-5",
-    () => undefined,
-  );
-  const rendered = strip(modeLine.render(100)[0]);
-  assert.match(rendered, /Effort: default/);
-  assert.doesNotMatch(rendered, /Effort: low/);
+  const modeLine = new ModeLine(() => false, () => 1);
+  assert.doesNotMatch(strip(modeLine.render(120)[0] ?? ""), /\/agents/);
 });

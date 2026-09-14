@@ -27,6 +27,7 @@ import {
   getRandomInProgressPhrase,
 } from "./utils/elapsed-phrases.js";
 import { getModelContextLimit } from "./utils/model-limits.js";
+import { getModelDisplayString } from "./utils/display.js";
 import {
   formatTokenCount,
   cacheHitRate,
@@ -392,6 +393,13 @@ process.stdout.on("resize", () => {
 
 editor = new PromptEditor(tui, defaultEditorTheme);
 editor.setText("");
+// `provider/model (effort) · mode` on the input's bottom border, so the box
+// itself says what a prompt will run against.
+editor.statusLabel = () => {
+  const model = getModelDisplayString(currentProvider, currentModel);
+  const effort = currentEffort ? ` (${currentEffort})` : "";
+  return `${model}${effort} · ${currentAgentMode}`;
+};
 
 // `@` file mentions run on fd when it is installed and on a JS tree walk when
 // it is not, so completion works the same on a machine without fd (Windows,
@@ -404,15 +412,10 @@ editor.setAutocompleteProvider(autocompleteProvider);
 
 tui.addChild(editor);
 tui.addChild(new Spacer(1));
-// Mode/model line below the input. Always visible now — the top StatusHeader
-// has been retired (its context widget moved into a top-right overlay), so
-// this line is the only place mode and model are displayed.
+// /shells and /agents chips below the input; mode and model sit on the
+// input's bottom border (`editor.statusLabel` above).
 modeLine = new ModeLine(
   () => !modeLoaded,
-  () => currentAgentMode,
-  () => currentProvider,
-  () => currentModel,
-  () => currentEffort,
   () => shellsPanel?.runningCount() ?? 0,
   () => agentsPanel?.runningCount() ?? 0,
 );
