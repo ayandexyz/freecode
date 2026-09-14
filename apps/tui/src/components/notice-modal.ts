@@ -25,6 +25,9 @@ const PAD_X = 2;
  *
  * Pass `padX: 0` to hug the text flush against the border (no horizontal
  * inset). Default is the standard `PAD_X` cols of inset.
+ *
+ * Pass `fill: false` to drop the dark background too — the message renders
+ * bare, styled only by `color`.
  */
 export class NoticeModal implements Component {
   constructor(
@@ -34,6 +37,8 @@ export class NoticeModal implements Component {
       border?: boolean;
       borderColor?: (s: string) => string;
       padX?: number;
+      fill?: boolean;
+      color?: (s: string) => string;
     } = {},
   ) {}
 
@@ -48,23 +53,23 @@ export class NoticeModal implements Component {
     const padX = this.options.padX ?? PAD_X;
     const inner = Math.max(1, width - padX * 2 - (this.options.border ? 2 : 0));
     const pad = " ".repeat(padX);
+    const bare = this.options.border || this.options.fill === false;
+    const color = this.options.color ?? chalk.whiteBright;
     const content = wrapTextWithAnsi(this.message, inner).map((line) => {
       const fill = " ".repeat(Math.max(0, inner - visibleWidth(line)));
-      const styled = chalk.whiteBright(`${pad}${line}${fill}${pad}`);
-      return this.options.border ? styled : STATUS_BAR_BG(styled);
+      const styled = color(`${pad}${line}${fill}${pad}`);
+      return bare ? styled : STATUS_BAR_BG(styled);
     });
-    const blank = this.options.border
-      ? " ".repeat(width)
-      : STATUS_BAR_BG(" ".repeat(width));
+    const blank = bare ? " ".repeat(width) : STATUS_BAR_BG(" ".repeat(width));
     const padRows = Array<string>(this.padY).fill(blank);
     const body = padRows.length > 0
       ? [...padRows, ...content, ...padRows]
       : content;
     if (!this.options.border) return body;
-    const color = this.options.borderColor ?? chalk.dim;
-    const top = color("╭" + "─".repeat(width - 2) + "╮");
-    const bottom = color("╰" + "─".repeat(width - 2) + "╯");
-    const framed = body.map((line) => color("│") + line + color("│"));
+    const edge = this.options.borderColor ?? chalk.dim;
+    const top = edge("╭" + "─".repeat(width - 2) + "╮");
+    const bottom = edge("╰" + "─".repeat(width - 2) + "╯");
+    const framed = body.map((line) => edge("│") + line + edge("│"));
     return [top, ...framed, bottom];
   }
 

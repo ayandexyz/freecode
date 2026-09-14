@@ -318,9 +318,9 @@ const logoHeader = new LogoHeader(
   () => headerMcpCount,
 );
 
-// Floating top-right overlay showing the context-window usage widget (replaces
-// the right half of the old StatusHeader). Non-capturing so it never steals
-// focus from the editor; hidden on narrow terminals so it can't crowd the chat.
+// Floating top-right one-line overlay showing context usage as `tokens / limit`.
+// Non-capturing so it never steals focus from the editor; hidden on narrow
+// terminals so it can't crowd the chat.
 const contextBox = new ContextBox(
   () => hasFirstMessage,
   () => contextTokens,
@@ -1973,19 +1973,7 @@ editor.onSubmit = async (value: string) => {
               );
             }
           },
-          showContextReport: async () => {
-            if (!currentSession) {
-              showMessage("*No active session — start a turn first.*");
-              return;
-            }
-            try {
-              showContextModal(await getContextStats(currentSession.sessionId));
-            } catch (err) {
-              showMessage(
-                `*Error reading context usage: ${err instanceof Error ? err.message : String(err)}*`,
-              );
-            }
-          },
+          showContextReport: openContextReport,
           showCostReport: async () => {
             try {
               const data = await getUsage();
@@ -2234,6 +2222,22 @@ function showContextModal(stats: ContextBreakdown): void {
   tui.requestRender();
 }
 
+/** Fetch the session's context breakdown and open the card — `/context` and a
+ * click on the top-right usage line both land here. */
+async function openContextReport(): Promise<void> {
+  if (!currentSession) {
+    showMessage("*No active session — start a turn first.*");
+    return;
+  }
+  try {
+    showContextModal(await getContextStats(currentSession.sessionId));
+  } catch (err) {
+    showMessage(
+      `*Error reading context usage: ${err instanceof Error ? err.message : String(err)}*`,
+    );
+  }
+}
+
 function hideContextModal(): void {
   if (!contextOverlay) return;
   contextOverlay.hide();
@@ -2420,14 +2424,11 @@ function showCopiedIndicator(charCount: number, truncated: boolean): void {
   noticeTimer.unref?.();
 }
 
-// Jump-to-bottom pill: persistent affordance shown while the history is
-// scrolled away from the bottom. Bordered (and not filled) so it reads as an
-// actionable control rather than the transient toast style the NoticeModal
-// defaults to. padX=0 and padY=0 hug the ▼ flush against the border on all
-// sides — the pill is just "▼ inside a box".
+// Jump-to-bottom affordance: a bare ▼ shown while the history is scrolled
+// away from the bottom. No border, no fill — just the glyph.
 const jumpModal = new NoticeModal("▼", 0, {
-  border: true,
-  borderColor: chalk.yellowBright,
+  fill: false,
+  color: chalk.yellowBright,
   padX: 0,
 });
 const jumpOptions = {
@@ -2485,6 +2486,17 @@ function jumpButtonHit(cx: number, cy: number): boolean {
   );
 }
 
+/** Whether a click at (cx, cy) — 1-based — landed on the top-right context
+ * usage line. Mirrors the overlay's own visibility: hidden on narrow terminals
+ * and rendered empty until a limit is known. */
+function contextBoxHit(cx: number, cy: number): boolean {
+  if (terminal.columns < 60) return false;
+  const width = contextBox.width();
+  if (contextBox.render(width).length === 0) return false;
+  const left = terminal.columns - width + 1; // 1-based, flush right
+  return cy === 1 && cx >= left && cx < left + width;
+}
+
 function extractSelectionText(): string {
   const sel = selectionStore.get();
   if (!sel) return "";
@@ -2539,6 +2551,11 @@ tui.addInputListener((data) => {
 
     // Checked before the selection handling below, since the pill sits on top
     // of the history and a press there must not start a drag-select.
+    if (button === 0 && !isDrag && contextBoxHit(cx, cy)) {
+      void openContextReport();
+      return { consume: true };
+    }
+
     if (button === 0 && !isDrag && jumpButtonHit(cx, cy)) {
       messageList.scrollToBottom();
       tui.requestRender();
