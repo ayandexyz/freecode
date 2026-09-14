@@ -11,6 +11,7 @@ import stripAnsi from "strip-ansi";
 
 import {
   buildHistoryBorder,
+  withCorners,
   formatHistoryIndicator,
 } from "./prompt-editor.js";
 
@@ -60,4 +61,14 @@ test("buildHistoryBorder: routes through borderColor so ANSI is consistent", () 
   // into the middle of the dashes.
   const expectedDashes = 30 - 2 /*leading*/ - 8 /*' [3/12] '*/;
   assert.equal(line, `<── [3/12] ${"─".repeat(expectedDashes)}>`);
+});
+
+test("withCorners: swaps the outer dashes for corners, width unchanged", () => {
+  assert.equal(withCorners("─────", "╭", "╮"), "╭───╮");
+  assert.equal(withCorners("\x1b[33m─── ↑ 2 more ───\x1b[39m", "╰", "╯"), "\x1b[33m╰── ↑ 2 more ──╯\x1b[39m");
+});
+
+test("withCorners: a truncated indicator only gets the left corner", () => {
+  assert.equal(withCorners("─── ↑ 2", "╰", "╯"), "╰── ↑ 2");
+  assert.equal(withCorners("no dashes", "╰", "╯"), "no dashes");
 });

@@ -45,6 +45,28 @@ export function buildHistoryBorder(
   return borderColor("─".repeat(leftCount) + text + "─".repeat(rightCount));
 }
 
+/** pi-tui's left padding for `paddingX: 4` — what a content row starts with. */
+const PAD = "    ";
+
+/**
+ * Turn a flat `────` border into a box edge by swapping its first and last
+ * dash for corners. Works on the plain and scroll-indicator variants alike:
+ * both begin with a dash, and only a truncated indicator fails to end with
+ * one, in which case the right corner is simply left off.
+ */
+export function withCorners(line: string, left: string, right: string): string {
+  const first = line.indexOf("─");
+  if (first === -1) return line;
+  let out = line.slice(0, first) + left + line.slice(first + 1);
+  // The closing dash is the last visible char: only an ANSI reset may follow.
+  const last = out.lastIndexOf("─");
+  const tail = out.slice(last + 1);
+  if (last > first && /^(?:\x1b\[[0-9;]*m)*$/.test(tail)) {
+    out = out.slice(0, last) + right + tail;
+  }
+  return out;
+}
+
 /**
  * Inline placeholder for a pasted image, in Claude Code's `[Image #N]` shape.
  * The token is ordinary editor text, so it word-wraps, moves, and deletes like
@@ -156,7 +178,9 @@ export class PromptEditor extends Editor {
   private nextImageId = 1;
 
   constructor(tui: TUI, theme: EditorTheme) {
-    super(tui, theme, { paddingX: 2 });
+    // Four columns: the left side border, a space, the `❯` prompt glyph and a
+    // space — `render()` overwrites the padding with that chrome.
+    super(tui, theme, { paddingX: 4 });
   }
 
   /** Insert an image at the cursor as a `[Image #N]` chip. Returns its ID. */
@@ -240,29 +264,45 @@ export class PromptEditor extends Editor {
   render(width: number): string[] {
     const editorLines = super.render(width);
 
-    // Content lines carry the two-column padding; borders and scroll
-    // indicators don't. Mentions are highlighted first so the chip pass sees
-    // their escape codes as sequences rather than swallowing them.
+    // Content lines carry the padding columns; borders and scroll indicators
+    // don't. Mentions are highlighted first so the chip pass sees their
+    // escape codes as sequences rather than swallowing them.
     for (let i = 1; i < editorLines.length; i++) {
       const line = editorLines[i] ?? "";
       if (!line.startsWith("  ")) continue;
       editorLines[i] = styleImageTokens(highlightMentions(line));
     }
 
-    // lines[0] is the top border; the first content line follows it.
-    if (editorLines.length > 1 && (editorLines[1] ?? "").startsWith("  ")) {
-      editorLines[1] = this.borderColor("❯") + (editorLines[1] ?? "").slice(1);
+    // Box the input: lines[0] is the top border, then the content rows up to
+    // the bottom border; anything after that is the autocomplete list, which
+    // hangs below the box unframed. The side borders overwrite the outermost
+    // padding column on each side, and the `❯` glyph the first row's third.
+    const side = this.borderColor("│");
+    let bottomIdx = editorLines.length - 1;
+    for (let i = 1; i < editorLines.length; i++) {
+      const line = editorLines[i] ?? "";
+      if (!line.startsWith(PAD)) {
+        bottomIdx = i;
+        break;
+      }
+      const prefix = i === 1 ? `${side} ${this.borderColor("❯")} ` : `${side}   `;
+      editorLines[i] = prefix + line.slice(PAD.length, -1) + side;
     }
+    editorLines[0] = withCorners(editorLines[0] ?? "", "╭", "╮");
+    editorLines[bottomIdx] = withCorners(editorLines[bottomIdx] ?? "", "╰", "╯");
 
     // While paging through history with up/down, stamp `[N/total]` onto the
     // bottom border so the user knows how far they've gone. pi-tui keeps
     // historyIndex private, so reach for the runtime field TypeScript hides.
     // We rebuild the border from scratch (rather than editing the existing
     // colored line in place) to keep ANSI consistent at the seams.
-    const lastIdx = editorLines.length - 1;
     const indicator = this.historyIndicator();
-    if (indicator !== null && lastIdx >= 0) {
-      editorLines[lastIdx] = buildHistoryBorder(indicator, width, this.borderColor);
+    if (indicator !== null) {
+      editorLines[bottomIdx] = withCorners(
+        buildHistoryBorder(indicator, width, this.borderColor),
+        "╰",
+        "╯",
+      );
     }
     return editorLines;
   }
