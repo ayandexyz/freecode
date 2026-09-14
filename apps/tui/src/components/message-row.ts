@@ -169,7 +169,9 @@ class InProgressMessage implements Component {
     // Subtract 1 to account for ANSI codes throwing off truncateToWidth
     const maxWidth = Math.max(40, Math.min(width, 200)) - 1;
     const truncated = truncateToWidth(display, maxWidth);
-    return [truncated];
+    // Blank above: the row sits directly under whatever was last (the prompt,
+    // a tool summary), none of which leave space below themselves.
+    return ["", truncated];
   }
 
   invalidate(): void {}
@@ -268,7 +270,7 @@ export function createUserMessageComponent(content: string): Component {
   return {
     render(width: number): string[] {
       prefixPending = true;
-      return [...boundedBox.render(width), ""];
+      return boundedBox.render(width);
     },
     invalidate() {
       if (typeof boundedBox.invalidate === "function") boundedBox.invalidate();

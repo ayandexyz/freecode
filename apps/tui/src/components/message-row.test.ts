@@ -15,7 +15,7 @@ import {
 function renderRow(
   ...args: Parameters<typeof createInProgressMessageComponent>
 ): string {
-  return stripAnsi(createInProgressMessageComponent(...args).render(200)[0]!);
+  return stripAnsi(createInProgressMessageComponent(...args).render(200).at(-1)!);
 }
 
 test("context meter reports occupancy, not the input/output run totals", () => {
