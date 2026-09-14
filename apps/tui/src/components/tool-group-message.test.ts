@@ -7,6 +7,8 @@ import {
   removeToolProgressMessage,
   createAssistantMessage,
   createSystemMessage,
+  createUserMessage,
+  createInProgressMessage,
   sealToolGroups,
 } from "./index.js";
 import { ToolGroupMessage } from "./tool-group-message.js";
@@ -190,4 +192,23 @@ test("a running call is drawn inside the open group, not as a row below it", () 
   } finally {
     mock.timers.reset();
   }
+});
+
+test("a group that opens right under the prompt is set off by a blank row", () => {
+  clearMessages();
+  createUserMessage("this project is about?");
+  createInProgressMessage("Thinking");
+  addResult("Read", { file_path: "a.ts" });
+  addResult("Read", { file_path: "b.ts" });
+
+  const group = getMessages().find((m) => m.component instanceof ToolGroupMessage)!;
+  const lines = group.component.render(80);
+  assert.equal(lines[0], "");
+  assert.match(plain(lines), /Read 2 files/);
+
+  // After a reply, the next group is not the first thing under the prompt.
+  createAssistantMessage("done");
+  addResult("Read", { file_path: "c.ts" });
+  const next = getMessages().filter((m) => m.component instanceof ToolGroupMessage)[1]!;
+  assert.notEqual(next.component.render(80)[0], "");
 });

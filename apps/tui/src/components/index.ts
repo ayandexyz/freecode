@@ -244,7 +244,7 @@ export function createToolProgressMessage(
   let group = findOpenToolGroup();
   let message = group && getMessages().find((m) => m.component === group);
   if (!group || !message) {
-    group = new ToolGroupMessage();
+    group = new ToolGroupMessage(lastMessageIsPrompt());
     message = addMessage("tool", toolName, group);
   }
   group.addPending(progress);
@@ -330,9 +330,24 @@ export function createToolResultMessage(
     )!;
   }
 
-  const group = new ToolGroupMessage();
+  const group = new ToolGroupMessage(lastMessageIsPrompt());
   group.add(options);
   return addMessage("tool", toolName, group);
+}
+
+/**
+ * Is the user's prompt the last conversation message? The in-progress row
+ * and ambient system notices sit after it in the store without being part
+ * of the conversation, so they are skipped like findOpenToolGroup does.
+ */
+function lastMessageIsPrompt(): boolean {
+  const messages = getMessages();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const type = messages[i]!.type;
+    if (type === "in_progress" || type === "system") continue;
+    return type === "user";
+  }
+  return false;
 }
 
 /**

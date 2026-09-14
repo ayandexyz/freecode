@@ -62,6 +62,13 @@ export class ToolGroupMessage implements Component {
   private expanded = false;
   private lineOwners: LineOwner[] = [];
 
+  /**
+   * @param afterPrompt the group is the first thing under the user's prompt.
+   *   Assistant text frames itself with a blank line; a summary row does not,
+   *   so it would sit flush against the prompt without one.
+   */
+  constructor(private readonly afterPrompt = false) {}
+
   add(options: ToolResultMessageOptions): ToolResultMessage {
     const item = new ToolResultMessage(options);
     this.items.push(item);
@@ -124,6 +131,7 @@ export class ToolGroupMessage implements Component {
       lines.push(line);
       this.lineOwners.push(owner);
     };
+    if (this.afterPrompt) push("", null);
 
     // Nothing finished yet: the running calls are the whole group, drawn as
     // they would be standalone so the summary appears in their place once
