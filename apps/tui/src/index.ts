@@ -95,6 +95,7 @@ import {
   createInProgressMessage,
   createQueuedUserMessage,
   removeMessageById,
+  removeToolProgressMessage,
   updateInProgressMessage,
   subscribeToMessages,
   onMessagesChange,
@@ -296,7 +297,7 @@ let editor: PromptEditor;
 let messageList: VirtualMessageList;
 const toolMessageComponents = new Map<
   string,
-  { progress: ToolProgressMessage; id: number; args: Record<string, unknown> }
+  { progress: ToolProgressMessage; message: MessageInstance; args: Record<string, unknown> }
 >();
 
 const terminal = new ProcessTerminal();
@@ -1336,18 +1337,18 @@ function handleToolEvent(event: StreamEvent) {
 
   switch (event.type) {
     case "tool_start": {
-      const toolMsg = createToolProgressMessage(
+      const { message, progress } = createToolProgressMessage(
         event.toolCallId,
         event.toolName,
         event.args,
       );
-      const progressComponent = toolMsg.component as ToolProgressMessage;
-      progressComponent.setTui(tui);
+      progress.setTui(tui);
       toolMessageComponents.set(event.toolCallId, {
-        progress: progressComponent,
-        id: toolMsg.id,
+        progress,
+        message,
         args: event.args,
       });
+      tui.requestRender();
       break;
     }
     // Background shells. Handled whether or not the /shells card is open so
@@ -1405,8 +1406,7 @@ function handleToolEvent(event: StreamEvent) {
     case "tool_complete": {
       const entry = toolMessageComponents.get(event.toolCallId);
       if (entry) {
-        entry.progress.invalidate();
-        removeMessageById(entry.id);
+        removeToolProgressMessage(entry.message, entry.progress);
         toolMessageComponents.delete(event.toolCallId);
       }
       createToolResultMessage(

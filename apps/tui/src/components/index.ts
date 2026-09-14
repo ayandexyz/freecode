@@ -221,18 +221,49 @@ export function updateInProgressMessage(
   return updateMessage(id, phrase, component);
 }
 
+/**
+ * A running tool call. Calls that will fold into a group when they finish
+ * are drawn inside that group from the start (see ToolGroupMessage), so the
+ * row does not flash standalone and then jump into the summary. File updates
+ * stand alone either way, so their progress row does too.
+ */
 export function createToolProgressMessage(
   toolCallId: string,
   toolName: string,
   args: Record<string, unknown>,
-): MessageInstance {
-  const component = new ToolProgressMessage({
+): { message: MessageInstance; progress: ToolProgressMessage } {
+  const progress = new ToolProgressMessage({
     toolCallId,
     toolName,
     args,
     outputLines: [],
   });
-  return addMessage("tool", toolName, component);
+  if (FILE_UPDATE_TOOLS.has(toolName.toLowerCase())) {
+    return { message: addMessage("tool", toolName, progress), progress };
+  }
+  let group = findOpenToolGroup();
+  let message = group && getMessages().find((m) => m.component === group);
+  if (!group || !message) {
+    group = new ToolGroupMessage();
+    message = addMessage("tool", toolName, group);
+  }
+  group.addPending(progress);
+  // Same store entry, new content — notifies the list like a result does.
+  updateMessage(message.id, toolName, group);
+  return { message, progress };
+}
+
+/** Undoes createToolProgressMessage once the call's result arrives. */
+export function removeToolProgressMessage(
+  message: MessageInstance,
+  progress: ToolProgressMessage,
+): void {
+  progress.invalidate();
+  if (message.component instanceof ToolGroupMessage) {
+    message.component.removePending(progress);
+  } else {
+    removeMessage(message.id);
+  }
 }
 
 /**

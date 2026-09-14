@@ -17,7 +17,7 @@ function plain(lines: string[]): string {
 test("createToolProgressMessage adds a renderable tool message", () => {
   clearMessages();
 
-  const message = createToolProgressMessage("call-1", "Write", {
+  const { message } = createToolProgressMessage("call-1", "Write", {
     path: "FREECODE.md",
   });
 

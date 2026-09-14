@@ -4,6 +4,7 @@ import { clearMessages, getMessages } from "../state/message-store.js";
 import {
   createToolProgressMessage,
   createToolResultMessage,
+  removeToolProgressMessage,
   createAssistantMessage,
   createSystemMessage,
   sealToolGroups,
@@ -49,10 +50,9 @@ test("clicking the summary expands the group back to one row per call", () => {
 
   const group = getMessages()[0]!.component as ToolGroupMessage;
   group.render(80);
-  assert.equal(group.isToggleLine(0), false); // leading blank
-  assert.equal(group.isToggleLine(1), true); // summary
+  assert.equal(group.isToggleLine(0), true); // summary is the first row
 
-  group.toggleAt(1);
+  group.toggleAt(0);
   const expanded = group.render(80);
   assert.match(plain(expanded), /a\.ts/);
   assert.match(plain(expanded), /b\.ts/);
@@ -137,10 +137,10 @@ test("expanding a child inside the group adds no blank framing rows", () => {
   group.toggleAt(lsHeader);
 
   lines = group.render(80);
-  // Only the group's own leading spacer may be blank — the expanded child's
-  // standalone blank framing must not leak into the stacked list.
+  // The expanded child's standalone blank framing must not leak into the
+  // stacked list.
   const blanks = lines.filter((l) => l === "").length;
-  assert.equal(blanks, 1);
+  assert.equal(blanks, 0);
   assert.match(plain(lines), /one/);
 });
 
@@ -157,4 +157,24 @@ test("file updates stand alone outside groups and split the run", () => {
   // The edit sealed the first group, so bash starts a fresh one.
   assert.ok(messages[2]!.component instanceof ToolGroupMessage);
   assert.notEqual(messages[0]!.component, messages[2]!.component);
+});
+
+test("a running call is drawn inside the open group, not as a row below it", () => {
+  clearMessages();
+  addResult("Read", { file_path: "a.ts" });
+  const { message, progress } = createToolProgressMessage("call-live", "ls", { path: "src" });
+
+  // One store entry: the group. No standalone progress message appeared.
+  assert.equal(getMessages().length, 1);
+  assert.equal(message.component, getMessages()[0]!.component);
+  const before = plain((message.component as ToolGroupMessage).render(80));
+  assert.match(before, /Read 1 file/);
+  assert.match(before, /ls.*path: src/);
+
+  removeToolProgressMessage(message, progress);
+  createToolResultMessage("call-live", "ls", { path: "src" }, "a.ts", true);
+  assert.equal(getMessages().length, 1);
+  const after = plain((message.component as ToolGroupMessage).render(80));
+  assert.match(after, /Read 1 file, Listed 1 directory/);
+  assert.doesNotMatch(after, /path: src/);
 });

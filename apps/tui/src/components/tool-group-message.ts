@@ -1,6 +1,7 @@
 import { Component, truncateToWidth } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { ToolResultMessage, type ToolResultMessageOptions } from "./tool-result-message.js";
+import type { ToolProgressMessage } from "./tool-progress-message.js";
 import { formatDuration } from "../utils/format-duration.js";
 
 /**
@@ -47,10 +48,16 @@ type LineOwner = "summary" | { item: ToolResultMessage; local: number } | null;
  * Sealing it (the next thinking block, or the assistant's reply) only ends
  * the run so the next call starts a fresh group. A click puts the individual
  * calls back, and each of those still expands to its own output.
+ *
+ * Calls still running are the group's too: their progress rows sit directly
+ * under the summary and are swapped for a count in it when they finish.
+ * Before this they were separate messages below the group, so every call
+ * flashed as its own block and then jumped into the summary line.
  */
 export class ToolGroupMessage implements Component {
   private items: ToolResultMessage[] = [];
   private entries: ToolResultMessageOptions[] = [];
+  private pending: ToolProgressMessage[] = [];
   private sealed = false;
   private expanded = false;
   private lineOwners: LineOwner[] = [];
@@ -60,6 +67,14 @@ export class ToolGroupMessage implements Component {
     this.items.push(item);
     this.entries.push(options);
     return item;
+  }
+
+  addPending(progress: ToolProgressMessage): void {
+    this.pending.push(progress);
+  }
+
+  removePending(progress: ToolProgressMessage): void {
+    this.pending = this.pending.filter((p) => p !== progress);
   }
 
   /** Closes the group so the next tool call starts a fresh one. */
@@ -110,7 +125,13 @@ export class ToolGroupMessage implements Component {
       this.lineOwners.push(owner);
     };
 
-    push("", null);
+    // Nothing finished yet: the running calls are the whole group, drawn as
+    // they would be standalone so the summary appears in their place once
+    // the first result lands.
+    if (this.entries.length === 0) {
+      for (const p of this.pending) for (const line of p.render(width)) push(line, null);
+      return lines;
+    }
 
     const failed = this.entries.filter((e) => !e.success).length;
     const icon = failed > 0 ? chalk.red("✖") : chalk.green("●");
@@ -124,6 +145,12 @@ export class ToolGroupMessage implements Component {
       summary += ` ${chalk.dim(`(${formatDuration(total)})`)}`;
     }
     push(truncateToWidth(summary, Math.max(20, width - 1)), "summary");
+
+    for (const p of this.pending) {
+      // Progress rows frame themselves with blank lines for standalone use;
+      // under the summary they should read as its continuation.
+      for (const line of p.render(width)) if (line !== "") push(line, null);
+    }
 
     if (!expanded) return lines;
 
