@@ -22,9 +22,10 @@ export const diffTheme = {
 };
 
 /**
- * Render a markdown code block with a dim line-number gutter and Dracula
- * syntax highlighting. The gutter is purely for visual structure — there's
- * no `+`/`-` indicator since AI-supplied code has no "added/removed" semantic.
+ * Render a markdown code block with Dracula syntax highlighting, indented
+ * two columns so it reads as a block against the surrounding prose. No
+ * line-number gutter: fences carry commit messages and config snippets as
+ * often as code, and numbering those was noise.
  *
  * Lines are emitted as-is (no width truncation) so the surrounding
  * WidthBounded wrapper clips/pads consistently.
@@ -32,10 +33,7 @@ export const diffTheme = {
 export function renderCodeBlock(code: string, lang?: string): string[] {
   const useLang = lang && supportsLanguage(lang) ? lang : undefined;
 
-  return code.split("\n").map((rawLine, i) => {
-    const lineNum = String(i + 1).padStart(3, " ");
-    const gutter = chalk.dim(`${lineNum} │`);
-
+  return code.split("\n").map((rawLine) => {
     let highlighted: string;
     if (useLang && rawLine.trim().length > 0) {
       try {
@@ -47,6 +45,6 @@ export function renderCodeBlock(code: string, lang?: string): string[] {
       highlighted = rawLine;
     }
 
-    return `${gutter} ${highlighted}`;
+    return `  ${highlighted}`;
   });
 }

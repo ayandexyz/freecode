@@ -10,7 +10,9 @@ import assert from "node:assert/strict";
 import stripAnsi from "strip-ansi";
 
 import {
+  buildBottomBorder,
   buildHistoryBorder,
+  withCorners,
   formatHistoryIndicator,
 } from "./prompt-editor.js";
 
@@ -60,4 +62,36 @@ test("buildHistoryBorder: routes through borderColor so ANSI is consistent", () 
   // into the middle of the dashes.
   const expectedDashes = 30 - 2 /*leading*/ - 8 /*' [3/12] '*/;
   assert.equal(line, `<── [3/12] ${"─".repeat(expectedDashes)}>`);
+});
+
+test("withCorners: swaps the outer dashes for corners, width unchanged", () => {
+  assert.equal(withCorners("─────", "╭", "╮"), "╭───╮");
+  assert.equal(withCorners("\x1b[33m─── ↑ 2 more ───\x1b[39m", "╰", "╯"), "\x1b[33m╰── ↑ 2 more ──╯\x1b[39m");
+});
+
+test("withCorners: a truncated indicator only gets the left corner", () => {
+  assert.equal(withCorners("─── ↑ 2", "╰", "╯"), "╰── ↑ 2");
+  assert.equal(withCorners("no dashes", "╰", "╯"), "no dashes");
+});
+
+test("buildBottomBorder: the status label is set in from the right corner", () => {
+  const line = stripAnsi(
+    withCorners(buildBottomBorder(40, IDENTITY, null, "anthropic/opus (high) · build"), "╰", "╯"),
+  );
+  assert.equal(line.length, 40);
+  assert.ok(line.endsWith(" anthropic/opus (high) · build ─╯"), line);
+  assert.ok(line.startsWith("╰──"));
+});
+
+test("buildBottomBorder: history indicator and label share the border", () => {
+  const line = stripAnsi(buildBottomBorder(40, IDENTITY, "[3/12]", "model · plan"));
+  assert.equal(line.length, 40);
+  assert.ok(line.startsWith("── [3/12] ─"));
+  assert.ok(line.endsWith(" model · plan ──"));
+});
+
+test("buildBottomBorder: a label that does not fit is dropped, not wrapped", () => {
+  const line = stripAnsi(buildBottomBorder(12, IDENTITY, "[3/12]", "a-very-long-model-name · build"));
+  assert.equal(line.length, 12);
+  assert.doesNotMatch(line, /model/);
 });

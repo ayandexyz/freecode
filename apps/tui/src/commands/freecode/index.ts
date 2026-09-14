@@ -157,14 +157,9 @@ ${formatProviderList()}`);
         const inTokens = result.usage?.inputTokens ?? 0;
         const outTokens = result.usage?.outputTokens ?? 0;
         const cachedTokens = result.usage?.cacheReadInputTokens ?? 0;
-        const contextTokens =
-          result.usage?.contextTokens ?? inTokens + cachedTokens;
         let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
         if (cachedTokens > 0) {
           tokenInfo += ` cached: ${formatTokenCount(cachedTokens)}`;
-        }
-        if (contextLimit > 0) {
-          tokenInfo += ` [${formatTokenCount(contextTokens)}/${formatTokenCount(contextLimit)}]`;
         }
         ctx.createSystemMessage(
           `${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`,

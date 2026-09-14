@@ -53,6 +53,15 @@ function releaseSpinner(): void {
   }
 }
 
+/**
+ * How long a call must have been running before its row is drawn. Most
+ * reads and searches finish well inside this, and drawing a row that the
+ * result replaces a few milliseconds later showed as a flicker under the
+ * group summary. The shared spinner ticker re-renders every 250ms, so a call
+ * that outlives the delay appears on the next beat.
+ */
+export const PROGRESS_ROW_DELAY_MS = 250;
+
 export class ToolProgressMessage implements Component {
   private toolCallId: string;
   private toolName: string;
@@ -60,6 +69,7 @@ export class ToolProgressMessage implements Component {
   private outputLines: string[];
   private tui?: TUI;
   private released = false;
+  private startedAt = Date.now();
   /** formatArgs is pure over the immutable args — computed once. */
   private argsStr?: string;
 
@@ -89,6 +99,8 @@ export class ToolProgressMessage implements Component {
   }
 
   render(width: number): string[] {
+    if (Date.now() - this.startedAt < PROGRESS_ROW_DELAY_MS) return [];
+
     // Core emits lowercase tool ids ("read", "bash") while the map keys are
     // capitalized — same three-way fallback as ToolResultMessage, without
     // which no progress row ever got its color.

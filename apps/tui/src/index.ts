@@ -27,6 +27,7 @@ import {
   getRandomInProgressPhrase,
 } from "./utils/elapsed-phrases.js";
 import { getModelContextLimit } from "./utils/model-limits.js";
+import { getModelDisplayString } from "./utils/display.js";
 import {
   formatTokenCount,
   cacheHitRate,
@@ -95,6 +96,7 @@ import {
   createInProgressMessage,
   createQueuedUserMessage,
   removeMessageById,
+  removeToolProgressMessage,
   updateInProgressMessage,
   subscribeToMessages,
   onMessagesChange,
@@ -178,10 +180,11 @@ let modeLoaded = false;
 // Guards against overlapping clipboard reads from a Ctrl+V key burst.
 let isReadingClipboard = false;
 // Context-window usage widget (top-right overlay): hidden until the first
-// prompt is sent, then shows live tokens/limit + a progress bar + percent.
+// prompt is sent, then shows tokens/limit and the last run's cache hit rate.
 let hasFirstMessage = false;
 let contextTokens = 0;
 let contextLimitTokens = 0;
+let contextCacheRate: number | undefined;
 // Cached once at TUI startup so the pinned logo header can show tool/MCP
 // counts without each render making an async IPC call. `-1` until the loader
 // resolves; the header renders `…` while the values are still pending.
@@ -233,6 +236,7 @@ async function clearSession(): Promise<void> {
   resetSessionCacheTotals();
   resetLiveUsageTotals();
   contextTokens = 0;
+  contextCacheRate = undefined;
   hasFirstMessage = false;
   messageCount = 0;
   idleNudgeShownAt = null;
@@ -294,7 +298,7 @@ let editor: PromptEditor;
 let messageList: VirtualMessageList;
 const toolMessageComponents = new Map<
   string,
-  { progress: ToolProgressMessage; id: number; args: Record<string, unknown> }
+  { progress: ToolProgressMessage; message: MessageInstance; args: Record<string, unknown> }
 >();
 
 const terminal = new ProcessTerminal();
@@ -318,13 +322,14 @@ const logoHeader = new LogoHeader(
   () => headerMcpCount,
 );
 
-// Floating top-right overlay showing the context-window usage widget (replaces
-// the right half of the old StatusHeader). Non-capturing so it never steals
-// focus from the editor; hidden on narrow terminals so it can't crowd the chat.
+// Floating top-right one-line overlay showing context usage as `tokens / limit`.
+// Non-capturing so it never steals focus from the editor; hidden on narrow
+// terminals so it can't crowd the chat.
 const contextBox = new ContextBox(
   () => hasFirstMessage,
   () => contextTokens,
   () => contextLimitTokens,
+  () => contextCacheRate,
 );
 const contextBoxOverlay = tui.showOverlay(contextBox, {
   anchor: "top-right",
@@ -388,6 +393,13 @@ process.stdout.on("resize", () => {
 
 editor = new PromptEditor(tui, defaultEditorTheme);
 editor.setText("");
+// `provider/model (effort) · mode` on the input's bottom border, so the box
+// itself says what a prompt will run against.
+editor.statusLabel = () => {
+  const model = getModelDisplayString(currentProvider, currentModel);
+  const effort = currentEffort ? ` (${currentEffort})` : "";
+  return `${model}${effort} · ${currentAgentMode}`;
+};
 
 // `@` file mentions run on fd when it is installed and on a JS tree walk when
 // it is not, so completion works the same on a machine without fd (Windows,
@@ -400,15 +412,10 @@ editor.setAutocompleteProvider(autocompleteProvider);
 
 tui.addChild(editor);
 tui.addChild(new Spacer(1));
-// Mode/model line below the input. Always visible now — the top StatusHeader
-// has been retired (its context widget moved into a top-right overlay), so
-// this line is the only place mode and model are displayed.
+// /shells and /agents chips below the input; mode and model sit on the
+// input's bottom border (`editor.statusLabel` above).
 modeLine = new ModeLine(
   () => !modeLoaded,
-  () => currentAgentMode,
-  () => currentProvider,
-  () => currentModel,
-  () => currentEffort,
   () => shellsPanel?.runningCount() ?? 0,
   () => agentsPanel?.runningCount() ?? 0,
 );
@@ -1333,18 +1340,18 @@ function handleToolEvent(event: StreamEvent) {
 
   switch (event.type) {
     case "tool_start": {
-      const toolMsg = createToolProgressMessage(
+      const { message, progress } = createToolProgressMessage(
         event.toolCallId,
         event.toolName,
         event.args,
       );
-      const progressComponent = toolMsg.component as ToolProgressMessage;
-      progressComponent.setTui(tui);
+      progress.setTui(tui);
       toolMessageComponents.set(event.toolCallId, {
-        progress: progressComponent,
-        id: toolMsg.id,
+        progress,
+        message,
         args: event.args,
       });
+      tui.requestRender();
       break;
     }
     // Background shells. Handled whether or not the /shells card is open so
@@ -1402,8 +1409,7 @@ function handleToolEvent(event: StreamEvent) {
     case "tool_complete": {
       const entry = toolMessageComponents.get(event.toolCallId);
       if (entry) {
-        entry.progress.invalidate();
-        removeMessageById(entry.id);
+        removeToolProgressMessage(entry.message, entry.progress);
         toolMessageComponents.delete(event.toolCallId);
       }
       createToolResultMessage(
@@ -1844,22 +1850,10 @@ async function submitPrompt(
       // Feed the top-right context-usage overlay's progress bar.
       contextTokens = contextTokensUsed;
       contextLimitTokens = contextLimit;
+      // The run's cache hit rate lives in the top-right widget, not here.
+      contextCacheRate =
+        cachedTokens > 0 ? cacheHitRate(inTokens, cachedTokens) : undefined;
       let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
-      // The rate, not the raw count: "cached: 89.2k" is only meaningful next to
-      // the input it was measured against, which meant doing the division by
-      // eye every turn. claude-code and opencode both stop at the raw number.
-      const hitRate = cacheHitRate(inTokens, cachedTokens);
-      if (cachedTokens > 0 && hitRate !== undefined) {
-        const writeTokens = result.usage?.cacheCreationInputTokens ?? 0;
-        tokenInfo += ` cache ${hitRate}% (${formatTokenCount(cachedTokens)} read`;
-        // Writes bill at ~1.25x, so a high read rate bought by constant
-        // rewriting is not the win it looks like. Only shown when non-zero.
-        tokenInfo +=
-          writeTokens > 0 ? `, ${formatTokenCount(writeTokens)} write)` : ")";
-      }
-      if (contextLimit > 0) {
-        tokenInfo += ` [${formatTokenCount(contextTokens)}/${formatTokenCount(contextLimit)}]`;
-      }
 
       // Restart the idle clock, and re-arm the nudge for the next quiet gap.
       lastTurnCompletedAt = Date.now();
@@ -1881,12 +1875,14 @@ async function submitPrompt(
         tokenInfo += ` · session ${sessionRate}%`;
       }
 
+      // Trailing newline: the elapsed line closes the run, so a blank row
+      // separates it from the next prompt.
       createSystemMessage(
-        `${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`,
+        `${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})\n`,
       );
     } else {
       createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);
-      createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
+      createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}\n`);
     }
   } catch (error) {
     removeMessageById(inProgressMsg.id);
@@ -1973,29 +1969,8 @@ editor.onSubmit = async (value: string) => {
               );
             }
           },
-          showContextReport: async () => {
-            if (!currentSession) {
-              showMessage("*No active session — start a turn first.*");
-              return;
-            }
-            try {
-              showContextModal(await getContextStats(currentSession.sessionId));
-            } catch (err) {
-              showMessage(
-                `*Error reading context usage: ${err instanceof Error ? err.message : String(err)}*`,
-              );
-            }
-          },
-          showCostReport: async () => {
-            try {
-              const data = await getUsage();
-              showCostModal(data, sessionRuns > 0 ? sessionUsage : undefined);
-            } catch (err) {
-              showMessage(
-                `*Error fetching usage: ${err instanceof Error ? err.message : String(err)}*`,
-              );
-            }
-          },
+          showContextReport: openContextReport,
+          showCostReport: openCostReport,
           createUserMessage: (content: string) => createUserMessage(content),
           createAssistantMessage: (content: string) =>
             createAssistantMessage(content),
@@ -2234,6 +2209,35 @@ function showContextModal(stats: ContextBreakdown): void {
   tui.requestRender();
 }
 
+/** Fetch the session's context breakdown and open the card — `/context` and a
+ * click on the top-right usage line both land here. */
+async function openContextReport(): Promise<void> {
+  if (!currentSession) {
+    showMessage("*No active session — start a turn first.*");
+    return;
+  }
+  try {
+    showContextModal(await getContextStats(currentSession.sessionId));
+  } catch (err) {
+    showMessage(
+      `*Error reading context usage: ${err instanceof Error ? err.message : String(err)}*`,
+    );
+  }
+}
+
+/** Fetch usage and open the cost card — `/cost` and a click on the top-right
+ * cache line both land here. */
+async function openCostReport(): Promise<void> {
+  try {
+    const data = await getUsage();
+    showCostModal(data, sessionRuns > 0 ? sessionUsage : undefined);
+  } catch (err) {
+    showMessage(
+      `*Error fetching usage: ${err instanceof Error ? err.message : String(err)}*`,
+    );
+  }
+}
+
 function hideContextModal(): void {
   if (!contextOverlay) return;
   contextOverlay.hide();
@@ -2420,14 +2424,11 @@ function showCopiedIndicator(charCount: number, truncated: boolean): void {
   noticeTimer.unref?.();
 }
 
-// Jump-to-bottom pill: persistent affordance shown while the history is
-// scrolled away from the bottom. Bordered (and not filled) so it reads as an
-// actionable control rather than the transient toast style the NoticeModal
-// defaults to. padX=0 and padY=0 hug the ▼ flush against the border on all
-// sides — the pill is just "▼ inside a box".
+// Jump-to-bottom affordance: a bare ▼ shown while the history is scrolled
+// away from the bottom. No border, no fill — just the glyph.
 const jumpModal = new NoticeModal("▼", 0, {
-  border: true,
-  borderColor: chalk.yellowBright,
+  fill: false,
+  color: chalk.yellowBright,
   padX: 0,
 });
 const jumpOptions = {
@@ -2485,6 +2486,19 @@ function jumpButtonHit(cx: number, cy: number): boolean {
   );
 }
 
+/** Which row of the top-right context widget a click at (cx, cy) — 1-based —
+ * landed on: 1 is the tokens/limit line, 2 the cache line, 0 a miss. Mirrors
+ * the overlay's own visibility: hidden on narrow terminals and rendered empty
+ * until a limit is known. */
+function contextBoxHit(cx: number, cy: number): number {
+  if (terminal.columns < 60) return 0;
+  const width = contextBox.width();
+  const height = contextBox.render(width).length;
+  const left = terminal.columns - width + 1; // 1-based, flush right
+  if (cy < 1 || cy > height || cx < left || cx >= left + width) return 0;
+  return cy;
+}
+
 function extractSelectionText(): string {
   const sel = selectionStore.get();
   if (!sel) return "";
@@ -2539,6 +2553,13 @@ tui.addInputListener((data) => {
 
     // Checked before the selection handling below, since the pill sits on top
     // of the history and a press there must not start a drag-select.
+    // Top-right widget: the usage line opens /context, the cache line /cost.
+    const widgetRow = button === 0 && !isDrag ? contextBoxHit(cx, cy) : 0;
+    if (widgetRow > 0) {
+      void (widgetRow === 1 ? openContextReport() : openCostReport());
+      return { consume: true };
+    }
+
     if (button === 0 && !isDrag && jumpButtonHit(cx, cy)) {
       messageList.scrollToBottom();
       tui.requestRender();

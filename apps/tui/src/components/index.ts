@@ -221,18 +221,49 @@ export function updateInProgressMessage(
   return updateMessage(id, phrase, component);
 }
 
+/**
+ * A running tool call. Calls that will fold into a group when they finish
+ * are drawn inside that group from the start (see ToolGroupMessage), so the
+ * row does not flash standalone and then jump into the summary. File updates
+ * stand alone either way, so their progress row does too.
+ */
 export function createToolProgressMessage(
   toolCallId: string,
   toolName: string,
   args: Record<string, unknown>,
-): MessageInstance {
-  const component = new ToolProgressMessage({
+): { message: MessageInstance; progress: ToolProgressMessage } {
+  const progress = new ToolProgressMessage({
     toolCallId,
     toolName,
     args,
     outputLines: [],
   });
-  return addMessage("tool", toolName, component);
+  if (FILE_UPDATE_TOOLS.has(toolName.toLowerCase())) {
+    return { message: addMessage("tool", toolName, progress), progress };
+  }
+  let group = findOpenToolGroup();
+  let message = group && getMessages().find((m) => m.component === group);
+  if (!group || !message) {
+    group = new ToolGroupMessage(lastMessageIsPrompt());
+    message = addMessage("tool", toolName, group);
+  }
+  group.addPending(progress);
+  // Same store entry, new content — notifies the list like a result does.
+  updateMessage(message.id, toolName, group);
+  return { message, progress };
+}
+
+/** Undoes createToolProgressMessage once the call's result arrives. */
+export function removeToolProgressMessage(
+  message: MessageInstance,
+  progress: ToolProgressMessage,
+): void {
+  progress.invalidate();
+  if (message.component instanceof ToolGroupMessage) {
+    message.component.removePending(progress);
+  } else {
+    removeMessage(message.id);
+  }
 }
 
 /**
@@ -299,9 +330,24 @@ export function createToolResultMessage(
     )!;
   }
 
-  const group = new ToolGroupMessage();
+  const group = new ToolGroupMessage(lastMessageIsPrompt());
   group.add(options);
   return addMessage("tool", toolName, group);
+}
+
+/**
+ * Is the user's prompt the last conversation message? The in-progress row
+ * and ambient system notices sit after it in the store without being part
+ * of the conversation, so they are skipped like findOpenToolGroup does.
+ */
+function lastMessageIsPrompt(): boolean {
+  const messages = getMessages();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const type = messages[i]!.type;
+    if (type === "in_progress" || type === "system") continue;
+    return type === "user";
+  }
+  return false;
 }
 
 /**

@@ -27,22 +27,61 @@ export function formatHistoryIndicator(
 
 /**
  * Build a bottom-border strip with the history indicator spliced just after
- * the leading dashes. Re-emits the entire line through `borderColor` so the
- * ANSI seams stay consistent (mixing colored and uncolored runs would leak
- * the color's reset code into the middle).
+ * the leading dashes and the status label (model, effort, mode) set in from
+ * the right, grok-build style. Dashes and indicator are emitted through
+ * `borderColor` in whole runs so the ANSI seams stay consistent; the label
+ * is dim so it reads as chrome, not input. A label that does not fit beside
+ * the indicator is dropped rather than wrapping the line.
  */
+export function buildBottomBorder(
+  width: number,
+  borderColor: (s: string) => string,
+  indicator: string | null,
+  label: string | null,
+  sideDashes = 2,
+): string {
+  const left = indicator ? ` ${indicator} ` : "";
+  const leftCount = Math.min(sideDashes, Math.max(0, width - left.length));
+  let right = label ? ` ${label} ` : "";
+  // Two trailing dashes: one stays, one becomes the corner.
+  if (right && leftCount + left.length + right.length + 2 > width) right = "";
+  const midCount = Math.max(0, width - leftCount - left.length - right.length - (right ? 2 : 0));
+  return (
+    borderColor("─".repeat(leftCount) + left + "─".repeat(midCount)) +
+    (right ? chalk.dim(right) + borderColor("──") : "")
+  );
+}
+
+/** `buildBottomBorder` with only the history indicator. */
 export function buildHistoryBorder(
   indicator: string,
   width: number,
   borderColor: (s: string) => string,
   sideDashes = 2,
 ): string {
-  const text = ` ${indicator} `;
-  const textVisible = text.length;
-  const dashCount = Math.max(0, width - textVisible);
-  const leftCount = Math.min(sideDashes, dashCount);
-  const rightCount = Math.max(0, dashCount - leftCount);
-  return borderColor("─".repeat(leftCount) + text + "─".repeat(rightCount));
+  return buildBottomBorder(width, borderColor, indicator, null, sideDashes);
+}
+
+/** pi-tui's left padding for `paddingX: 4` — what a content row starts with. */
+const PAD = "    ";
+
+/**
+ * Turn a flat `────` border into a box edge by swapping its first and last
+ * dash for corners. Works on the plain and scroll-indicator variants alike:
+ * both begin with a dash, and only a truncated indicator fails to end with
+ * one, in which case the right corner is simply left off.
+ */
+export function withCorners(line: string, left: string, right: string): string {
+  const first = line.indexOf("─");
+  if (first === -1) return line;
+  let out = line.slice(0, first) + left + line.slice(first + 1);
+  // The closing dash is the last visible char: only an ANSI reset may follow.
+  const last = out.lastIndexOf("─");
+  const tail = out.slice(last + 1);
+  if (last > first && /^(?:\x1b\[[0-9;]*m)*$/.test(tail)) {
+    out = out.slice(0, last) + right + tail;
+  }
+  return out;
 }
 
 /**
@@ -154,9 +193,17 @@ export class PromptEditor extends Editor {
   private images = new Map<number, PendingImage>();
   /** Next 1-based token ID; reset per submitted prompt, like pi's paste IDs. */
   private nextImageId = 1;
+  /**
+   * Plain text set into the right end of the bottom border — model, effort
+   * and mode, so the box itself says what a prompt will run against. Read at
+   * render time, so a mode cycle or model change needs only a re-render.
+   */
+  statusLabel?: () => string;
 
   constructor(tui: TUI, theme: EditorTheme) {
-    super(tui, theme, { paddingX: 2 });
+    // Four columns: the left side border, a space, the `❯` prompt glyph and a
+    // space — `render()` overwrites the padding with that chrome.
+    super(tui, theme, { paddingX: 4 });
   }
 
   /** Insert an image at the cursor as a `[Image #N]` chip. Returns its ID. */
@@ -240,29 +287,47 @@ export class PromptEditor extends Editor {
   render(width: number): string[] {
     const editorLines = super.render(width);
 
-    // Content lines carry the two-column padding; borders and scroll
-    // indicators don't. Mentions are highlighted first so the chip pass sees
-    // their escape codes as sequences rather than swallowing them.
+    // Content lines carry the padding columns; borders and scroll indicators
+    // don't. Mentions are highlighted first so the chip pass sees their
+    // escape codes as sequences rather than swallowing them.
     for (let i = 1; i < editorLines.length; i++) {
       const line = editorLines[i] ?? "";
       if (!line.startsWith("  ")) continue;
       editorLines[i] = styleImageTokens(highlightMentions(line));
     }
 
-    // lines[0] is the top border; the first content line follows it.
-    if (editorLines.length > 1 && (editorLines[1] ?? "").startsWith("  ")) {
-      editorLines[1] = this.borderColor("❯") + (editorLines[1] ?? "").slice(1);
+    // Box the input: lines[0] is the top border, then the content rows up to
+    // the bottom border; anything after that is the autocomplete list, which
+    // hangs below the box unframed. The side borders overwrite the outermost
+    // padding column on each side, and the `❯` glyph the first row's third.
+    const side = this.borderColor("│");
+    let bottomIdx = editorLines.length - 1;
+    for (let i = 1; i < editorLines.length; i++) {
+      const line = editorLines[i] ?? "";
+      if (!line.startsWith(PAD)) {
+        bottomIdx = i;
+        break;
+      }
+      const prefix = i === 1 ? `${side} ${this.borderColor("❯")} ` : `${side}   `;
+      editorLines[i] = prefix + line.slice(PAD.length, -1) + side;
     }
+    editorLines[0] = withCorners(editorLines[0] ?? "", "╭", "╮");
+    editorLines[bottomIdx] = withCorners(editorLines[bottomIdx] ?? "", "╰", "╯");
 
-    // While paging through history with up/down, stamp `[N/total]` onto the
-    // bottom border so the user knows how far they've gone. pi-tui keeps
-    // historyIndex private, so reach for the runtime field TypeScript hides.
-    // We rebuild the border from scratch (rather than editing the existing
-    // colored line in place) to keep ANSI consistent at the seams.
-    const lastIdx = editorLines.length - 1;
+    // The bottom border carries the status label (model · mode) at its right
+    // end and, while paging through history with up/down, `[N/total]` at its
+    // left so the user knows how far they've gone. pi-tui keeps historyIndex
+    // private, so reach for the runtime field TypeScript hides. The border
+    // is rebuilt from scratch (rather than editing the existing colored line
+    // in place) to keep ANSI consistent at the seams.
     const indicator = this.historyIndicator();
-    if (indicator !== null && lastIdx >= 0) {
-      editorLines[lastIdx] = buildHistoryBorder(indicator, width, this.borderColor);
+    const label = this.statusLabel?.() || null;
+    if (indicator !== null || label !== null) {
+      editorLines[bottomIdx] = withCorners(
+        buildBottomBorder(width, this.borderColor, indicator, label),
+        "╰",
+        "╯",
+      );
     }
     return editorLines;
   }
