@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
 import { clearMessages, getMessages } from "../state/message-store.js";
 import { createToolProgressMessage } from "./index.js";
+import { PROGRESS_ROW_DELAY_MS } from "./tool-progress-message.js";
 import { ToolResultMessage } from "./tool-result-message.js";
 
 /**
@@ -16,17 +17,26 @@ function plain(lines: string[]): string {
 
 test("createToolProgressMessage adds a renderable tool message", () => {
   clearMessages();
+  mock.timers.enable({ apis: ["Date"] });
+  try {
+    const { message } = createToolProgressMessage("call-1", "Write", {
+      path: "FREECODE.md",
+    });
 
-  const { message } = createToolProgressMessage("call-1", "Write", {
-    path: "FREECODE.md",
-  });
+    const messages = getMessages();
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0], message);
+    assert.equal(message.type, "tool");
+    // A call that has only just started draws nothing: most finish within a
+    // few ms, and a row that the result replaces at once reads as a flicker.
+    assert.deepEqual(message.component.render(80), []);
 
-  const messages = getMessages();
-  assert.equal(messages.length, 1);
-  assert.equal(messages[0], message);
-  assert.equal(message.type, "tool");
-  assert.match(message.component.render(80).join("\n"), /Write/);
-  assert.match(message.component.render(80).join("\n"), /FREECODE\.md/);
+    mock.timers.tick(PROGRESS_ROW_DELAY_MS);
+    assert.match(message.component.render(80).join("\n"), /Write/);
+    assert.match(message.component.render(80).join("\n"), /FREECODE\.md/);
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 test("large multi-line results render one terminal row per line, collapsed", () => {

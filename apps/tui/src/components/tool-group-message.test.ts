@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
 import { clearMessages, getMessages } from "../state/message-store.js";
 import {
   createToolProgressMessage,
@@ -10,6 +10,7 @@ import {
   sealToolGroups,
 } from "./index.js";
 import { ToolGroupMessage } from "./tool-group-message.js";
+import { PROGRESS_ROW_DELAY_MS } from "./tool-progress-message.js";
 
 function plain(lines: string[]): string {
   return lines.join("|").replace(/\x1b\[[0-9;]*m/g, "");
@@ -161,20 +162,32 @@ test("file updates stand alone outside groups and split the run", () => {
 
 test("a running call is drawn inside the open group, not as a row below it", () => {
   clearMessages();
-  addResult("Read", { file_path: "a.ts" });
-  const { message, progress } = createToolProgressMessage("call-live", "ls", { path: "src" });
+  mock.timers.enable({ apis: ["Date"] });
+  try {
+    addResult("Read", { file_path: "a.ts" });
+    const { message, progress } = createToolProgressMessage("call-live", "ls", { path: "src" });
 
-  // One store entry: the group. No standalone progress message appeared.
-  assert.equal(getMessages().length, 1);
-  assert.equal(message.component, getMessages()[0]!.component);
-  const before = plain((message.component as ToolGroupMessage).render(80));
-  assert.match(before, /Read 1 file/);
-  assert.match(before, /ls.*path: src/);
+    // One store entry: the group. No standalone progress message appeared.
+    assert.equal(getMessages().length, 1);
+    assert.equal(message.component, getMessages()[0]!.component);
+    // Just started: only the summary, so a call that finishes at once never
+    // flashes a row under it.
+    const fresh = plain((message.component as ToolGroupMessage).render(80));
+    assert.match(fresh, /Read 1 file/);
+    assert.doesNotMatch(fresh, /path: src/);
 
-  removeToolProgressMessage(message, progress);
-  createToolResultMessage("call-live", "ls", { path: "src" }, "a.ts", true);
-  assert.equal(getMessages().length, 1);
-  const after = plain((message.component as ToolGroupMessage).render(80));
-  assert.match(after, /Read 1 file, Listed 1 directory/);
-  assert.doesNotMatch(after, /path: src/);
+    mock.timers.tick(PROGRESS_ROW_DELAY_MS);
+    const before = plain((message.component as ToolGroupMessage).render(80));
+    assert.match(before, /Read 1 file/);
+    assert.match(before, /ls.*path: src/);
+
+    removeToolProgressMessage(message, progress);
+    createToolResultMessage("call-live", "ls", { path: "src" }, "a.ts", true);
+    assert.equal(getMessages().length, 1);
+    const after = plain((message.component as ToolGroupMessage).render(80));
+    assert.match(after, /Read 1 file, Listed 1 directory/);
+    assert.doesNotMatch(after, /path: src/);
+  } finally {
+    mock.timers.reset();
+  }
 });
