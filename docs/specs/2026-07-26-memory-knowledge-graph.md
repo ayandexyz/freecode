@@ -3,9 +3,7 @@
 **Date:** 2026-07-26
 **Status:** Implemented (2026-07-27) — all phases live in `apps/core/src/memory/graph/`
 **Supersedes:** none (extends `2026-06-02-memory-session-design.md`)
-**Companion plan:** `docs/superpowers/plans/2026-07-26-memory-knowledge-graph.md`
-**Prior art:** jcode `docs/MEMORY_ARCHITECTURE.md` (Rust, petgraph); gap item #1 in
-`docs/superpowers/plans/2026-07-18-jcode-feature-gap-analysis.md`.
+**Prior art:** jcode `docs/MEMORY_ARCHITECTURE.md` (Rust, petgraph).
 
 ---
 

@@ -655,7 +655,7 @@ the least ability to notice it's gone wrong before real cost or damage has accum
 - jcode `overnight`: `crates/jcode-overnight-core/src/lib.rs`
   (manifest `:46-82`, task cards `:203-233`, HTML report `:569-699`)
 - jcode `Ambient Mode` (unshipped design): `docs/AMBIENT_MODE.md`
-- Companion spec (Layer 1): `docs/superpowers/specs/2026-08-08-continual-harness-design.md`
-- FreeCode permission rules: `docs/superpowers/specs/2026-07-18-permission-rules.md`
-- FreeCode memory graph: `docs/superpowers/specs/2026-07-26-memory-knowledge-graph.md`
+- Companion spec (Layer 1): `docs/specs/2026-08-08-continual-harness-design.md`
+- FreeCode permission rules: `docs/specs/2026-07-18-permission-rules.md`
+- FreeCode memory graph: `docs/specs/2026-07-26-memory-knowledge-graph.md`
 - Tool/IPC conventions: `CLAUDE.md` §"Adding a tool", `packages/shared/src/ipc/protocol.ts`

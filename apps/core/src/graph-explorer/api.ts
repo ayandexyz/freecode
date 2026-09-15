@@ -1,5 +1,5 @@
 // =============================================================================
-// Memory Graph Explorer — JSON API (spec: docs/superpowers/specs/2026-08-04-
+// Memory Graph Explorer — JSON API (spec: docs/specs/2026-08-04-
 // memory-graph-explorer-design.md).
 //
 // Two endpoints, both pure read-views over an existing MemoryGraphService:

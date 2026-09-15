@@ -216,7 +216,7 @@ export function BenchHub({
         />
         Every harness lives under <code>bench/</code>; the operator reference is{" "}
         <code>HARNESS-BENCH.md</code> at the repo root. The design and its debts are in the spec{" "}
-        <code>docs/superpowers/specs/2026-09-12-harness-bench.md</code>.
+        <code>docs/specs/2026-09-12-harness-bench.md</code>.
       </footer>
     </div>
   );

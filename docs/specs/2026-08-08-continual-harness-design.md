@@ -632,7 +632,7 @@ That would be genuinely self-improving in a way almost nothing shipping today is
 
 Do not build it yet, for one reason: **our own instrument lied to us four times during
 the v0.20.0 work**, each time producing a confident wrong conclusion that sent someone
-off to fix a healthy system. `docs/superpowers/2026-08-06-prompt-caching-findings.md`
+off to fix a healthy system. `docs/2026-08-06-prompt-caching-findings.md`
 records all four. An optimisation loop pointed at a metric will find the metric's blind
 spots faster than a human will, and it will do so while reporting success.
 
@@ -651,6 +651,6 @@ while, and revisit.
   (L23-28, L883), `skills/refine/SKILL.md`
 - Continual Harness paper: arXiv 2605.09998 (referenced from their README)
 - FreeCode caching architecture: `docs/caching-architecture.md`
-- FreeCode caching findings: `docs/superpowers/2026-08-06-prompt-caching-findings.md`
-- Memory graph: `docs/superpowers/specs/2026-07-26-memory-knowledge-graph.md`
+- FreeCode caching findings: `docs/2026-08-06-prompt-caching-findings.md`
+- Memory graph: `docs/specs/2026-07-26-memory-knowledge-graph.md`
 - Tool registration checklist: `CLAUDE.md` § "Adding a tool"

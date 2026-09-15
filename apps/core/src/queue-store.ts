@@ -1,7 +1,7 @@
 // =============================================================================
 // message-queue — in-memory FIFO queue of pending session.send submissions.
 //
-// Spec: docs/superpowers/specs/2026-08-05-queued-messages-design.md
+// Spec: docs/specs/2026-08-05-queued-messages-design.md
 //
 // Lives alongside activeLoops in server.ts and answers four questions:
 //   1. is this session currently busy? (server.ts calls enqueueIfBusy)

@@ -242,7 +242,7 @@
   {
     "type": "reference",
     "name": "design-specs-directory",
-    "description": "Architecture specifications live under the superpowers specs directory",
+    "description": "Architecture specifications live under docs/specs",
     "tags": ["docs"],
     "content": "The v4 architecture spec supersedes v3. Topical specs cover the agent loop, providers, memory, MCP, hooks, and observability."
   },

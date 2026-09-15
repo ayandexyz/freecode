@@ -6,9 +6,8 @@
 
 | Doc | Date | What it is |
 | --- | --- | --- |
-| `docs/superpowers/specs/2026-08-23-eval-harness.md` | 2026-08-23 | **The original.** Phases 0–5, built. Suites, scorers, gate semantics, baseline/history, quarantine, judge independence. |
-| `docs/superpowers/plans/2026-08-28-fx-eval-adoption.md` | 2026-08-28 | fx-inspired proposal. §4/§5/§6 were promoted to a spec the next day; **§3 (scripted provider) is still open** and is the valuable leftover. |
-| `docs/superpowers/specs/2026-08-29-eval-case-registry.md` | 2026-08-29 | fx-inspired spec, shipped. `expectFirstToolIn`, `expectBashMatches`, registry fields, model-echo, `eval ab`. Where it and the plan disagree, **this one wins**. |
+| `docs/specs/2026-08-23-eval-harness.md` | 2026-08-23 | **The original.** Phases 0–5, built. Suites, scorers, gate semantics, baseline/history, quarantine, judge independence. |
+| `docs/specs/2026-08-29-eval-case-registry.md` | 2026-08-29 | fx-inspired spec, shipped. `expectFirstToolIn`, `expectBashMatches`, registry fields, model-echo, `eval ab`. A scripted (replay) provider is still open. |
 
 Suites live in `evals/*.jsonl`, one JSON object per line. Anything that does not
 run a real agent turn is a `*.test.ts` next to its code, not a case here.

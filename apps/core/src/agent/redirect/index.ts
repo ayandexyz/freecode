@@ -1,7 +1,7 @@
 // =============================================================================
 // Trajectory redirection — turn a loop-health warning into evidence-backed
 // advice for the next turn, instead of a debug log nobody reads.
-// Spec: docs/superpowers/specs/2026-08-26-trajectory-redirection.md
+// Spec: docs/specs/2026-08-26-trajectory-redirection.md
 // =============================================================================
 
 export {

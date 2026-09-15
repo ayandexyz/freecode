@@ -1,6 +1,6 @@
 # Memory recall benchmark
 
-Spec: `docs/superpowers/specs/2026-08-23-memory-consolidation.md` D14.
+Spec: `docs/specs/2026-08-23-memory-consolidation.md` D14.
 
 ```bash
 pnpm bench:recall              # metrics table

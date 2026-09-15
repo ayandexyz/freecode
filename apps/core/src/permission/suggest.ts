@@ -1,6 +1,6 @@
 // =============================================================================
 // Suggested-rule generation for "always allow" in permission prompts
-// Spec: docs/superpowers/specs/2026-07-18-permission-rules.md §6
+// Spec: docs/specs/2026-07-18-permission-rules.md §6
 // =============================================================================
 
 import * as path from "path";

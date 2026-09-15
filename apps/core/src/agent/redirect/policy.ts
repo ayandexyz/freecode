@@ -2,7 +2,7 @@
 // Redirect policy — when a loop-health warning is allowed to cost a model call.
 // PRIMARY: LoopAction + counters + history → RedirectDecision
 // PURE: no IO, no clock, no provider. Every cap below is testable for free.
-// Spec: docs/superpowers/specs/2026-08-26-trajectory-redirection.md, D2.
+// Spec: docs/specs/2026-08-26-trajectory-redirection.md, D2.
 // =============================================================================
 
 import type { LoopAction } from "../types.js";

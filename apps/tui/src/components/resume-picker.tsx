@@ -11,8 +11,8 @@
 // navigation is orthogonal to the existing Tab = list/preview focus split;
 // see `handleInput` for the dispatch.
 //
-// Spec: `docs/superpowers/specs/2026-08-02-resume-modal.md` (v1) +
-//       `docs/superpowers/specs/2026-08-02-resume-modal-claude-code-tab.md` (v2).
+// Spec: `docs/specs/2026-08-02-resume-modal.md` (v1) +
+//       `docs/specs/2026-08-02-resume-modal-claude-code-tab.md` (v2).
 // =============================================================================
 
 import {

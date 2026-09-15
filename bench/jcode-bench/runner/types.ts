@@ -1,6 +1,6 @@
 // =============================================================================
 // Shared types for the optimisation-task harness (jcode bench v1 tasks).
-// Design: docs/superpowers/specs/2026-09-12-harness-bench.md §3
+// Design: docs/specs/2026-09-12-harness-bench.md §3
 // =============================================================================
 
 /** One `./grade` invocation, as the upstream harness appends it to scores.jsonl. */

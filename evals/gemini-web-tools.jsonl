@@ -1,6 +1,6 @@
 // Gemini-web tool bridge suite — does the web-session model comply with the
 // text tool protocol instead of answering from priors? Spec:
-// docs/superpowers/specs/2026-08-29-gemini-web-provider.md §10 (the bridge)
+// docs/specs/2026-08-29-gemini-web-provider.md §10 (the bridge)
 // and §4 E1/E2 (the fabrication these cases are the regression net for).
 //
 // NOT part of the gate, and not for CI: every case pins the gemini-web

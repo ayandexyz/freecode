@@ -6,7 +6,7 @@
 //         retry budget and fallback chain are exhausted
 // FLOW: classify error → policy (429 / transient / fatal) → Effect retry with
 //       backoff → next provider in the fallback chain → SessionError on Bus
-// SPEC: RecoveryPolicy shape from docs/superpowers/specs/2026-05-25-agent-loop.md
+// SPEC: RecoveryPolicy shape from docs/specs/2026-05-25-agent-loop.md
 // =============================================================================
 
 import { Effect } from "effect";

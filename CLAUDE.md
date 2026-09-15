@@ -3,7 +3,7 @@
 > How to work on this codebase — architectural principles, patterns, and practices.
 
 **IMPORTANT: Architecture Spec Compliance**
-This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v4.md` (supersedes v3). Before implementing features, read that spec. If implementation deviates from it, the spec takes precedence unless explicitly overridden. Topical specs worth reading before touching a subsystem:
+This codebase follows `docs/specs/2026-05-25-architecture-v4.md` (supersedes v3). Before implementing features, read that spec. If implementation deviates from it, the spec takes precedence unless explicitly overridden. Topical specs worth reading before touching a subsystem:
 
 | Area                | Spec                                                    |
 | ------------------- | ------------------------------------------------------- |
@@ -15,7 +15,7 @@ This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v4.md` (su
 | Memory graph        | `specs/2026-07-26-memory-knowledge-graph.md`            |
 | Memory write path   | `specs/2026-08-09-memory-write-path.md`                 |
 | Memory consolidation | `specs/2026-08-23-memory-consolidation.md` (built 2026-08-23) |
-| **Memory (all of it)** | **`docs/superpowers/MEMORY_SYSTEM.md`** — start here |
+| **Memory (all of it)** | **`docs/MEMORY_SYSTEM.md`** — start here |
 | MCP client          | `specs/2026-06-08-mcp-client-design.md`                 |
 | Observability       | `specs/2026-08-10-agent-observability.md`               |
 | **Trace (commands)** | **`TRACE.md`** — `freecode trace` flags, how to read the waterfall |
@@ -145,9 +145,7 @@ freecode/
 │   └── docs/                       # Documentation site (Next.js)
 │
 └── docs/
-    └── superpowers/
-        ├── specs/                  # Design specifications (v4 is current)
-        └── plans/                 # Implementation plans
+    └── specs/                      # Design specifications (v4 is current)
 ```
 
 ### Tools

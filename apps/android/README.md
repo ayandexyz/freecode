@@ -2,7 +2,7 @@
 
 Native Android client for [FreeCode](https://github.com/ayan-de/freecode)'s
 remote feature (see
-`../../docs/superpowers/specs/2026-08-04-android-remote-client.md`).
+`../../docs/specs/2026-08-04-android-remote-client.md`).
 
 This is a thin Compose shell that:
 

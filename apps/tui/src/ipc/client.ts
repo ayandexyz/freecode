@@ -798,7 +798,7 @@ export async function sessionResume(
 
 // =============================================================================
 // Claude Code Session Methods (read-only — see
-// docs/superpowers/specs/2026-08-02-resume-modal-claude-code-tab.md)
+// docs/specs/2026-08-02-resume-modal-claude-code-tab.md)
 // =============================================================================
 
 export async function sessionClaudeList(filter?: {

@@ -3,7 +3,6 @@
 > **Date:** 2026-08-05
 > **Status:** Built (status corrected 2026-09-04 — D1–D7 all landed; header had
 > never been flipped)
-> **Plan:** `docs/superpowers/plans/2026-08-05-token-efficiency.md`
 
 ## Problem
 

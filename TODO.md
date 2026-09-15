@@ -668,7 +668,7 @@ that page's **Known gaps**.
 
 ## Spec findings (eval harness — 2026-08-23)
 
-From writing `docs/superpowers/specs/2026-08-23-eval-harness.md`. Details in that
+From writing `docs/specs/2026-08-23-eval-harness.md`. Details in that
 spec's §12; these are the parts that are actionable independently of it.
 
 ### Real fixes
@@ -822,7 +822,7 @@ harness can block a release". Remaining:
 ## Spec findings (memory consolidation — prior-art review 2026-08-23)
 
 From reviewing `codex`, `jcode`, `mem0`, and `agentmemory` against
-`docs/superpowers/specs/2026-08-23-memory-consolidation.md` (amended same day,
+`docs/specs/2026-08-23-memory-consolidation.md` (amended same day,
 D12–D14). These are actionable independently of that spec's phases.
 
 ### Roadmap (needs its own spec, not a fix)
@@ -916,7 +916,7 @@ limitation is still open:
 
 ## Findings (gemini-web provider — 2026-08-29)
 
-Found while writing `docs/superpowers/specs/2026-08-29-gemini-web-provider.md`.
+Found while writing `docs/specs/2026-08-29-gemini-web-provider.md`.
 Ranked by value. Full context in §8 of that spec.
 
 ### Real fixes
@@ -963,9 +963,8 @@ Ranked by value. Full context in §8 of that spec.
 
 ## Findings (OpenHands comparison — 2026-09-01)
 
-Found while writing `docs/superpowers/OPENHANDS_COMPARISON.md`, which reads the
-`OpenHands/OpenHands` Agent Canvas frontend (`ca4024e3a`) for what makes its
-long-running sessions survivable. Ranked as the doc's §"Recommended sequencing".
+Found while reading the `OpenHands/OpenHands` Agent Canvas frontend (`ca4024e3a`)
+for what makes its long-running sessions survivable.
 
 ### Long-session fidelity
 

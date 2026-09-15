@@ -21,7 +21,6 @@
 > (`session/instruction.ts` loads `AGENTS.md`; nothing more). Not a reference here.
 > Also checked and empty: `aider`, `pi` (session storage only), `Graft`, `rlm`,
 > `agent-sturdy`, `deepseek-harness` (third-party memory-MCP config examples only).
-> **Companion plan:** `docs/superpowers/plans/2026-08-23-memory-consolidation.md`
 
 ---
 
@@ -904,7 +903,7 @@ read it.
 | `agent/loop.ts` | modified | D7: consolidation in the extraction slot, mutually exclusive; D12: strip `<memory-used>` and record citations against the injected set; D15: pass the judge context into `prepareMemories` |
 | `rollout/recorder.ts` | modified | D14: record `RetrievalOutcome` |
 | `permission/mode-policy.ts` | **no change** | `memory` stays out of `READONLY_TOOLS` (write-path D7). Listed so the tool checklist shows it was considered |
-| `docs/superpowers/MEMORY_SYSTEM.md` | modified | §2 layout, §3 write path, §10 gaps, §11 comparison |
+| `docs/MEMORY_SYSTEM.md` | modified | §2 layout, §3 write path, §10 gaps, §11 comparison |
 | `apps/docs/app/internals/memory/page.mdx` | modified | Episodic + consolidation; its Known gaps shrink |
 
 Each new file has one job and stays under the ~150-line limit. Consolidation does

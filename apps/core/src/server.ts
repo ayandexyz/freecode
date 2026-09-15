@@ -1221,7 +1221,7 @@ export const methodHandlers: Record<
 
   // Claude Code session discovery. Read-only — we never write back to the
   // user's ~/.claude. The picker shows these as a second tab in /resume
-  // (see docs/superpowers/specs/2026-08-02-resume-modal-claude-code-tab.md).
+  // (see docs/specs/2026-08-02-resume-modal-claude-code-tab.md).
   "session.claudeList": async (
     params: Record<string, unknown>,
   ): Promise<ClaudeSessionMeta[]> => {

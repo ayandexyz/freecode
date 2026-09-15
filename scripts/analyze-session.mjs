@@ -2,7 +2,7 @@
 // =============================================================================
 // analyze-session.mjs — replay a recorded session and report what it cost.
 //
-// Phase 0 of docs/superpowers/plans/2026-08-05-token-efficiency.md. Every later
+// Phase 0 of docs/specs/2026-08-05-token-efficiency.md. Every later
 // phase is verified by re-running this and comparing the headline number, so
 // this script is the baseline — not a fix.
 //

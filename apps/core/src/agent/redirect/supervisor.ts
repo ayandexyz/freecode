@@ -8,7 +8,7 @@
 // FAILS CLOSED, ALWAYS (D6): provider error, timeout, empty or unparseable
 // response → no redirection, a recorded skip, and the loop continues exactly as
 // it behaves today. Never throws.
-// Spec: docs/superpowers/specs/2026-08-26-trajectory-redirection.md, D4–D6.
+// Spec: docs/specs/2026-08-26-trajectory-redirection.md, D4–D6.
 // =============================================================================
 
 import { getProvider } from "../../providers/index.js";

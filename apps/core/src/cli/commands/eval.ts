@@ -1,7 +1,7 @@
 import type { CommandModule } from "yargs";
 
 // `freecode eval` — run an eval suite against the real agent loop.
-// Spec: docs/superpowers/specs/2026-08-23-eval-harness.md
+// Spec: docs/specs/2026-08-23-eval-harness.md
 
 interface EvalAddArgs {
   sessionId: string;

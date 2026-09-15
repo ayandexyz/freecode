@@ -2,7 +2,7 @@
 
 > Operator's guide to `freecode trace`: what each flag does, how to read the
 > output, and which question each mode answers. Design lives in
-> `docs/superpowers/specs/2026-08-10-agent-observability.md`; this is the
+> `docs/specs/2026-08-10-agent-observability.md`; this is the
 > "what do I type" page.
 
 `freecode trace` answers **"why was this session slow"** and **"why is it

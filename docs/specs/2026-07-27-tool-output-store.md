@@ -3,7 +3,6 @@
 **Date:** 2026-07-27
 **Status:** Implemented (2026-07-27) — `apps/core/src/tools/output-store/` + `tools/output.ts`
 **Supersedes:** none (extends the tool orchestrator)
-**Companion plan:** `docs/superpowers/plans/2026-07-27-tool-output-store.md`
 **Prior art:** opencode `src/tool/truncate.ts` + `core/tool-output-store.ts`
 (gap item #11 in `plans/other-tools/2026-07-18-opencode-feature-gap-analysis.md`).
 

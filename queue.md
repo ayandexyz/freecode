@@ -1,6 +1,6 @@
 # Experiment queue — 2026-09-04
 
-Spec: `docs/superpowers/specs/2026-09-04-harness-cost-efficiency.md`
+Spec: `docs/specs/2026-09-04-harness-cost-efficiency.md`
 
 ## 1. D3 coding A/B — ✅ DONE (2026-09-04)
 ```

@@ -1,5 +1,5 @@
 // =============================================================================
-// Memory Graph Explorer — HTTP server (spec: docs/superpowers/specs/2026-08-04-
+// Memory Graph Explorer — HTTP server (spec: docs/specs/2026-08-04-
 // memory-graph-explorer-design.md).
 //
 // Two responsibilities:

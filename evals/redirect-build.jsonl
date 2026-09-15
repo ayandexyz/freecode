@@ -1,5 +1,5 @@
 // Redirect suite, BUILD half — the cases that can actually trigger something.
-// Spec: docs/superpowers/specs/2026-08-26-trajectory-redirection.md §9.2.
+// Spec: docs/specs/2026-08-26-trajectory-redirection.md §9.2.
 //
 // Split out of `redirect.jsonl` on 2026-08-29 after the first baseline run.
 // That run proved the split was necessary: across 5 trials each, the five

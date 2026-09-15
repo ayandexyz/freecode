@@ -20,7 +20,7 @@ test("MemoryService compacts old messages and exposes prompt context", async () 
       hooks: createHookRuntime(),
     });
 
-    service.addMessage("user", "old request in docs/superpowers/plans/x.md");
+    service.addMessage("user", "old request in docs/plans/x.md");
     service.addMessage("assistant", "old answer");
     service.addMessage("user", "second request");
     service.addMessage("assistant", "second answer");
@@ -40,7 +40,7 @@ test("MemoryService compacts old messages and exposes prompt context", async () 
     assert.deepEqual(
       context.recentMessages.map((message) => message.content),
       [
-        "old request in docs/superpowers/plans/x.md",
+        "old request in docs/plans/x.md",
         "middle request",
         "middle answer",
         "latest request",

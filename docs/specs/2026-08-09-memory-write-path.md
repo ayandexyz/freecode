@@ -8,7 +8,6 @@
 > **Prior art studied:** `claude-code` (`memdir/`, `services/extractMemories/`, `services/autoDream/`)
 > and `jcode` (`crates/jcode-base/src/memory_agent.rs`, `memory.rs`), both read at their
 > working trees on 2026-08-09.
-> **Companion plan:** `docs/superpowers/plans/2026-08-09-memory-write-path.md` (to be written)
 
 ---
 

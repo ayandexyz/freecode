@@ -1127,7 +1127,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
         Generated {new Date(view.generatedAt).toUTCString()} by{" "}
         <span className="text-foreground/70">pnpm bench:agents</span>. Method:{" "}
         <span className="text-foreground/70">
-          docs/superpowers/specs/2026-09-03-agent-comparison-benchmark.md
+          docs/specs/2026-09-03-agent-comparison-benchmark.md
         </span>
       </footer>
     </section>

@@ -1,7 +1,7 @@
 // =============================================================================
 // Anthropic OAuth (Claude Pro/Max subscription) — Phase 0.
 //
-// Spec: `docs/superpowers/specs/2026-09-05-anthropic-oauth-provider.md`.
+// Spec: `docs/specs/2026-09-05-anthropic-oauth-provider.md`.
 // Read §0.1 before touching this file: the subscription endpoint only answers
 // requests that look like Claude Code, so this module impersonates it — Claude
 // Code's OAuth client id, its User-Agent, its beta headers, and its identity

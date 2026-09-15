@@ -75,7 +75,7 @@ The eval gate (`pnpm eval:gate`, all three suites at `--trials 3` against `minim
 - **MCP command and interactive server picker** (`apps/tui/src/commands/built-in.ts`, `apps/tui/src/components/mcp-picker.ts`, `apps/core/src/mcp/convert-tool.ts`). A `/mcp` slash command lists configured servers with status, and the picker supports adding/removing entries without dropping to a config file. Tool conversion now validates input schemas before they reach the orchestrator and refuses the malformed ones earlier.
 - **`@mention` autocomplete and fd-less file search** (`apps/tui/src/utils/at-mention-provider.ts`, `file-search.ts`). The TUI input recognises `@` and offers file-path completions from a worker-pool search that doesn't depend on `fd` being installed — falls back to a hand-rolled directory walker and returns ranked by recency.
 - **PowerShell clipboard image handling** (`apps/tui/src/utils/clipboard.ts`). On Windows, the existing image-paste path now also reads PowerShell's clipboard (`Add-Type` + `System.Windows.Forms.Clipboard`) so an image copied from Snipping Tool lands in the prompt the same way a macOS/Linux paste does.
-- **`gemini-web` provider specification** (`docs/superpowers/specs/2026-08-29-gemini-web-provider.md`). The internal spec behind the gemini-web provider landed in `0.27.0`; this release ships the doc.
+- **`gemini-web` provider specification** (`docs/specs/2026-08-29-gemini-web-provider.md`). The internal spec behind the gemini-web provider landed in `0.27.0`; this release ships the doc.
 
 ### Changed
 
@@ -154,7 +154,7 @@ Alongside it: trajectory redirection turns a loop-health warning into evidence-b
 ### Docs
 - **New specs**: `2026-08-26-trajectory-redirection.md`, `2026-08-29-eval-case-registry.md`. Updated: `2026-08-23-eval-harness.md`, `2026-08-10-agent-observability.md`, `2026-08-10-autonomous-runs-design.md`.
 - **Published eval page brought in line with the gate that shipped** (`apps/docs/app/internals/eval/`). It still told readers an unconfigured judge leaves the gate open "by design", which is now exactly backwards — and it is the page someone reads when their run says GATE CLOSED and they want to know whether to trust it.
-- **AVO architecture comparison** (`docs/superpowers/AVO_ARCHITECTURE_COMPARISON.md`). Records the outcome honestly: redirection built and off by default, four of five acceptance criteria met, and five defects found in existing code that had nothing to do with AVO.
+- **AVO architecture comparison** (`docs/AVO_ARCHITECTURE_COMPARISON.md`). Records the outcome honestly: redirection built and off by default, four of five acceptance criteria met, and five defects found in existing code that had nothing to do with AVO.
 - **Judged thresholds calibrated against real runs**. Two graded runs on `minimax/MiniMax-M3` with a `gemini/gemini-3.6-flash` judge scored 4.60 and 4.67 mean, worst case 4.00. The 3.5/2.0 thresholds are left alone rather than tightened: a threshold set from a single run is still a guess with a number on it, and both changes would move the gate toward *more* blocking, which is how a gate gets ignored.
 
 ## v0.26.1
@@ -345,7 +345,7 @@ Fixes two false positives in v0.23.0's observability work, one of them capable o
 
 ## v0.23.0
 
-FreeCode could not tell you why it was slow. A session was measured at 34 minutes wall clock, of which all 27 tool calls accounted for under one second; the remaining ~31 minutes went somewhere the system had no name for. The rollout log had twelve event types covering tools, hooks, skills, subagents, compaction and parse errors — and none for the provider round trip, so the slowest and most failure-prone step in the loop was the one step that left no trace. Worse, nothing bounded how long a request could take: a provider that accepted the connection and then went silent parked the loop indefinitely, with no error, no timeout and no event. Because the TUI shows the last thing that emitted an event, that rendered as "stuck on `todowrite`" — the todo list was a symptom, not the problem. Design in `docs/superpowers/specs/2026-08-10-agent-observability.md`.
+FreeCode could not tell you why it was slow. A session was measured at 34 minutes wall clock, of which all 27 tool calls accounted for under one second; the remaining ~31 minutes went somewhere the system had no name for. The rollout log had twelve event types covering tools, hooks, skills, subagents, compaction and parse errors — and none for the provider round trip, so the slowest and most failure-prone step in the loop was the one step that left no trace. Worse, nothing bounded how long a request could take: a provider that accepted the connection and then went silent parked the loop indefinitely, with no error, no timeout and no event. Because the TUI shows the last thing that emitted an event, that rendered as "stuck on `todowrite`" — the todo list was a symptom, not the problem. Design in `docs/specs/2026-08-10-agent-observability.md`.
 
 ### Added
 - **Model calls are recorded.** Four new rollout events — `model.request`, `model.first_token`, `model.response`, `model.error` — carrying provider, model, message count, prompt size, time-to-first-token, duration, token counts, cache hits, tool calls and error kind. `model.request` is written *before* the call rather than after, which is the load-bearing decision: a request with no matching terminator is what a hang looks like in the log, and an absence is only detectable if the opening line was recorded first. `promptChars` is a character count rather than a token estimate, because it exists to make runaway context growth visible turn-over-turn and a cheap comparable number beats an expensive precise one — `JSON.stringify` over a 100KB prompt every turn is not worth it.
@@ -358,7 +358,7 @@ FreeCode could not tell you why it was slow. A session was measured at 34 minute
 
 ## v0.22.0
 
-Memory gets a write path. The knowledge graph — embeddings, cascade, clustering, `/graph` — has been implemented since v0.7.0 and was retrieving from an empty directory: nothing in FreeCode ever created a memory. There was no tool, no prompt telling the model memory existed, and no frontend caller of `memory.save`. The store now fills itself, from the model during a turn and from an extractor after it. Design in `docs/superpowers/specs/2026-08-09-memory-write-path.md`; the whole subsystem, read and write, is written up in `docs/superpowers/MEMORY_SYSTEM.md`.
+Memory gets a write path. The knowledge graph — embeddings, cascade, clustering, `/graph` — has been implemented since v0.7.0 and was retrieving from an empty directory: nothing in FreeCode ever created a memory. There was no tool, no prompt telling the model memory existed, and no frontend caller of `memory.save`. The store now fills itself, from the model during a turn and from an extractor after it. Design in `docs/specs/2026-08-09-memory-write-path.md`; the whole subsystem, read and write, is written up in `docs/MEMORY_SYSTEM.md`.
 
 ### Added
 - **A `memory` tool** — `save` / `delete` / `list` over `MemoryStore`, so the model can record a durable fact when it learns one. It wraps the store rather than instructing the model to hand-write files with `write`: that keeps frontmatter valid, `MEMORY.md` regenerated, and the derived graph incrementally updated, none of which survive a model typing YAML by hand. `save` is idempotent on name and reports `created` vs `updated` with the previous description, so the model can see when it has just clobbered something it didn't mean to. `list` returns names, descriptions and types only, never bodies — it is the dedup check before a save, not a bulk-recall path; recall is what the graph is for.
@@ -373,7 +373,7 @@ Memory gets a write path. The knowledge graph — embeddings, cascade, clusterin
 
 ## v0.21.0
 
-The observability follow-up to v0.20.0. That release made prompt caching work; this one makes it legible — the hit rate is reported rather than left as a division you do per turn, the daily record keeps enough detail to see a regression, and a detector names the turn that broke the prefix instead of leaving it to be found by hand months later. Design in `docs/superpowers/specs/2026-08-09-cache-observability.md`.
+The observability follow-up to v0.20.0. That release made prompt caching work; this one makes it legible — the hit rate is reported rather than left as a division you do per turn, the daily record keeps enough detail to see a regression, and a detector names the turn that broke the prefix instead of leaving it to be found by hand months later. Design in `docs/specs/2026-08-09-cache-observability.md`.
 
 ### Added
 - **The prompt-cache hit rate, per run and per session.** The TUI already showed `cached: 89.2k` next to `↓12.3k` — an 88% hit rate, if you did the arithmetic every turn and never across the session. The run footer now reports `cache 88% (89.2k read, 4.1k write) · session 84%`. Writes are shown alongside because they bill at ~1.25x: a rate bought by constant rewriting is not a win, and the raw read count hides that. Session totals reset on resume rather than inheriting the previous session's numbers.
@@ -391,7 +391,7 @@ The observability follow-up to v0.20.0. That release made prompt caching work; t
 
 ## v0.20.0
 
-The token-efficiency release. Prompt caching was measured at ~5% hit rate across six live sessions; it now runs at 90–99.8% on steady-state turns. Every cause was ours, none was the provider. Full write-up in `docs/superpowers/2026-08-06-prompt-caching-findings.md`, architecture in `docs/caching-architecture.md`.
+The token-efficiency release. Prompt caching was measured at ~5% hit rate across six live sessions; it now runs at 90–99.8% on steady-state turns. Every cause was ours, none was the provider. Full write-up in `docs/2026-08-06-prompt-caching-findings.md`, architecture in `docs/caching-architecture.md`.
 
 ### Added
 - **Queued follow-up messages.** Sending a prompt while a turn was still running started a second agent loop on the same session and corrupted the message history. Mid-turn prompts now park in a per-session FIFO, show a dim `queued` badge, and drain when the active turn ends; `Ctrl+Backspace` pulls the most recent one back into the editor for editing. Adds the `session.dequeue` IPC method and queue stream events.
@@ -452,7 +452,7 @@ The token-efficiency release. Prompt caching was measured at ~5% hit rate across
 ## v0.18.0
 
 ### Added
-- **`/graph` — a local browser UI for the memory knowledge graph.** Renders your project's memory graph (tags, wikilinks, clusters) as a force-directed diagram, with a live search box that runs the real cascade retrieval pipeline and highlights which memories it would surface for a prompt, with per-hop decayed scores — an educational, read-only view into the same retrieval every real turn already uses. Distributed as an optional addon rather than baked into the binary: `freecode memory ui-install` downloads it (~280 KB, sha256-verified against the release), `freecode memory ui-uninstall` removes it. See `docs/superpowers/specs/2026-08-04-memory-graph-explorer-design.md`.
+- **`/graph` — a local browser UI for the memory knowledge graph.** Renders your project's memory graph (tags, wikilinks, clusters) as a force-directed diagram, with a live search box that runs the real cascade retrieval pipeline and highlights which memories it would surface for a prompt, with per-hop decayed scores — an educational, read-only view into the same retrieval every real turn already uses. Distributed as an optional addon rather than baked into the binary: `freecode memory ui-install` downloads it (~280 KB, sha256-verified against the release), `freecode memory ui-uninstall` removes it. See `docs/specs/2026-08-04-memory-graph-explorer-design.md`.
 
 ## v0.17.3
 

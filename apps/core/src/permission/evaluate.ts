@@ -2,7 +2,7 @@
 // Permission Evaluation - The decision function for a tool call
 // Order: danger bypass → mode enforcement → deny → ask → allow → mode default
 // Deny is absolute; session grants live in the allow tier and never beat deny.
-// Spec: docs/superpowers/specs/2026-07-18-permission-rules.md §2, §5
+// Spec: docs/specs/2026-07-18-permission-rules.md §2, §5
 // =============================================================================
 
 import type { AgentMode } from "../agent/types.js";

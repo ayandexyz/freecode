@@ -101,10 +101,10 @@ export function HooksNodeContent() {
           <li>
             <span className={styles.fileBadge}>Design Spec</span>
             <a
-              href="file:///home/ayan-de/Projects/freecode/docs/superpowers/specs/2026-07-18-permission-rules.md"
+              href="file:///home/ayan-de/Projects/freecode/docs/specs/2026-07-18-permission-rules.md"
               className={styles.fileLink}
             >
-              docs/superpowers/specs/2026-07-18-permission-rules.md
+              docs/specs/2026-07-18-permission-rules.md
             </a>
           </li>
         </ul>

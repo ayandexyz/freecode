@@ -489,6 +489,6 @@ A: MCP tools are prefixed with the server name (e.g., `github_create_issue`) and
 
 ## See Also
 
-- [MCP Client Design Spec](./superpowers/specs/2026-06-08-mcp-client-design.md)
-- [MCP Client Implementation Plan](./superpowers/plans/2026-06-08-mcp-client-plan.md)
+- [MCP Client Design Spec](./specs/2026-06-08-mcp-client-design.md)
+- [MCP Client Implementation Plan](./plans/2026-06-08-mcp-client-plan.md)
 - [Official MCP Documentation](https://modelcontextprotocol.io)

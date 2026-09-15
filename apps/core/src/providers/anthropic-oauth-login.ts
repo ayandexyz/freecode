@@ -1,6 +1,6 @@
 // =============================================================================
 // Anthropic OAuth login (PKCE) — Phase 1 of
-// `docs/superpowers/specs/2026-09-05-anthropic-oauth-provider.md`.
+// `docs/specs/2026-09-05-anthropic-oauth-provider.md`.
 //
 // Phase 0 borrowed the official Claude Code CLI's login; this module mints our
 // own, so freecode works on a machine that never ran Claude Code. Protocol only

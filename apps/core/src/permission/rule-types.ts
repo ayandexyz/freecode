@@ -1,6 +1,6 @@
 // =============================================================================
 // Permission Rule Types - Shapes for the per-rule permission layer
-// Spec: docs/superpowers/specs/2026-07-18-permission-rules.md
+// Spec: docs/specs/2026-07-18-permission-rules.md
 // =============================================================================
 
 export type PermissionRuleDecision = "allow" | "ask" | "deny";

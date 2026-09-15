@@ -1,7 +1,7 @@
 // =============================================================================
 // queue-store unit tests
 // Pure FIFO semantics — no async, no Effect runtime, no AgentLoop involvement.
-// Spec: docs/superpowers/specs/2026-08-05-queued-messages-design.md
+// Spec: docs/specs/2026-08-05-queued-messages-design.md
 // =============================================================================
 
 import test from "node:test";

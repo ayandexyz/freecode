@@ -2,7 +2,7 @@
 // Permission Settings - Load/merge/persist rule scopes
 // Scopes: project (.freecode/settings.json) → user (~/.freecode/settings.json)
 // → session (in-memory grants). Parse failures fail closed (scope = empty).
-// Spec: docs/superpowers/specs/2026-07-18-permission-rules.md §3
+// Spec: docs/specs/2026-07-18-permission-rules.md §3
 // =============================================================================
 
 import * as fs from "fs";

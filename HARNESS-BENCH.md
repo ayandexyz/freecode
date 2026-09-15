@@ -3,7 +3,7 @@
 > Operator's guide to the **harness signals** and **optimisation task**
 > benchmarks that feed `/bench` on the website: what each command does, which
 > flag to reach for, and when to run it. Design lives in
-> `docs/superpowers/specs/2026-09-12-harness-bench.md`; this is the "what do I
+> `docs/specs/2026-09-12-harness-bench.md`; this is the "what do I
 > type" page.
 >
 > Modelled on [jcode.sh/bench](https://jcode.sh/bench): the same six things

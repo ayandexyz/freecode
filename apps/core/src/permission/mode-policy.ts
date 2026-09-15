@@ -2,7 +2,7 @@
 // Mode Policy - What each agent mode enforces and defaults to
 // Modes are default policies applied when no rule matched; plan/review/explore
 // additionally hard-deny mutations before rules are consulted.
-// Spec: docs/superpowers/specs/2026-07-18-permission-rules.md §4
+// Spec: docs/specs/2026-07-18-permission-rules.md §4
 // =============================================================================
 
 import * as path from "path";

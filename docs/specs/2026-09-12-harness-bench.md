@@ -30,7 +30,7 @@ page decides a default; `eval ab` does (EVAL.md).
   re-runnable on any machine's `~/.freecode`.
 - Non-goal: deciding whether any gate is good. Non-goal: isolation for the
   optimisation harness (§6). Non-goal: reproducing jcode's Terminal-Bench
-  numbers (that is `docs/superpowers/plans/quality-bench.md` M5).
+  numbers (that is the Terminal-Bench / SWE-bench-verified track).
 
 ## 2. The signals (core)
 

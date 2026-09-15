@@ -1,6 +1,6 @@
 // =============================================================================
 // `freecode auth login|status|logout` — Phase 1 of the Anthropic OAuth spec
-// (`docs/superpowers/specs/2026-09-05-anthropic-oauth-provider.md`).
+// (`docs/specs/2026-09-05-anthropic-oauth-provider.md`).
 //
 // Presentation only: the protocol lives in `providers/anthropic-oauth*.ts`.
 // Login prints the §0.1 disclosure once, per that spec — this feature

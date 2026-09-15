@@ -2,7 +2,7 @@
 
 > Operator's guide to the **agent comparison** harness: what each command does,
 > which flag to reach for, and when to run it. Design lives in
-> `docs/superpowers/specs/2026-09-03-agent-comparison-benchmark.md`; this is
+> `docs/specs/2026-09-03-agent-comparison-benchmark.md`; this is
 > the "what do I type" page.
 >
 > Inspired by [Superbrain's public benchmark](https://www.onesuperbrain.com/benchmarks):

@@ -1,6 +1,6 @@
 // =============================================================================
 // Permission Rules - Parse `Tool(pattern)` strings and match tool calls
-// Spec: docs/superpowers/specs/2026-07-18-permission-rules.md §1
+// Spec: docs/specs/2026-07-18-permission-rules.md §1
 // =============================================================================
 
 import * as path from "path";

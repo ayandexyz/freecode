@@ -1,6 +1,6 @@
 // =============================================================================
 // Shared types for the agent comparison benchmark.
-// Spec: docs/superpowers/specs/2026-09-03-agent-comparison-benchmark.md
+// Spec: docs/specs/2026-09-03-agent-comparison-benchmark.md
 // =============================================================================
 
 /** One competing agent, described entirely by `agents/<id>.json`. */

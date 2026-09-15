@@ -1,5 +1,5 @@
 // Trajectory suite — did the right tool fire, with the right args, in a sane
-// number of turns? Spec: docs/superpowers/specs/2026-08-23-eval-harness.md
+// number of turns? Spec: docs/specs/2026-08-23-eval-harness.md
 //
 // EVERY CASE IS READ-ONLY, and `dataset.ts` enforces it. Phase 1 has no
 // sandbox (spec §6.1), so a case runs against the real working directory, and

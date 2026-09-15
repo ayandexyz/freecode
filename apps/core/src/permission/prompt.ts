@@ -3,7 +3,7 @@
 // Publishes permission.asked on the bus, applies the user's answer (session
 // grant or persisted rule), and reports allow/deny back to the agent loop.
 // Headless or timed-out asks resolve to deny — never silent allow.
-// Spec: docs/superpowers/specs/2026-07-18-permission-rules.md §6
+// Spec: docs/specs/2026-07-18-permission-rules.md §6
 // =============================================================================
 
 import { randomUUID } from "crypto";

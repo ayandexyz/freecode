@@ -255,7 +255,7 @@ if (preResult.modifiedInput) {
 //   "allow" | "deny" | "ask" — a matched hook overrides the rules outcome
 //   (except a rules deny, which is absolute and short-circuits before hooks)
 //   "passthrough" — no hook matched; the rules-engine decision stands
-// See docs/superpowers/specs/2026-07-18-permission-rules.md §5.
+// See docs/specs/2026-07-18-permission-rules.md §5.
 const permResult = await this.hooks.runPermissionRequest(toolCall, ctx);
 
 // Post Tool Use (can modify output)

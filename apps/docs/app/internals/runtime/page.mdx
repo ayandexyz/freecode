@@ -116,7 +116,7 @@ the pattern is almost certainly a genuine stuck loop rather than real work.
 
 This evaluator used to live inline in `agent/loop.ts` as a second, duplicate
 implementation — it was collapsed into the one here so there is exactly one
-copy of the policy (see `docs/superpowers/specs/2026-08-26-trajectory-redirection.md`,
+copy of the policy (see `docs/specs/2026-08-26-trajectory-redirection.md`,
 decision D10). `layers.ts` re-exports it from its old import path for
 backward compatibility.
 

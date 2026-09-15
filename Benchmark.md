@@ -170,7 +170,7 @@ listed at the top of this file.
 > and process-count columns are unaffected. Timing columns below are the
 > **old (inflated)** values until the full table is re-captured.
 
-### TUI cold-start (2026-07-13, Track A of `docs/superpowers/plans/tui-optimisation.md`)
+### TUI cold-start (2026-07-13)
 
 Measured with the fixed harness, `--sessions 3`, `node apps/tui/dist/index.js`:
 

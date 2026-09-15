@@ -7,8 +7,7 @@
 > **2026-08-29:** the eval sandbox landed and cleared §9.1's blocker, but only for
 > `no_progress` — see §9.2. The flip criterion needs restating before Phase 2 is
 > worth re-running, because it is written around a metric that is structurally zero.
-> **Derived from:** `docs/superpowers/AVO_ARCHITECTURE_COMPARISON.md` §"The best ideas
-> to take" §1, which reads *AVO: Agentic Variation Operators for Autonomous Evolutionary
+> **Derived from:** *AVO: Agentic Variation Operators for Autonomous Evolutionary
 > Search* (Chen et al., NVIDIA, arXiv:2603.24517v1) §3.3 — the conditional supervisor
 > that "reviews the overall evolutionary trajectory and steers the search toward several
 > candidate optimization directions" when the agent stalls or enters unproductive cycles.

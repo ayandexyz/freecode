@@ -3,7 +3,7 @@
 // PRIMARY: RolloutEvent[] + loop state → EvidencePacket
 // PURE: no IO. Given a log you can reconstruct the exact packet a recorded
 //       redirection was formed on, which is what makes the advice auditable.
-// Spec: docs/superpowers/specs/2026-08-26-trajectory-redirection.md, D3.
+// Spec: docs/specs/2026-08-26-trajectory-redirection.md, D3.
 // =============================================================================
 
 import { buildTrace } from "../../rollout/trace.js";

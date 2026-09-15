@@ -2,7 +2,7 @@
 
 **Audience:** contributors working on the Android client (`apps/android`) or the
 remote server path (`apps/core/src/web*`).
-**Spec:** [`superpowers/specs/2026-08-04-android-remote-client.md`](superpowers/specs/2026-08-04-android-remote-client.md)
+**Spec:** [`specs/2026-08-04-android-remote-client.md`](specs/2026-08-04-android-remote-client.md)
 
 This is the setup and debugging runbook. The spec explains *why* the design is
 what it is; this explains how to get it running on a real phone and how to

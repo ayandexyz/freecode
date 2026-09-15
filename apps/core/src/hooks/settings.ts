@@ -2,7 +2,7 @@
 // Hook Settings - Load hooks from settings.json
 // Scopes: project (.freecode/settings.json) → user (~/.freecode/settings.json)
 // Parse failures fail closed (invalid hooks are skipped with warnings).
-// Spec: docs/superpowers/specs/2026-07-31-hooks-settings-design.md
+// Spec: docs/specs/2026-07-31-hooks-settings-design.md
 // =============================================================================
 
 import * as fs from "fs";
