@@ -1,4 +1,4 @@
-// Coding suite — did the END STATE match? Spec: docs/superpowers/specs/2026-08-23-eval-harness.md
+// Coding suite — did the END STATE match? Spec: docs/specs/2026-08-23-eval-harness.md
 //
 // Every case here is SANDBOXED: `files` seeds a fresh tmpdir which becomes the
 // case's project root, the turn runs in `build` mode, and `verify` runs in that
