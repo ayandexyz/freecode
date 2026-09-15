@@ -57,7 +57,14 @@ Every signal → `todo.signal` in the rollout log, `gated: true/false`. Gate on
 `completed` or `cancelled`), `cap_reached` (3/run — state is reset per
 `run()`, i.e. per prompt), `no_budget` (the iteration cap would end the run
 before the poked turn), `no_progress` (the open items are byte-identical to
-the last poke's). A poke is a reminder listing the open items; the loop grants
+the last poke's). A poke is a **user-role message** listing the open items, persisted
+with `synthetic: "auto_poke"` — not a `<system-reminder>` on the ephemeral
+tail. jcode's reason, adopted here: a turn whose only user content is a
+reminder reads as empty and the model answers it ("Continuing!") instead of
+working; a persisted turn also keeps the transcript alternating on resume
+and after compaction. It is appended after the cache anchors, so nothing is
+re-sent. It goes to history and the session store, not the compaction
+transcript, and `harvest.ts` never scopes a case on it. The loop grants
 another turn. A poke, a `no_progress` stop and a `cap_reached` stop each
 reach the frontend as a `notice` — the user must not watch the model say
 "done" and then silently keep going. Every stop with a list present writes `poke.triggered` or

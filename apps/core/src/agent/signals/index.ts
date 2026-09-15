@@ -15,7 +15,7 @@ export {
   decidePoke,
   notePoke,
   initialPokeState,
-  pokeReminder,
+  pokeMessage,
   pokeNotice,
   todoFingerprint,
   type PokeState,

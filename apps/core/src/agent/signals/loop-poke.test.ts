@@ -46,6 +46,8 @@ const info = {
 
 /** Every ephemeral tail the loop sent, where reminders ride. */
 const tailsSeen: string[] = [];
+/** The last user message of every request — where the poke rides. */
+const lastUserSeen: string[] = [];
 
 registerProvider("poke-fake" as ProviderId, {
   info,
@@ -62,6 +64,11 @@ registerProvider("poke-fake" as ProviderId, {
     // confidence. Every later turn: plain text — the model declares victory.
     stream: async function* (opts: ExecuteOptions): AsyncGenerator<ProviderChunk> {
       tailsSeen.push(opts.ephemeralTail ?? "");
+      const users = (opts.messages ?? []).filter((m) => m.role === "user");
+      const last = users[users.length - 1];
+      lastUserSeen.push(
+        last?.parts.map((p) => (p.type === "text" ? p.content : "")).join("") ?? "",
+      );
       if (tailsSeen.length === 1) {
         yield {
           type: "tool_call",
@@ -94,6 +101,7 @@ function readEvents(dir: string): Array<Record<string, unknown>> {
 async function runLoop(sessionId: string, signals: Record<string, unknown>, runs = 1) {
   clearTodos(sessionId);
   tailsSeen.length = 0;
+  lastUserSeen.length = 0;
   const rolloutDir = mkdtempSync(join(tmpdir(), "freecode-poke-rollout-"));
   const projectPath = mkdtempSync(join(tmpdir(), "freecode-poke-project-"));
   mkdirSync(join(projectPath, ".freecode"), { recursive: true });
@@ -143,10 +151,11 @@ async function runLoop(sessionId: string, signals: Record<string, unknown>, runs
   unsub();
   await runtime.dispose();
   const events = readEvents(rolloutDir);
+  const stored = await store.getMessages(sessionId, projectPath);
   rmSync(rolloutDir, { recursive: true, force: true });
   rmSync(projectPath, { recursive: true, force: true });
   clearTodos(sessionId);
-  return { result, events, turns: tailsSeen.length, notices };
+  return { result, events, turns: tailsSeen.length, notices, stored };
 }
 
 test("a stop with open todos is poked once, and a poke that moves nothing ends the run", async () => {
@@ -170,11 +179,14 @@ test("a stop with open todos is poked once, and a poke that moves nothing ends t
   // turn 1 plan, turn 2 stop → poke, turn 3 stop → no progress. Three turns.
   assert.equal(turns, 3);
 
-  // The poke rode the next turn's ephemeral tail, naming the open item.
-  const poked = tailsSeen.filter((t) => t.includes("still open"));
+  // The poke is the next turn's last USER message — a real turn with content,
+  // not a reminder-only tail — naming the open item.
+  const poked = lastUserSeen.filter((t) => t.includes("still open"));
   assert.equal(poked.length, 1);
   assert.match(poked[0]!, /\[ \] make it faster/);
   assert.match(poked[0]!, /poke 1 of 3/);
+  assert.ok(!poked[0]!.includes("<system-reminder>"));
+  assert.ok(!tailsSeen.some((t) => t.includes("still open")));
 
   // The low hill-climb rating was recorded and, with its gate on, nudged.
   const signals = events.filter((e) => e.type === "todo.signal");
@@ -198,6 +210,15 @@ test("the poke and the stop are both surfaced to the frontend as notices", async
   ]);
 });
 
+test("the poke is persisted as a synthetic user message, so the transcript alternates on resume", async () => {
+  const { stored } = await runLoop("poke-stored", { autoPoke: { enabled: true, maxPerRun: 3 } });
+  const roles = stored.map((m) => `${m.role}${m.synthetic ? `:${m.synthetic}` : ""}`);
+  // prompt, plan (tool call), "All done.", poke, "All done." again.
+  assert.deepEqual(roles, ["user", "assistant", "assistant", "user:auto_poke", "assistant"]);
+  const poke = stored.find((m) => m.synthetic === "auto_poke")!;
+  assert.match(poke.parts[0]!.content!, /still open/);
+});
+
 test("poke state is per run: the next prompt on the same loop is poked afresh", async () => {
   // Run 1: plan, stop → poke, stop → no progress. Run 2 starts with the same
   // open list; a stale fingerprint would read it as no progress and never
@@ -218,7 +239,7 @@ test("with the gate off, the stop is recorded as disabled and nothing is poked",
   const skipped = events.filter((e) => e.type === "poke.skipped");
   assert.deepEqual(skipped.map((e) => e.reason), ["disabled"]);
   assert.equal(turns, 2, "plan, then stop — exactly as before the gate existed");
-  assert.ok(!tailsSeen.some((t) => t.includes("still open")));
+  assert.ok(!lastUserSeen.some((t) => t.includes("still open")));
   // The signal is still recorded — gated: false — so the bench can compare.
   const signals = events.filter((e) => e.type === "todo.signal");
   assert.equal(signals.length, 1);

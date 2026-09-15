@@ -63,7 +63,7 @@ import {
   decidePoke,
   notePoke,
   initialPokeState,
-  pokeReminder,
+  pokeMessage,
   pokeNotice,
   type SignalSettings,
   type PokeState,
@@ -1153,7 +1153,7 @@ export class AgentLoop {
           // Auto-poke (agent/signals): open todos do not normally override a
           // stop — but when the gate is on, send the model back, capped and
           // fingerprinted so a model that cannot finish is not poked forever.
-          if (this.maybePoke()) {
+          if (await this.maybePoke()) {
             this.state = {
               ...this.state,
               iterationCount: this.state.iterationCount + 1,
@@ -3025,11 +3025,20 @@ export class AgentLoop {
 
   // ===========================================================================
   // PRIVATE: maybePoke()
-  // The model stopped. If todos are open and the gate is on, queue a poke and
-  // return true so run() grants another turn. Every stop with a list is
-  // recorded either way — that is what lets the bench compare across the flip.
+  // The model stopped. If todos are open and the gate is on, append the poke
+  // as a user turn and return true so run() grants another one. Every stop
+  // with a list is recorded either way — that is what lets the bench compare
+  // across the flip.
+  //
+  // The poke is a persisted user message, not an ephemeral reminder: the
+  // transcript then alternates properly (assistant "done" → user poke →
+  // assistant continues) on resume and after compaction, and the model sees a
+  // turn with content rather than a bare <system-reminder>. Append-only, so
+  // the cache anchors are untouched. Like the image caption in executeTurn it
+  // goes to history and the store but not the compaction transcript — the
+  // summary should describe the work, not the harness.
   // ===========================================================================
-  private maybePoke(): boolean {
+  private async maybePoke(): Promise<boolean> {
     const todos = getTodos(this.state.sessionId, this.state.projectPath);
     if (todos.length === 0) return false;
     const settings = this.signals();
@@ -3052,7 +3061,14 @@ export class AgentLoop {
         maxPerRun: max,
         remaining,
       });
-      this.pendingReminders.push(pokeReminder(decision.remaining, this.pokeState.pokes, max));
+      const text = pokeMessage(decision.remaining, this.pokeState.pokes, max);
+      this.history.push({
+        id: randomUUID(),
+        role: "user",
+        parts: [{ type: "text", content: text }],
+        timestamp: Date.now(),
+      });
+      await this.appendUserMessage(text, [], { synthetic: "auto_poke" });
     } else {
       this.recorder.recordPokeSkipped(turnId, decision.skip, remaining);
     }
@@ -3298,10 +3314,12 @@ export class AgentLoop {
   private async appendUserMessage(
     content: string,
     imageParts: MessagePart[] = [],
+    extra: Pick<SerializedMessage, "synthetic"> = {},
   ): Promise<void> {
     if (!this.sessionStore) return;
     await this.ensureProjectPath();
     const message: SerializedMessage = {
+      ...extra,
       id: randomUUID(),
       role: "user",
       parts: [

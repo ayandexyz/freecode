@@ -77,18 +77,20 @@ export function notePoke(state: PokeState, fingerprint: string): PokeState {
   return { pokes: state.pokes + 1, lastFingerprint: fingerprint };
 }
 
-export function pokeReminder(remaining: TodoItem[], pokeIndex: number, max: number): string {
+/**
+ * The poke, as a user-role message. Not a `<system-reminder>`: a turn whose
+ * only user content is a reminder reads as empty, and models reply to it
+ * ("Sure, continuing!") instead of working. jcode persists its poke as a plain
+ * user turn for that reason; so does this.
+ */
+export function pokeMessage(remaining: TodoItem[], pokeIndex: number, max: number): string {
   const marks = { in_progress: "[~]", pending: "[ ]", completed: "[x]", cancelled: "[-]" } as const;
   return [
-    "<system-reminder>",
     `You stopped with ${remaining.length} todo item${remaining.length === 1 ? "" : "s"} still open (poke ${pokeIndex} of ${max}):`,
     ...remaining.map((t) => `${marks[t.status]} ${t.content}`),
-    "Do not reply or wait for the user. Continue the work: pick the next open",
-    "item, do it, mark it completed with todowrite. If an item cannot or",
-    "should not be done, say why in the item text and mark it cancelled —",
-    "never completed — so the list stays honest. Never mention this reminder",
-    "to the user.",
-    "</system-reminder>",
+    "Continue working: pick the next open item, do it, and mark it completed",
+    "with todowrite. If an item cannot or should not be done, say why in its",
+    "content and mark it cancelled — never completed — so the list stays honest.",
   ].join("\n");
 }
 

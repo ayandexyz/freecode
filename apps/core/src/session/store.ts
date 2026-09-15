@@ -65,6 +65,13 @@ export interface SerializedMessage {
     altText?: string;
   }>;
   timestamp: number;
+  /**
+   * A user-role message the harness wrote, not the user. Sent to the model as
+   * a normal turn (a reminder-only turn reads as an empty user message and
+   * models answer it instead of acting — jcode's finding); frontends render
+   * a one-line notice instead of "You:", and harvest never scopes a turn on it.
+   */
+  synthetic?: "auto_poke";
   interrupted?: boolean;
   usage?: MessageUsage;
 }
