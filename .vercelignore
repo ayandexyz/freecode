@@ -1,0 +1,27 @@
+# Vercel CLI uploads the whole monorepo when Root Directory is apps/web.
+# apps/web only needs packages/ (workspace deps) and scripts/ (served by
+# /install — see apps/web/app/lib/serve-script.ts); drop the other apps,
+# bench data, and every build output so the archive stays small.
+apps/android
+apps/core
+apps/docs
+apps/tui
+apps/tui-rs
+apps/vscode
+apps/web-app
+bench
+docs
+evals
+graft
+graphify-out
+schemas
+**/node_modules
+**/.next
+**/dist
+**/target
+**/__pycache__
+.env*
+.turbo
+.claude
+.pnpm-store
+.git
