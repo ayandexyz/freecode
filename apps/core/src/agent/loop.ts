@@ -64,6 +64,7 @@ import {
   notePoke,
   initialPokeState,
   pokeReminder,
+  pokeNotice,
   type SignalSettings,
   type PokeState,
 } from "./signals/index.js";
@@ -71,7 +72,7 @@ import { logger } from "../utils/logger.js";
 import { envInt } from "../utils/env.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
-import { getTodos, renderTodoPromptBlock, type TodoItem } from "../tools/todo.js";
+import { getTodos, isOpenTodo, renderTodoPromptBlock, type TodoItem } from "../tools/todo.js";
 import {
   MAX_TRUNCATED_TOOL_RETRIES,
   shouldNudgeTodo,
@@ -693,6 +694,10 @@ export class AgentLoop {
     this.verifyAttempts = 0;
     this.mutatedFiles = new Set<string>();
     this.verifierAttempts = 0;
+    // Pokes are per run: a stale fingerprint from the previous prompt would
+    // read the user's "continue" as no progress, and the cap would be per
+    // session instead of per prompt.
+    this.pokeState = initialPokeState();
     this.truncatedRetries = 0;
     this.lastVerifierReport = undefined;
     this.lastMemoryBlock = undefined;
@@ -3034,25 +3039,31 @@ export class AgentLoop {
       maxPerRun: settings.autoPoke.maxPerRun,
       todos,
       state: this.pokeState,
+      // The poked turn is iteration+1; run() ends the run when that reaches
+      // the cap, so a poke queued there would be recorded and never sent.
+      turnsLeft: this.config.maxIterations - (this.state.iterationCount + 1),
     });
-    const remaining = todos.filter((t) => t.status !== "completed").length;
-    if (!decision.poke) {
+    const remaining = todos.filter(isOpenTodo).length;
+    const max = settings.autoPoke.maxPerRun;
+    if (decision.poke) {
+      this.pokeState = notePoke(this.pokeState, decision.fingerprint);
+      this.recorder.recordPokeTriggered(turnId, {
+        pokeIndex: this.pokeState.pokes,
+        maxPerRun: max,
+        remaining,
+      });
+      this.pendingReminders.push(pokeReminder(decision.remaining, this.pokeState.pokes, max));
+    } else {
       this.recorder.recordPokeSkipped(turnId, decision.skip, remaining);
-      return false;
     }
-    this.pokeState = notePoke(this.pokeState, decision.fingerprint);
-    this.recorder.recordPokeTriggered(turnId, {
-      pokeIndex: this.pokeState.pokes,
-      maxPerRun: settings.autoPoke.maxPerRun,
-      remaining: decision.remaining.length,
-    });
-    this.pendingReminders.push(
-      pokeReminder(decision.remaining, this.pokeState.pokes, settings.autoPoke.maxPerRun),
-    );
-    logger.debug(
-      `[AgentLoop] Auto-poke ${this.pokeState.pokes}/${settings.autoPoke.maxPerRun}: ${decision.remaining.length} todo(s) open`,
-    );
-    return true;
+    // Without this the user watches the model say "done" and then silently
+    // keep working (or silently give up on an open list).
+    const notice = pokeNotice(decision, remaining, max, this.pokeState.pokes);
+    if (notice) {
+      BusEvents.stream(this.state.sessionId, { type: "notice", level: "info", content: notice });
+      logger.debug(`[AgentLoop] Auto-poke: ${notice}`);
+    }
+    return decision.poke;
   }
 
   // ===========================================================================

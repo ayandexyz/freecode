@@ -152,7 +152,9 @@ export function foldSession(events: RawEvent[]): SessionSignals | undefined {
       // work, and a (100 → 100) line would say stepping happened when it
       // could not have.
       const a = assigned.get(id);
-      if (t.status !== "completed") open++;
+      // Cancelled is closed: the model dropped the item on purpose, which is
+      // not the early exit auto-poke measures.
+      if (t.status !== "completed" && t.status !== "cancelled") open++;
       if (t.status === "completed" && !done.has(id)) {
         done.add(id);
         if (pokedEver) s.pokes.itemsCompletedAfterPoke++;

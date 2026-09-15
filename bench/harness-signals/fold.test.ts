@@ -90,6 +90,13 @@ test("a pre-gate session still yields the ended-open baseline", () => {
   assert.deepEqual(s.pokes.skipped, {});
 });
 
+test("a cancelled item is closed, not ended-open", () => {
+  const s = foldSession([
+    todo([{ id: "a", status: "completed" }, { id: "b", status: "cancelled" }]),
+  ])!;
+  assert.equal(s.finalOpen, 0);
+});
+
 test("aggregate splits the ended-open rate by whether the gate was on", () => {
   const off = foldSession([
     todo([{ id: "a", status: "pending", hillClimbability: 50 }]),

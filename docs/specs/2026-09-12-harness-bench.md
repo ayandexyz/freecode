@@ -53,10 +53,14 @@ Every signal → `todo.signal` in the rollout log, `gated: true/false`. Gate on
 → one `<system-reminder>` for the next turn. No model call, ever.
 
 **At the stop** (no tool calls, after the verify and verifier gates):
-`decidePoke`. Reasons, in order: `disabled`, `nothing_open`, `cap_reached`
-(3/run), `no_progress` (the open items are byte-identical to the last
-poke's). A poke is a reminder listing the open items; the loop grants another
-turn. Every stop with a list present writes `poke.triggered` or
+`decidePoke`. Reasons, in order: `disabled`, `nothing_open` (every item
+`completed` or `cancelled`), `cap_reached` (3/run — state is reset per
+`run()`, i.e. per prompt), `no_budget` (the iteration cap would end the run
+before the poked turn), `no_progress` (the open items are byte-identical to
+the last poke's). A poke is a reminder listing the open items; the loop grants
+another turn. A poke, a `no_progress` stop and a `cap_reached` stop each
+reach the frontend as a `notice` — the user must not watch the model say
+"done" and then silently keep going. Every stop with a list present writes `poke.triggered` or
 `poke.skipped` — `disabled` included, which is what lets the fold tell
 "never looked" from "looked and declined". Subagents never poke.
 

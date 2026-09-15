@@ -34,6 +34,7 @@ import type {
   ProviderChunk,
 } from "../../providers/types.js";
 import { clearTodos } from "../../tools/todo.js";
+import { bus } from "../../bus/index.js";
 
 const info = {
   id: "poke-fake",
@@ -90,7 +91,7 @@ function readEvents(dir: string): Array<Record<string, unknown>> {
     .map((l) => JSON.parse(l));
 }
 
-async function runLoop(sessionId: string, signals: Record<string, unknown>) {
+async function runLoop(sessionId: string, signals: Record<string, unknown>, runs = 1) {
   clearTodos(sessionId);
   tailsSeen.length = 0;
   const rolloutDir = mkdtempSync(join(tmpdir(), "freecode-poke-rollout-"));
@@ -125,18 +126,27 @@ async function runLoop(sessionId: string, signals: Record<string, unknown>) {
   const loop = await runtime.runPromise(
     createAgentLoopEffect(sessionId, { maxIterations: 10 }),
   );
-  const result = await loop.run({
-    prompt: "Make it faster",
-    sessionId,
-    provider: "poke-fake",
-    projectPath,
+  const notices: string[] = [];
+  const unsub = bus.subscribe("stream", (e) => {
+    const ev = (e as { event: { type: string; content?: string } }).event;
+    if (ev.type === "notice" && ev.content) notices.push(ev.content);
   });
+  let result;
+  for (let i = 0; i < runs; i++) {
+    result = await loop.run({
+      prompt: "Make it faster",
+      sessionId,
+      provider: "poke-fake",
+      projectPath,
+    });
+  }
+  unsub();
   await runtime.dispose();
   const events = readEvents(rolloutDir);
   rmSync(rolloutDir, { recursive: true, force: true });
   rmSync(projectPath, { recursive: true, force: true });
   clearTodos(sessionId);
-  return { result, events, turns: tailsSeen.length };
+  return { result, events, turns: tailsSeen.length, notices };
 }
 
 test("a stop with open todos is poked once, and a poke that moves nothing ends the run", async () => {
@@ -178,6 +188,28 @@ test("a stop with open todos is poked once, and a poke that moves nothing ends t
     "item text never reaches the rollout log",
   );
   assert.ok(tailsSeen.some((t) => t.includes("hill-climbability 40")));
+});
+
+test("the poke and the stop are both surfaced to the frontend as notices", async () => {
+  const { notices } = await runLoop("poke-notice", { autoPoke: { enabled: true, maxPerRun: 3 } });
+  assert.deepEqual(notices, [
+    "1 todo still open — sent the agent back (poke 1 of 3).",
+    "1 todo still open, but the last poke changed nothing — not poking again.",
+  ]);
+});
+
+test("poke state is per run: the next prompt on the same loop is poked afresh", async () => {
+  // Run 1: plan, stop → poke, stop → no progress. Run 2 starts with the same
+  // open list; a stale fingerprint would read it as no progress and never
+  // poke, and a stale count would spend the cap across prompts.
+  const { events } = await runLoop("poke-two-runs", { autoPoke: { enabled: true, maxPerRun: 3 } }, 2);
+  const triggered = events.filter((e) => e.type === "poke.triggered");
+  assert.equal(triggered.length, 2, "one poke per run");
+  assert.deepEqual(
+    triggered.map((e) => e.pokeIndex),
+    [1, 1],
+    "the count restarted with the run",
+  );
 });
 
 test("with the gate off, the stop is recorded as disabled and nothing is poked", async () => {
