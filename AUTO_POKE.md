@@ -130,6 +130,11 @@ baseline. Item text never enters the log, only ids.
 - The utf16-transcode bench run this morning stopped on its own with open
   todos at turn 606 (`poke.skipped: disabled`) — the gate would have fired.
   A gate-on run of the same task is the next data point.
+- A gate-on utf16 run (12:09 UTC, `FREECODE_AUTO_POKE=1`) ended at 72 min on
+  a provider error — `Token Plan usage limit reached (2056)` — with 4 items
+  open and **no stop, so no poke**. Best +0.381, final +0.333 (cut off
+  mid-edit). Not published: a "poke on → lower score" row would say nothing
+  about poke. A poke needs a model stop; a provider cut-off is not one.
 - Gate-on real sessions: **0** before today. The `on` column on §06 is empty
   until someone runs with it enabled — hence the settings-file snippet above.
 
