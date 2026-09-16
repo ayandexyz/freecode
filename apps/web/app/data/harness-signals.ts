@@ -26,6 +26,7 @@ export interface SignalsReport {
   };
   hillClimb: {
     n: number;
+    ratings: number;
     sessions: number;
     histogram: Record<string, number>;
     mean: number | null;
@@ -67,6 +68,7 @@ export const EMPTY_SIGNALS: SignalsReport = {
   },
   hillClimb: {
     n: 0,
+    ratings: 0,
     sessions: 0,
     histogram: {},
     mean: null,

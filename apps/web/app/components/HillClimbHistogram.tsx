@@ -24,7 +24,7 @@ export function HillClimbHistogram({ report }: { report: SignalsReport }) {
   }
 
   const tiles: StatTile[] = [
-    { value: String(h.n), label: "ratings", note: `${h.sessions} session${h.sessions === 1 ? "" : "s"}; a re-rating counts again` },
+    { value: String(h.n), label: "goals", note: `first rating per item · ${h.ratings ?? h.n} ratings with re-ratings · ${h.sessions} session${h.sessions === 1 ? "" : "s"}` },
     { value: h.mean === null ? null : h.mean.toFixed(1), label: "mean", note: `median ${h.median ?? "—"}` },
     {
       value: pct(h.belowGateRate),

@@ -62,6 +62,7 @@ test("every hill-climb rating counts, including a re-rating of the same item", (
     ev({ type: "todo.signal", kind: "hill_climb_low", itemId: "a", to: 55, gated: true }),
   ])!;
   assert.deepEqual(s.hillClimb, [55, 95, 90, 95]);
+  assert.deepEqual(s.hillClimbFirst, [55, 95], "one vote per goal for the headline");
   assert.deepEqual(s.hillClimbLow, { n: 1, gated: 1 });
 });
 
