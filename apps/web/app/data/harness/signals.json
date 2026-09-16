@@ -1,14 +1,26 @@
 {
-  "generatedAt": "2026-09-16T11:39:36.493Z",
-  "sessionsScanned": 1364,
-  "sessionsWithTodos": 131,
+  "generatedAt": "2026-09-16T11:53:51.267Z",
+  "sessionsScanned": 1436,
+  "sessionsWithTodos": 135,
   "window": {
     "from": "2026-07-24T05:34:18.494Z",
-    "to": "2026-09-16T10:38:36.392Z"
+    "to": "2026-09-16T11:53:38.568Z"
   },
   "confidence": {
-    "n": 44,
+    "n": 48,
     "trajectories": [
+      {
+        "assigned": 100,
+        "completed": 100,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 90,
+        "completed": 100,
+        "spike": false,
+        "gated": false
+      },
       {
         "assigned": 90,
         "completed": 95,
@@ -214,6 +226,12 @@
         "gated": false
       },
       {
+        "assigned": 100,
+        "completed": 100,
+        "spike": false,
+        "gated": false
+      },
+      {
         "assigned": 80,
         "completed": 95,
         "spike": false,
@@ -233,6 +251,12 @@
       },
       {
         "assigned": 60,
+        "completed": 100,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 0,
         "completed": 100,
         "spike": false,
         "gated": false
@@ -274,19 +298,19 @@
         "gated": false
       }
     ],
-    "assignedMean": 77.47727272727273,
-    "completedMean": 85.88636363636364,
+    "assignedMean": 77.0625,
+    "completedMean": 87.0625,
     "spikes": {
-      "n": 4,
+      "n": 5,
       "gated": 0
     },
-    "rated": 226,
-    "ratedOnlyAtCompletion": 39
+    "rated": 245,
+    "ratedOnlyAtCompletion": 53
   },
   "hillClimb": {
-    "n": 226,
-    "ratings": 1058,
-    "sessions": 4,
+    "n": 245,
+    "ratings": 1099,
+    "sessions": 8,
     "histogram": {
       "20": 1,
       "40": 9,
@@ -300,14 +324,14 @@
       "85": 15,
       "90": 22,
       "92": 3,
-      "95": 63,
+      "95": 64,
       "99": 2,
-      "100": 7
+      "100": 25
     },
-    "mean": 76.72123893805309,
-    "median": 80,
+    "mean": 78.5061224489796,
+    "median": 85,
     "belowGate": 129,
-    "belowGateRate": 0.5707964601769911,
+    "belowGateRate": 0.5265306122448979,
     "range": [
       20,
       100
@@ -319,25 +343,26 @@
     }
   },
   "autoPoke": {
-    "sessionsWithTodos": 131,
+    "sessionsWithTodos": 135,
     "sessionsEndedOpen": 58,
-    "endedOpenRate": 0.44274809160305345,
-    "stopsConsidered": 2,
+    "endedOpenRate": 0.42962962962962964,
+    "stopsConsidered": 6,
     "pokes": 0,
     "productive": 0,
     "productiveRate": null,
     "itemsCompletedAfterPoke": 0,
     "skipped": {
-      "disabled": 2
+      "nothing_open": 3,
+      "disabled": 3
     },
-    "gatedSessions": 0,
+    "gatedSessions": 3,
     "endedOpenByGate": {
       "on": {
-        "n": 0,
+        "n": 3,
         "open": 0
       },
       "off": {
-        "n": 131,
+        "n": 132,
         "open": 58
       }
     }
