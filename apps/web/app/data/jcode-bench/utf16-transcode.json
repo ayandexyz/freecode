@@ -1,8 +1,54 @@
 {
   "task": "utf16-transcode",
   "oneLiner": "Convert UTF-16LE to UTF-8. This is the boundary between JavaScript, Windows, and Java on one side and the rest of the world on the other: every string crossing it pays this function.",
-  "generatedAt": "2026-09-12T11:41:36.926Z",
+  "generatedAt": "2026-09-15T20:41:27.763Z",
   "runs": [
+    {
+      "runId": "2026-09-15T20-11-40-307Z",
+      "trial": 1,
+      "agent": "freecode",
+      "agentVersion": "0.32.0",
+      "model": "minimax/MiniMax-M3",
+      "autonomy": "--agent danger: no permission prompts; no turn cap (the wall clock is the cap)",
+      "harnessFlags": {
+        "FREECODE_AUTO_POKE": "1"
+      },
+      "upstreamCommit": "2a169ab",
+      "date": "2026-09-15T20:11:40.610Z",
+      "best": 0.3581,
+      "bestAt": 611390,
+      "final": 0,
+      "finalFullGate": true,
+      "grades": 60,
+      "activeMs": 1775390,
+      "durationMs": 1784400,
+      "timedOut": false,
+      "curve": [
+        {
+          "t": 20390,
+          "score": 0,
+          "best": 0,
+          "fullGate": false
+        },
+        {
+          "t": 611390,
+          "score": 0.3581,
+          "best": 0.3581,
+          "fullGate": false
+        },
+        {
+          "t": 1775390,
+          "score": 0,
+          "best": 0.3581,
+          "fullGate": false
+        }
+      ],
+      "turns": 269,
+      "inputTokens": 51694580,
+      "outputTokens": 188990,
+      "usd": 3.43516392,
+      "auditOk": true
+    },
     {
       "runId": "2026-09-12T10-25-20-249Z",
       "trial": 1,
