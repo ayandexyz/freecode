@@ -22,11 +22,15 @@ export function taskPrompt(task: string): string {
     "improvement under the published cost model. Every grade is recorded.",
     "",
     "Rules: edit only files under submission/. Do not touch verify/, grade, or",
-    "anything outside submission/. The function must be self-contained C — no",
+    "anything else in the task directory. The function must be self-contained C — no",
     "external processes or libraries.",
     "",
     "Keep improving for as long as you can find improvements. Verify with",
-    "./grade after every change. When you are confident the submission is",
-    "correct and you have no further ideas, stop.",
+    "./grade after every change. Keep a copy of your best-scoring correct",
+    "version outside the task directory (e.g. /tmp/best/) and refresh it whenever",
+    "./grade improves; before you stop, restore it if the current submission",
+    "scores lower or fails. Your final state is what gets graded. When you",
+    "are confident the submission is correct and you have no further ideas,",
+    "stop.",
   ].join("\n");
 }

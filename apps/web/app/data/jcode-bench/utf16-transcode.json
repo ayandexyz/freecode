@@ -1,8 +1,154 @@
 {
   "task": "utf16-transcode",
   "oneLiner": "Convert UTF-16LE to UTF-8. This is the boundary between JavaScript, Windows, and Java on one side and the rest of the world on the other: every string crossing it pays this function.",
-  "generatedAt": "2026-09-15T20:41:27.763Z",
+  "generatedAt": "2026-09-16T10:38:41.146Z",
   "runs": [
+    {
+      "runId": "2026-09-16T08-37-33-412Z",
+      "trial": 1,
+      "agent": "freecode",
+      "agentVersion": "0.32.0",
+      "model": "minimax/MiniMax-M3",
+      "autonomy": "--agent danger: no permission prompts; no turn cap (the wall clock is the cap)",
+      "harnessFlags": {},
+      "upstreamCommit": "2a169ab",
+      "date": "2026-09-16T08:37:33.767Z",
+      "best": 0.4382,
+      "bestAt": 6540233,
+      "final": 0.4382,
+      "finalFullGate": true,
+      "grades": 125,
+      "activeMs": 7216233,
+      "durationMs": 7262640,
+      "timedOut": true,
+      "curve": [
+        {
+          "t": 14233,
+          "score": -0.001,
+          "best": -0.001,
+          "fullGate": false
+        },
+        {
+          "t": 191233,
+          "score": 0.0836,
+          "best": 0.0836,
+          "fullGate": false
+        },
+        {
+          "t": 228233,
+          "score": 0.0886,
+          "best": 0.0886,
+          "fullGate": false
+        },
+        {
+          "t": 296233,
+          "score": 0.1313,
+          "best": 0.1313,
+          "fullGate": false
+        },
+        {
+          "t": 313233,
+          "score": 0.1356,
+          "best": 0.1356,
+          "fullGate": false
+        },
+        {
+          "t": 345233,
+          "score": 0.1552,
+          "best": 0.1552,
+          "fullGate": false
+        },
+        {
+          "t": 372233,
+          "score": 0.2448,
+          "best": 0.2448,
+          "fullGate": false
+        },
+        {
+          "t": 408233,
+          "score": 0.2856,
+          "best": 0.2856,
+          "fullGate": false
+        },
+        {
+          "t": 441233,
+          "score": 0.3599,
+          "best": 0.3599,
+          "fullGate": false
+        },
+        {
+          "t": 3152233,
+          "score": 0.3609,
+          "best": 0.3609,
+          "fullGate": false
+        },
+        {
+          "t": 5196233,
+          "score": 0.3995,
+          "best": 0.3995,
+          "fullGate": false
+        },
+        {
+          "t": 5421233,
+          "score": 0.4185,
+          "best": 0.4185,
+          "fullGate": false
+        },
+        {
+          "t": 5462233,
+          "score": 0.4186,
+          "best": 0.4186,
+          "fullGate": false
+        },
+        {
+          "t": 5789233,
+          "score": 0.4189,
+          "best": 0.4189,
+          "fullGate": false
+        },
+        {
+          "t": 6051233,
+          "score": 0.419,
+          "best": 0.419,
+          "fullGate": false
+        },
+        {
+          "t": 6168233,
+          "score": 0.423,
+          "best": 0.423,
+          "fullGate": false
+        },
+        {
+          "t": 6298233,
+          "score": 0.4363,
+          "best": 0.4363,
+          "fullGate": false
+        },
+        {
+          "t": 6365233,
+          "score": 0.4379,
+          "best": 0.4379,
+          "fullGate": false
+        },
+        {
+          "t": 6540233,
+          "score": 0.4382,
+          "best": 0.4382,
+          "fullGate": false
+        },
+        {
+          "t": 7216233,
+          "score": 0.4374,
+          "best": 0.4382,
+          "fullGate": false
+        }
+      ],
+      "turns": 629,
+      "inputTokens": 37206356,
+      "outputTokens": 409481,
+      "usd": 3.3385934400000004,
+      "auditOk": true
+    },
     {
       "runId": "2026-09-15T20-11-40-307Z",
       "trial": 1,

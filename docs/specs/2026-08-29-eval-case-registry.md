@@ -571,6 +571,13 @@ is recorded as `assistant` by `addToolTurn`). One `runEffect` is one user turn,
 so **a single-prompt case cannot compact at any token count.** Lowering the
 threshold on such a case just fires a check that finds nothing to do.
 
+> **Superseded 2026-09-16.** `selectForCompaction` now falls back to preserving
+> the last `preserveRecentTurns` *messages* when there are fewer user turns
+> than that, so a single-prompt run compacts like any other. Found via
+> `/bench`: every headless bench trial averaged ~200K input/turn at a 99%
+> cache-hit rate — context size, not cache misses. `followUps` stays useful
+> for multi-turn cases and `resume`.
+
 The second capability is therefore `followUps: string[]` — further user turns
 sent on the same session and the same loop after the first settles. Three
 prompts is the minimum that can compact. This is also, as this section already

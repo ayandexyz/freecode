@@ -134,3 +134,31 @@ test("shouldCompact uses the provider's measured tokens over its own estimate", 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a compaction that does not shrink the measured context holds instead of re-firing every turn", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "freecode-memory-"));
+  try {
+    const service = new MemoryService(`session-thrash-${Date.now()}`, {
+      storage: new FileMemoryStorage(dir),
+      config: { autoCompactBufferTokens: 10_000 },
+    });
+    service.addMessage("user", "make it faster");
+    for (let i = 0; i < 6; i++) service.addMessage("assistant", `tool turn ${i}`);
+
+    // Measured 130K: system prompt + schemas dominate; the transcript is tiny.
+    assert.equal(service.shouldCompact("MiniMax-M2", 196_608, 130_000), true);
+    const result = await service.compact();
+    assert.ok(result.compactedMessageIds.length > 0);
+
+    // Next request is no smaller — compaction could not touch what counts.
+    assert.equal(service.shouldCompact("MiniMax-M2", 196_608, 131_000), false);
+    // Grown past the back-off window: due again.
+    assert.equal(service.shouldCompact("MiniMax-M2", 196_608, 136_000), true);
+    // Or it actually shrank below the compaction point: normal rule applies.
+    await service.compact();
+    assert.equal(service.shouldCompact("MiniMax-M2", 196_608, 60_000), false);
+    assert.equal(service.shouldCompact("MiniMax-M2", 196_608, 120_000), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

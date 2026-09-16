@@ -39,3 +39,19 @@ test("keepLastNUserTurns keeps everything when fewer than N user turns", () => {
 test("keepLastNUserTurns with n<=0 keeps nothing", () => {
   assert.deepEqual(keepLastNUserTurns([msg("user", "u1")], 0), []);
 });
+
+test("keepLastNUserTurns falls back to the last N assistant turns on a single-prompt history", () => {
+  const messages = [
+    msg("user", "prompt"),
+    msg("assistant", "t1"),
+    msg("assistant", "t2"),
+    msg("assistant", "t3"),
+    msg("assistant", "t4"),
+  ];
+  assert.deepEqual(
+    keepLastNUserTurns(messages, 2).map((m) => m.id),
+    ["user-prompt", "assistant-t3", "assistant-t4"],
+  );
+  // Nothing before the tail to drop → untouched.
+  assert.equal(keepLastNUserTurns(messages.slice(0, 3), 2).length, 3);
+});

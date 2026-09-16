@@ -9,25 +9,19 @@ function countTokens(messages: MemoryMessage[]): number {
   return messages.reduce((sum, message) => sum + message.tokenCount, 0);
 }
 
-function countUserTurns(messages: MemoryMessage[]): number {
-  return messages.filter((message) => message.role === "user").length;
-}
-
 export function selectForCompaction(
   messages: MemoryMessage[],
   config: CompactionConfig,
 ): SelectionResult {
-  if (countUserTurns(messages) <= config.preserveRecentTurns) {
-    return {
-      summarize: [],
-      preserve: [...messages],
-      summarizeTokenCount: 0,
-      preserveTokenCount: countTokens(messages),
-    };
-  }
-
+  // Preserve the tail from the Nth-most-recent user turn. A headless run
+  // (`freecode run`, the bench, an eval case) has ONE user message for its
+  // whole life — tool turns are recorded as `assistant` — so counting only
+  // user turns left it uncompactable at any size (bench runs averaged ~200K
+  // input/turn against a 120K target). When there are fewer user turns than
+  // N, fall back to preserving the last N messages; the head carve-out below
+  // keeps the prompt itself.
   let userTurnsSeen = 0;
-  let preserveStart = messages.length;
+  let preserveStart = Math.max(0, messages.length - config.preserveRecentTurns);
 
   for (let index = messages.length - 1; index >= 0; index--) {
     if (messages[index].role === "user") {

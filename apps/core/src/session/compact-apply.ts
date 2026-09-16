@@ -32,7 +32,23 @@ export function keepLastNUserTurns(
       if (seen === n) return messages.slice(i);
     }
   }
-  return messages.slice(); // fewer than n user turns → keep everything
+  // Fewer than n user turns: a headless run (`freecode run`, bench, eval)
+  // has one prompt and then only assistant turns (tool results ride inside
+  // the assistant message as `tool` parts), so keeping everything meant the
+  // provider-facing history never shrank — the summary was written and the
+  // next request was the same size. Keep the prompt and the last n assistant
+  // turns instead; the summary in the system prompt carries the rest.
+  seen = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      seen++;
+      if (seen === n) {
+        const head = messages[0]?.role === "user" && i > 0 ? [messages[0]] : [];
+        return [...head, ...messages.slice(i)];
+      }
+    }
+  }
+  return messages.slice();
 }
 
 export async function applyCompaction(opts: {
