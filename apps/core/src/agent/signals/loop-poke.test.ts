@@ -234,7 +234,9 @@ test("poke state is per run: the next prompt on the same loop is poked afresh", 
 });
 
 test("with the gate off, the stop is recorded as disabled and nothing is poked", async () => {
-  const { events, turns } = await runLoop("poke-off", {});
+  // Explicit, not `{}`: project scope beats ~/.freecode/settings.json, and a
+  // developer who flipped the gate on for a bench run would otherwise fail this.
+  const { events, turns } = await runLoop("poke-off", { autoPoke: { enabled: false } });
   assert.equal(events.filter((e) => e.type === "poke.triggered").length, 0);
   const skipped = events.filter((e) => e.type === "poke.skipped");
   assert.deepEqual(skipped.map((e) => e.reason), ["disabled"]);
