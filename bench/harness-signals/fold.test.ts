@@ -37,6 +37,7 @@ test("confidence at assignment and at completion pair up per item", () => {
     ],
   );
   assert.equal(s.itemsCompleted, 3, "c completed too, just with no number to pair");
+  assert.equal(s.itemsRatedOnlyAtCompletion, 1, "c: first (and only) number arrived with 'completed'");
   assert.equal(s.finalOpen, 0);
   assert.equal(s.finalTotal, 3);
   assert.deepEqual(s.spikes, { n: 1, gated: 1 });

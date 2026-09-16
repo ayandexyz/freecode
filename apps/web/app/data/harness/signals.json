@@ -1,15 +1,105 @@
 {
-  "generatedAt": "2026-09-16T03:36:49.683Z",
-  "sessionsScanned": 3701,
-  "sessionsWithTodos": 257,
+  "generatedAt": "2026-09-16T11:34:08.858Z",
+  "sessionsScanned": 1364,
+  "sessionsWithTodos": 131,
   "window": {
-    "from": "2026-07-27T19:05:32.873Z",
-    "to": "2026-09-15T20:41:24.997Z"
+    "from": "2026-07-24T05:34:18.494Z",
+    "to": "2026-09-16T10:38:36.392Z"
   },
   "confidence": {
-    "n": 85,
+    "n": 44,
     "trajectories": [
       {
+        "assigned": 90,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 90,
+        "completed": 90,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 95,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 90,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 85,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 85,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 75,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 75,
+        "completed": 85,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 95,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 85,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 85,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 75,
+        "completed": 75,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 80,
+        "completed": 80,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 99,
+        "completed": 99,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 95,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
         "assigned": 85,
         "completed": 95,
         "spike": false,
@@ -23,42 +113,6 @@
       },
       {
         "assigned": 95,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 85,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
-        "completed": 100,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 70,
         "completed": 95,
         "spike": false,
         "gated": false
@@ -70,391 +124,139 @@
         "gated": false
       },
       {
+        "assigned": 55,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 85,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 75,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 50,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 30,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 95,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 90,
+        "completed": 95,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 40,
+        "completed": 55,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 55,
+        "completed": 55,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 55,
+        "completed": 40,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 50,
+        "completed": 55,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 50,
+        "completed": 40,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 55,
+        "completed": 40,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 50,
+        "completed": 50,
+        "spike": false,
+        "gated": false
+      },
+      {
+        "assigned": 50,
+        "completed": 45,
+        "spike": false,
+        "gated": false
+      },
+      {
         "assigned": 80,
         "completed": 95,
         "spike": false,
         "gated": false
       },
       {
-        "assigned": 70,
-        "completed": 85,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 90,
+        "assigned": 100,
         "completed": 100,
         "spike": false,
         "gated": false
       },
       {
-        "assigned": 85,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 75,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 75,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 92,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 85,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 85,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 85,
-        "completed": 80,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 75,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 90,
-        "completed": 75,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 90,
-        "completed": 80,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 75,
-        "completed": 80,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 70,
+        "assigned": 100,
         "completed": 100,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 85,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 70,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 70,
-        "completed": 85,
         "spike": false,
         "gated": false
       },
       {
         "assigned": 60,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 100,
         "completed": 100,
         "spike": false,
         "gated": false
       },
       {
-        "assigned": 0,
+        "assigned": 95,
         "completed": 100,
         "spike": false,
         "gated": false
       },
       {
-        "assigned": 50,
-        "completed": 80,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 50,
-        "completed": 80,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 50,
-        "completed": 85,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 50,
-        "completed": 85,
+        "assigned": 95,
+        "completed": 100,
         "spike": false,
         "gated": false
       },
       {
         "assigned": 95,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 85,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 85,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
-        "completed": 95,
+        "completed": 100,
         "spike": false,
         "gated": false
       },
       {
         "assigned": 90,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 0,
-        "completed": 100,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 100,
-        "completed": 100,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 85,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
-        "completed": 100,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 85,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
-        "completed": 100,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 100,
-        "completed": 100,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 90,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 85,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 92,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 90,
-        "completed": 92,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 85,
-        "completed": 92,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 85,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 90,
-        "completed": 98,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 85,
-        "completed": 98,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 90,
-        "completed": 100,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 85,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 85,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 85,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 75,
-        "completed": 80,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 75,
-        "completed": 80,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 75,
-        "completed": 80,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
         "completed": 95,
         "spike": false,
         "gated": false
@@ -467,119 +269,76 @@
       },
       {
         "assigned": 90,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
-        "completed": 100,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 70,
-        "completed": 85,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 70,
-        "completed": 85,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 95,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 75,
-        "completed": 100,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 90,
-        "completed": 100,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 80,
-        "completed": 90,
-        "spike": false,
-        "gated": false
-      },
-      {
-        "assigned": 95,
         "completed": 95,
         "spike": false,
         "gated": false
       }
     ],
-    "assignedMean": 80.52941176470588,
-    "completedMean": 91.81176470588235,
+    "assignedMean": 77.47727272727273,
+    "completedMean": 85.88636363636364,
     "spikes": {
-      "n": 2,
+      "n": 4,
       "gated": 0
     },
-    "rated": 169
+    "rated": 226,
+    "ratedOnlyAtCompletion": 39
   },
   "hillClimb": {
-    "n": 1052,
-    "sessions": 34,
+    "n": 1058,
+    "sessions": 4,
     "histogram": {
-      "60": 2,
-      "65": 1,
-      "70": 12,
-      "75": 9,
-      "80": 51,
-      "85": 130,
-      "90": 227,
-      "92": 1,
-      "95": 475,
-      "99": 3,
-      "100": 141
+      "20": 22,
+      "40": 52,
+      "45": 7,
+      "50": 44,
+      "55": 101,
+      "60": 78,
+      "65": 13,
+      "70": 20,
+      "75": 42,
+      "80": 96,
+      "85": 55,
+      "90": 116,
+      "92": 6,
+      "95": 374,
+      "99": 6,
+      "100": 26
     },
-    "mean": 92.08555133079848,
-    "median": 95,
-    "belowGate": 205,
-    "belowGateRate": 0.19486692015209126,
+    "mean": 78.20037807183365,
+    "median": 85,
+    "belowGate": 530,
+    "belowGateRate": 0.500945179584121,
     "range": [
-      60,
+      20,
       100
     ],
     "threshold": 90,
     "flagged": {
-      "n": 99,
+      "n": 150,
       "gated": 0
     }
   },
   "autoPoke": {
-    "sessionsWithTodos": 257,
-    "sessionsEndedOpen": 128,
-    "endedOpenRate": 0.4980544747081712,
-    "stopsConsidered": 33,
+    "sessionsWithTodos": 131,
+    "sessionsEndedOpen": 58,
+    "endedOpenRate": 0.44274809160305345,
+    "stopsConsidered": 2,
     "pokes": 0,
     "productive": 0,
     "productiveRate": null,
     "itemsCompletedAfterPoke": 0,
     "skipped": {
-      "nothing_open": 8,
-      "disabled": 25
+      "disabled": 2
     },
-    "gatedSessions": 8,
+    "gatedSessions": 0,
     "endedOpenByGate": {
       "on": {
-        "n": 8,
+        "n": 0,
         "open": 0
       },
       "off": {
-        "n": 249,
-        "open": 128
+        "n": 131,
+        "open": 58
       }
     }
   }

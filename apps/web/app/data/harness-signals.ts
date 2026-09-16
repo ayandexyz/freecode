@@ -22,6 +22,7 @@ export interface SignalsReport {
     completedMean: number | null;
     spikes: { n: number; gated: number };
     rated: number;
+    ratedOnlyAtCompletion: number;
   };
   hillClimb: {
     n: number;
@@ -62,6 +63,7 @@ export const EMPTY_SIGNALS: SignalsReport = {
     completedMean: null,
     spikes: { n: 0, gated: 0 },
     rated: 0,
+    ratedOnlyAtCompletion: 0,
   },
   hillClimb: {
     n: 0,

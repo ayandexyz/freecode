@@ -36,6 +36,12 @@ export function ConfidenceStepping({ report }: { report: SignalsReport }) {
       note: `${c.spikes.n} rose 40+ in one step · ${c.spikes.gated} sent back to verify`,
       tone: c.spikes.n > 0 ? "text-destructive" : "text-foreground",
     },
+    {
+      value: String(c.ratedOnlyAtCompletion ?? 0),
+      label: "rated only at completion",
+      note: "no prior assessment — a claim, not a step; excluded from the lines",
+      tone: (c.ratedOnlyAtCompletion ?? 0) > 0 ? "text-destructive" : "text-foreground",
+    },
   ];
 
   const W = 720;

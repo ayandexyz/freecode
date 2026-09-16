@@ -61,6 +61,8 @@ export interface SessionSignals {
   itemsCompleted: number;
   /** Items that ever carried a confidence number. */
   itemsRated: number;
+  /** Completed items whose FIRST confidence arrived on the completing call. */
+  itemsRatedOnlyAtCompletion: number;
   /** Final list state, from the last todowrite call. */
   finalOpen: number;
   finalTotal: number;
@@ -91,6 +93,7 @@ export function foldSession(events: RawEvent[]): SessionSignals | undefined {
     itemsSeen: 0,
     itemsCompleted: 0,
     itemsRated: 0,
+    itemsRatedOnlyAtCompletion: 0,
     finalOpen: 0,
     finalTotal: 0,
     trajectories: [],
@@ -161,6 +164,9 @@ export function foldSession(events: RawEvent[]): SessionSignals | undefined {
         if (a !== undefined && conf !== undefined) {
           const f = flagged.get(id);
           s.trajectories.push({ assigned: a, completed: conf, spike: !!f, gated: f?.gated ?? false });
+        } else if (a === undefined && conf !== undefined) {
+          // The number jcode trusts least: a claim with no prior assessment.
+          s.itemsRatedOnlyAtCompletion++;
         }
       }
       if (a === undefined && conf !== undefined) assigned.set(id, conf);
@@ -198,6 +204,8 @@ export interface SignalsReport {
     spikes: { n: number; gated: number };
     /** Items assigned with a confidence number, whether or not completed. */
     rated: number;
+    /** Completed items first rated on the completing call — a post-hoc claim, not a step. */
+    ratedOnlyAtCompletion: number;
   };
   hillClimb: {
     n: number;
@@ -286,6 +294,7 @@ export function aggregate(
         gated: trajectories.filter((t) => t.gated).length,
       },
       rated: sessions.reduce((n, s) => n + s.itemsRated, 0),
+      ratedOnlyAtCompletion: sessions.reduce((n, s) => n + s.itemsRatedOnlyAtCompletion, 0),
     },
     hillClimb: {
       n: hill.length,
