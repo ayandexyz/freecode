@@ -37,6 +37,7 @@ test("confidence at assignment and at completion pair up per item", () => {
     ],
   );
   assert.equal(s.itemsCompleted, 3, "c completed too, just with no number to pair");
+  assert.equal(s.itemsRatedOnlyAtCompletion, 1, "c: first (and only) number arrived with 'completed'");
   assert.equal(s.finalOpen, 0);
   assert.equal(s.finalTotal, 3);
   assert.deepEqual(s.spikes, { n: 1, gated: 1 });
@@ -61,6 +62,7 @@ test("every hill-climb rating counts, including a re-rating of the same item", (
     ev({ type: "todo.signal", kind: "hill_climb_low", itemId: "a", to: 55, gated: true }),
   ])!;
   assert.deepEqual(s.hillClimb, [55, 95, 90, 95]);
+  assert.deepEqual(s.hillClimbFirst, [55, 95], "one vote per goal for the headline");
   assert.deepEqual(s.hillClimbLow, { n: 1, gated: 1 });
 });
 
@@ -88,6 +90,13 @@ test("a pre-gate session still yields the ended-open baseline", () => {
   assert.equal(s.finalOpen, 1);
   assert.equal(s.pokes.triggered, 0);
   assert.deepEqual(s.pokes.skipped, {});
+});
+
+test("a cancelled item is closed, not ended-open", () => {
+  const s = foldSession([
+    todo([{ id: "a", status: "completed" }, { id: "b", status: "cancelled" }]),
+  ])!;
+  assert.equal(s.finalOpen, 0);
 });
 
 test("aggregate splits the ended-open rate by whether the gate was on", () => {

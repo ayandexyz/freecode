@@ -13,7 +13,11 @@ import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool } from "./factory.js";
 import { formatSessionDirName } from "../store/path-formatter.js";
 
-export type TodoStatus = "pending" | "in_progress" | "completed";
+// `cancelled` is the honest way to drop an item: it closes the item without
+// claiming the work was done, so auto-poke stops asking for it and the
+// completed count stays true. Before it existed the poke reminder told the
+// model to "mark it completed and say why", which faked both.
+export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
 
 export interface TodoItem {
   id: string;
@@ -38,7 +42,12 @@ interface TodoWriteParams {
   todos: TodoItem[];
 }
 
-const STATUSES: TodoStatus[] = ["pending", "in_progress", "completed"];
+const STATUSES: TodoStatus[] = ["pending", "in_progress", "completed", "cancelled"];
+
+/** Still to be worked on — neither done nor dropped. */
+export function isOpenTodo(t: Pick<TodoItem, "status">): boolean {
+  return t.status !== "completed" && t.status !== "cancelled";
+}
 const TODOS_FILE = "todos.json";
 
 // Per-session cache. Disk is the source of truth after a restart; this Map
@@ -188,6 +197,7 @@ export function renderTodoPromptBlock(
   if (todos.length === 0) return "";
   const marks: Record<TodoStatus, string> = {
     completed: "[x]",
+    cancelled: "[-]",
     in_progress: "[~]",
     pending: "[ ]",
   };
@@ -230,7 +240,8 @@ const todoSchema: JsonSchema = {
           status: {
             type: "string",
             enum: STATUSES,
-            description: "Current state of the task.",
+            description:
+              "Current state of the task. Use 'cancelled' to drop an item you will not do (say why in its content) — never mark undone work 'completed'.",
           },
           confidence: {
             type: "number",
@@ -308,6 +319,7 @@ function render(todos: TodoItem[]): string {
   if (todos.length === 0) return "(todo list cleared)";
   const marks: Record<TodoStatus, string> = {
     completed: "[x]",
+    cancelled: "[-]",
     in_progress: "[~]",
     pending: "[ ]",
   };
@@ -332,7 +344,7 @@ async function executeTodoWrite(
   store.set(sessionId, todos);
   saveToDisk(sessionId, todos, ctx.projectPath ?? ctx.cwd);
 
-  const remaining = todos.filter((t) => t.status !== "completed").length;
+  const remaining = todos.filter(isOpenTodo).length;
 
   return {
     success: true,

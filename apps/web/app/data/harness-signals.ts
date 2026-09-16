@@ -22,9 +22,11 @@ export interface SignalsReport {
     completedMean: number | null;
     spikes: { n: number; gated: number };
     rated: number;
+    ratedOnlyAtCompletion: number;
   };
   hillClimb: {
     n: number;
+    ratings: number;
     sessions: number;
     histogram: Record<string, number>;
     mean: number | null;
@@ -62,9 +64,11 @@ export const EMPTY_SIGNALS: SignalsReport = {
     completedMean: null,
     spikes: { n: 0, gated: 0 },
     rated: 0,
+    ratedOnlyAtCompletion: 0,
   },
   hillClimb: {
     n: 0,
+    ratings: 0,
     sessions: 0,
     histogram: {},
     mean: null,

@@ -18,7 +18,7 @@
 // nudge. The reminders are cheap: no model call, one <system-reminder>.
 // =============================================================================
 
-import type { TodoItem } from "../../tools/todo.js";
+import { isOpenTodo, type TodoItem } from "../../tools/todo.js";
 
 export interface ConfidenceSpike {
   kind: "confidence_spike";
@@ -72,7 +72,7 @@ export function diffTodoSignals(
     if (
       typeof item.hillClimbability === "number" &&
       item.hillClimbability < opts.threshold &&
-      item.status !== "completed" &&
+      isOpenTodo(item) &&
       prev?.hillClimbability !== item.hillClimbability
     ) {
       signals.push({

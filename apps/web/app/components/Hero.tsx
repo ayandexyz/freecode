@@ -62,7 +62,7 @@ export function Hero() {
           <Button variant="primary" className="px-6 py-3" href="https://docs.freecode.website/">
             View Docs
           </Button>
-          <Button variant="outline" className="px-6 py-3 h-[46px]" href="/bench">
+          <Button variant="outline" className="px-6 py-3 h-[46px]" href="/#benchmark">
             <BarChart3 className="mr-2 h-4 w-4 text-foreground" />
             Benchmarks
           </Button>

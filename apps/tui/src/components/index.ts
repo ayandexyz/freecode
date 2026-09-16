@@ -399,6 +399,12 @@ export function clearAllMessages(): void {
  */
 export function loadSessionMessages(messages: SerializedMessage[]): void {
   for (const msg of messages) {
+    // A poke the harness wrote. The text is for the model; the user gets the
+    // same one-liner they saw live.
+    if (msg.synthetic === "auto_poke") {
+      createSystemMessage("*Auto-poke: the agent stopped with todos open and was sent back.*");
+      continue;
+    }
     let content = "";
     if (msg.role === "user") {
       content = msg.parts

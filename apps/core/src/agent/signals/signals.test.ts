@@ -158,3 +158,36 @@ test("the fingerprint ignores completed items, so finishing one is progress", ()
   const c = [item({ id: "2" })];
   assert.equal(todoFingerprint(b), todoFingerprint(c));
 });
+
+test("a cancelled item is closed: it is not poked for and not asked to reframe", () => {
+  const dropped = [
+    item({ id: "1", status: "completed" }),
+    item({ id: "2", status: "cancelled", content: "not needed after all" }),
+  ];
+  assert.deepEqual(
+    decidePoke({ enabled: true, maxPerRun: 3, todos: dropped, state: initialPokeState() }),
+    { poke: false, skip: "nothing_open" },
+  );
+  // Cancelling an open item is progress, the same as completing it.
+  const before = [item({ id: "1" }), item({ id: "2" })];
+  const after = [item({ id: "1" }), item({ id: "2", status: "cancelled" })];
+  assert.notEqual(todoFingerprint(before), todoFingerprint(after));
+  const s = diffTodoSignals([], [item({ id: "2", status: "cancelled", hillClimbability: 10 })], {
+    spike: 40,
+    threshold: 90,
+  });
+  assert.deepEqual(s, []);
+});
+
+test("no turn budget left is its own skip reason, before the fingerprint is consulted", () => {
+  const d = decidePoke({
+    enabled: true,
+    maxPerRun: 3,
+    todos: open,
+    state: initialPokeState(),
+    turnsLeft: 0,
+  });
+  assert.deepEqual(d, { poke: false, skip: "no_budget" });
+  const ok = decidePoke({ enabled: true, maxPerRun: 3, todos: open, state: initialPokeState(), turnsLeft: 1 });
+  assert.equal(ok.poke, true);
+});

@@ -315,7 +315,7 @@ export interface PokeTriggeredEvent extends BaseEvent {
 export interface PokeSkippedEvent extends BaseEvent {
   type: "poke.skipped";
   turnId: string;
-  /** PokeSkipReason — "disabled", "nothing_open", "cap_reached", "no_progress". */
+  /** PokeSkipReason — "disabled", "nothing_open", "cap_reached", "no_progress", "no_budget". */
   reason: string;
   remaining: number;
 }

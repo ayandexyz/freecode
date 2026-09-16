@@ -5,7 +5,7 @@ import {
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 
-export type TodoPanelStatus = "pending" | "in_progress" | "completed";
+export type TodoPanelStatus = "pending" | "in_progress" | "completed" | "cancelled";
 
 export interface TodoPanelItem {
   status: TodoPanelStatus;
@@ -18,6 +18,7 @@ const MAX_ROWS = 14;
 
 const MARKS: Record<TodoPanelStatus, string> = {
   completed: chalk.green("✔"),
+  cancelled: chalk.gray("✘"),
   in_progress: chalk.yellow("▸"),
   pending: chalk.gray("○"),
 };
@@ -71,7 +72,7 @@ export class TodoPanel implements Component {
     const shown = this.items.slice(0, MAX_ROWS);
     for (const it of shown) {
       const label =
-        it.status === "completed"
+        it.status === "completed" || it.status === "cancelled"
           ? chalk.dim.strikethrough(it.content)
           : it.status === "in_progress"
             ? chalk.white(it.content)
@@ -96,10 +97,16 @@ export function parseTodoResult(result: string): TodoPanelItem[] {
   if (!result || result.includes("(todo list cleared)")) return [];
   const items: TodoPanelItem[] = [];
   for (const line of result.split("\n")) {
-    const m = line.match(/^\s*\[(x|~| )\]\s+(.*\S)\s*$/);
+    const m = line.match(/^\s*\[(x|~|-| )\]\s+(.*\S)\s*$/);
     if (!m) continue;
     const status: TodoPanelStatus =
-      m[1] === "x" ? "completed" : m[1] === "~" ? "in_progress" : "pending";
+      m[1] === "x"
+        ? "completed"
+        : m[1] === "-"
+          ? "cancelled"
+          : m[1] === "~"
+            ? "in_progress"
+            : "pending";
     items.push({ status, content: m[2] });
   }
   return items;

@@ -112,3 +112,27 @@ test("renderPromptMemoryContext includes summary and recent messages", () => {
   assert.match(rendered, /Recent session messages/);
   assert.match(rendered, /user: continue work/);
 });
+
+test("selectForCompaction compacts a single-prompt run (tool turns are assistant messages)", () => {
+  // `freecode run` / bench / eval: one user message, then only tool turns.
+  const messages = [
+    msg("1", "user", "make it faster"),
+    ...Array.from({ length: 40 }, (_, i) => msg(String(i + 2), "assistant", `tool turn ${i}`)),
+  ];
+
+  const result = selectForCompaction(messages, DEFAULT_COMPACTION_CONFIG);
+
+  assert.equal(result.summarize.length, 38);
+  // The prompt is carved out, then the last preserveRecentTurns messages.
+  assert.deepEqual(
+    result.preserve.map((item) => item.id),
+    ["1", "40", "41"],
+  );
+});
+
+test("selectForCompaction leaves a short single-prompt run alone", () => {
+  const messages = [msg("1", "user", "hi"), msg("2", "assistant", "hello")];
+  const result = selectForCompaction(messages, DEFAULT_COMPACTION_CONFIG);
+  assert.deepEqual(result.summarize, []);
+  assert.equal(result.preserve.length, 2);
+});

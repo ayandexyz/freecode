@@ -42,6 +42,12 @@ export class MemoryService {
   // Token count at the moment a PreCompact hook last blocked compaction;
   // used to avoid re-attempting (and re-failing) on every message.
   private blockedAtTokenCount?: number;
+  // Measured count the last successful compaction was judged at. If the next
+  // request is no smaller, compaction could not shrink what the provider
+  // counts (system prompt, tool schemas, a tiny transcript), and re-firing
+  // every turn would pay a summarizer call and rewrite the cached prefix each
+  // time — 15 compactions in 31 turns on a bench run. Hold until it grows.
+  private compactedAtTokenCount?: number;
   // Last count shouldCompact() actually judged against — measured when the
   // provider reported one, estimated otherwise.
   private lastEffectiveTokenCount = 0;
@@ -112,6 +118,16 @@ export class MemoryService {
     // on — mixing a measured count with an estimated one would make the
     // retry guard compare 196K against 14.5K and never hold.
     this.lastEffectiveTokenCount = effectiveTokens;
+    if (this.compactedAtTokenCount !== undefined) {
+      if (effectiveTokens < this.compactedAtTokenCount) {
+        this.compactedAtTokenCount = undefined; // it shrank; normal rule applies
+      } else if (
+        effectiveTokens <
+        this.compactedAtTokenCount + BLOCKED_RETRY_GROWTH_TOKENS
+      ) {
+        return false;
+      }
+    }
     if (
       this.blockedAtTokenCount !== undefined &&
       effectiveTokens < this.blockedAtTokenCount + BLOCKED_RETRY_GROWTH_TOKENS
@@ -195,6 +211,7 @@ export class MemoryService {
     };
 
     this.blockedAtTokenCount = undefined;
+    this.compactedAtTokenCount = this.lastEffectiveTokenCount || undefined;
     this.state = {
       ...this.state,
       messages: selected.preserve,

@@ -85,7 +85,9 @@ export function AutoPokeStats({ report }: { report: SignalsReport }) {
             ? "list unchanged since last poke — stopped"
             : reason === "cap_reached"
               ? "per-run cap hit"
-              : "",
+              : reason === "no_budget"
+                ? "run's turn limit reached first"
+                : "",
   }));
 
   return (

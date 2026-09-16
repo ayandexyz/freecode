@@ -61,11 +61,15 @@ export interface SessionSignals {
   itemsCompleted: number;
   /** Items that ever carried a confidence number. */
   itemsRated: number;
+  /** Completed items whose FIRST confidence arrived on the completing call. */
+  itemsRatedOnlyAtCompletion: number;
   /** Final list state, from the last todowrite call. */
   finalOpen: number;
   finalTotal: number;
   trajectories: ItemTrajectory[];
   hillClimb: number[];
+  /** First rating per item — one vote per goal, however often the list is rewritten. */
+  hillClimbFirst: number[];
   hillClimbLow: { n: number; gated: number };
   spikes: { n: number; gated: number };
   pokes: {
@@ -91,10 +95,12 @@ export function foldSession(events: RawEvent[]): SessionSignals | undefined {
     itemsSeen: 0,
     itemsCompleted: 0,
     itemsRated: 0,
+    itemsRatedOnlyAtCompletion: 0,
     finalOpen: 0,
     finalTotal: 0,
     trajectories: [],
     hillClimb: [],
+    hillClimbFirst: [],
     hillClimbLow: { n: 0, gated: 0 },
     spikes: { n: 0, gated: 0 },
     pokes: { triggered: 0, skipped: {}, productive: 0, itemsCompletedAfterPoke: 0 },
@@ -105,6 +111,7 @@ export function foldSession(events: RawEvent[]): SessionSignals | undefined {
   const assigned = new Map<string, number>();
   const done = new Set<string>();
   const flagged = new Map<string, { gated: boolean }>();
+  const hcRated = new Set<string>();
   let pokeOpen = false; // a poke fired and no tool call has followed yet
   let pokedEver = false;
 
@@ -146,19 +153,30 @@ export function foldSession(events: RawEvent[]): SessionSignals | undefined {
       const id = typeof t.id === "string" && t.id ? t.id : String(i + 1);
       const conf = score(t.confidence);
       const hc = score(t.hillClimbability);
-      if (hc !== undefined) s.hillClimb.push(hc);
+      if (hc !== undefined) {
+        s.hillClimb.push(hc);
+        if (!hcRated.has(id)) {
+          hcRated.add(id);
+          s.hillClimbFirst.push(hc);
+        }
+      }
       // The assignment number is the one from an EARLIER call: an item first
       // rated on the call that completes it was never assessed before the
       // work, and a (100 → 100) line would say stepping happened when it
       // could not have.
       const a = assigned.get(id);
-      if (t.status !== "completed") open++;
+      // Cancelled is closed: the model dropped the item on purpose, which is
+      // not the early exit auto-poke measures.
+      if (t.status !== "completed" && t.status !== "cancelled") open++;
       if (t.status === "completed" && !done.has(id)) {
         done.add(id);
         if (pokedEver) s.pokes.itemsCompletedAfterPoke++;
         if (a !== undefined && conf !== undefined) {
           const f = flagged.get(id);
           s.trajectories.push({ assigned: a, completed: conf, spike: !!f, gated: f?.gated ?? false });
+        } else if (a === undefined && conf !== undefined) {
+          // The number jcode trusts least: a claim with no prior assessment.
+          s.itemsRatedOnlyAtCompletion++;
         }
       }
       if (a === undefined && conf !== undefined) assigned.set(id, conf);
@@ -196,9 +214,14 @@ export interface SignalsReport {
     spikes: { n: number; gated: number };
     /** Items assigned with a confidence number, whether or not completed. */
     rated: number;
+    /** Completed items first rated on the completing call — a post-hoc claim, not a step. */
+    ratedOnlyAtCompletion: number;
   };
   hillClimb: {
+    /** Distinct goals: each item's first rating. */
     n: number;
+    /** Every rating submitted, re-ratings included (jcode's count). */
+    ratings: number;
     sessions: number;
     /** score → count, only scores that received a submission. */
     histogram: Record<string, number>;
@@ -248,7 +271,11 @@ export function aggregate(
   now = new Date(),
 ): SignalsReport {
   const trajectories = sessions.flatMap((s) => s.trajectories);
-  const hill = sessions.flatMap((s) => s.hillClimb);
+  // Headline on one vote per goal: a 600-turn run that rewrites an 8-item
+  // list 120 times is otherwise the whole histogram. The raw count (jcode's
+  // axis, re-ratings included) is kept alongside.
+  const hill = sessions.flatMap((s) => s.hillClimbFirst);
+  const ratings = sessions.reduce((n, s) => n + s.hillClimb.length, 0);
   const histogram: Record<string, number> = {};
   for (const h of hill) histogram[String(h)] = (histogram[String(h)] ?? 0) + 1;
   const below = hill.filter((h) => h < HILL_CLIMB_THRESHOLD).length;
@@ -284,9 +311,11 @@ export function aggregate(
         gated: trajectories.filter((t) => t.gated).length,
       },
       rated: sessions.reduce((n, s) => n + s.itemsRated, 0),
+      ratedOnlyAtCompletion: sessions.reduce((n, s) => n + s.itemsRatedOnlyAtCompletion, 0),
     },
     hillClimb: {
       n: hill.length,
+      ratings,
       sessions: sessions.filter((s) => s.hillClimb.length > 0).length,
       histogram,
       mean: mean(hill),

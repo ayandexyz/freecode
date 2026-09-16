@@ -35,7 +35,7 @@ on, so the bench can compare across the flip.
 
 | Gate | What it does when on | Setting (`~/.freecode/settings.json` or `<project>/.freecode/settings.json`) | Env |
 | --- | --- | --- | --- |
-| Auto-poke | model stops with open todos → one `<system-reminder>` sends it back; cap 3/run; stops when the list is byte-identical to the last poke's | `"signals": { "autoPoke": { "enabled": true, "maxPerRun": 3 } }` | `FREECODE_AUTO_POKE=1` |
+| Auto-poke | model stops with open todos → one **user-role message** (persisted, `synthetic: "auto_poke"`; not a `<system-reminder>` — a reminder-only turn reads as empty and models answer it instead of working) sends it back; cap 3/run (a run is one prompt); stops when the list is byte-identical to the last poke's; skipped when the run's turn limit would land first. A `cancelled` todo is closed, not open. Each poke and each stop is a `notice` the frontend shows | `"signals": { "autoPoke": { "enabled": true, "maxPerRun": 3 } }` | `FREECODE_AUTO_POKE=1` |
 | Confidence gate | an item completed with confidence +40 or more in ONE call → reminder to go verify | `"signals": { "confidenceGate": { "enabled": true, "spike": 40 } }` | `FREECODE_CONFIDENCE_GATE=1` |
 | Hill-climb gate | an item rated below 90 → reminder to reframe into something with a check | `"signals": { "hillClimbGate": { "enabled": true, "threshold": 90 } }` | `FREECODE_HILLCLIMB_GATE=1` |
 
@@ -43,7 +43,7 @@ Env beats files in either direction (`=0` switches off). Subagents never poke
 or get gated — their parent judges their stop. No gate makes a model call.
 
 Rollout events: `poke.triggered` / `poke.skipped` (`disabled`, `nothing_open`,
-`cap_reached`, `no_progress`) on every stop with a list present, and
+`cap_reached`, `no_progress`, `no_budget`) on every stop with a list present, and
 `todo.signal` (`confidence_spike` / `hill_climb_low`, with `gated`) on every
 signal. **Item text never enters the log** — ids only, joinable to the
 `function.call` args.
