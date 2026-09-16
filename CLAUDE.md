@@ -22,6 +22,7 @@ This codebase follows `docs/specs/2026-05-25-architecture-v4.md` (supersedes v3)
 | Eval harness        | `specs/2026-08-23-eval-harness.md` (Phases 0–5, built) + `specs/2026-08-29-eval-case-registry.md` |
 | **Eval (commands)** | **`EVAL.md`** — which command, which flag, when to run it |
 | **Agent comparison (commands)** | **`AGENT-BENCH.md`** — `pnpm bench:agents` (+ `bench:grade`, `bench:bundle`, `--isolate`) vs Claude Code / OpenCode; metering, grading, isolation, `/benchmark`. Spec `2026-09-03-agent-comparison-benchmark.md`. **Not `pnpm eval`.** |
+| **Auto-poke (operator)** | **`AUTO_POKE.md`** — what it does, `settings.json` / env to enable it, skip reasons, how to read §06 on `/bench`, what is measured so far. |
 | **Harness bench (commands)** | **`HARNESS-BENCH.md`** — `pnpm bench:jcode` (jcode bench v1 optimisation tasks, `bench/jcode-bench/`) + `pnpm bench:signals` (confidence stepping / hill-climbable goals / auto-poke folded from rollout logs, `bench/harness-signals/`) → `/bench` hub page. Spec `2026-09-12-harness-bench.md`. |
 | Agent comparison (design) | `specs/2026-09-03-agent-comparison-benchmark.md` — harness-vs-harness on SWE-bench Lite. Deliberately outside `eval/`. Runtime RAM is `Benchmark.md` |
 | Hooks               | `apps/core/src/hooks/hooks-system.md`                   |
