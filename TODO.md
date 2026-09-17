@@ -17,7 +17,7 @@ and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
       commands).
 
 - [ ] **4. Rules hierarchy** — `context/instructions.ts` reads `CLAUDE.md`/`AGENTS.md` from
-      exactly two dirs (global `~/.freecode/`, project root), first match wins, 40k char cap.
+      exactly two dirs (global `~/.freecode/`, project root), first match wins.
       Missing: walk-up for monorepos, `@imports` (both deferred in the comment at line 6),
       and glob-scoped rules (the Cursor `.mdc` model — "apply only for `**/*.tsx`").
       Nested-directory rules would also give scoped skills somewhere to live.
