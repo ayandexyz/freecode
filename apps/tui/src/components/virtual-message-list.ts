@@ -300,6 +300,18 @@ export class VirtualMessageList implements Component {
   }
 
   /**
+   * Rows the messages (not the header) take at `width`. Served from the
+   * per-message render cache, so a header that sizes itself around the
+   * messages — the startup splash — costs nothing extra per frame.
+   */
+  messagesHeight(width: number): number {
+    let rows = 0;
+    for (const lines of this.renderMessages(this.visibleMessages, width)) rows += lines.length;
+    if (this.inProgressMessage) rows += this.inProgressMessage.component.render(width).length;
+    return rows;
+  }
+
+  /**
    * Render the message list.
    * In-progress message always stays at the bottom; all other messages render above it.
    * In scrolled mode, only a viewport window plus an indicator row is returned.

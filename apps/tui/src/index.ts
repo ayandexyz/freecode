@@ -127,6 +127,7 @@ import { installCrashHandlers } from "./crash-handler.js";
 // import { ResponsiveInfoBox } from "./components/info-box.js"; // commented out: header disabled
 // import { StatusHeader } from "./components/status-header.js"; // commented out: context moved to ContextBox overlay
 import { LogoHeader } from "./components/logo-header.js";
+import { MatrixSplash } from "./components/matrix-splash.js";
 import { ContextBox } from "./components/context-box.js";
 import { ModeLine } from "./components/mode-line.js";
 import {
@@ -317,6 +318,24 @@ const logoHeader = new LogoHeader(
   () => headerMcpCount,
 );
 
+// Startup splash: matrix rain over the empty welcome area that resolves into
+// the logo header, then the header renders as normal. It plays out unless the
+// user submits a prompt first (see submitPrompt); startup notices that land
+// under it only shrink the canvas. `FREECODE_SPLASH=0` skips it.
+const messageListRows = () => {
+  const otherHeight = tui.children
+    .filter((child) => child !== messageList)
+    .reduce((sum, child) => {
+      return sum + tui.renderChild(child, terminal.columns).length;
+    }, 0);
+  return Math.max(6, terminal.rows - otherHeight);
+};
+const splash = new MatrixSplash(
+  logoHeader,
+  () => messageListRows() - messageList.messagesHeight(terminal.columns),
+);
+if (process.env.FREECODE_SPLASH === "0") splash.finish();
+
 // Floating top-right one-line overlay showing context usage as `tokens / limit`.
 // Non-capturing so it never steals focus from the editor; hidden on narrow
 // terminals so it can't crowd the chat.
@@ -361,19 +380,13 @@ const getMessageListOffset = () => {
 
 messageList = new VirtualMessageList(
   200,
-  () => {
-    const otherHeight = tui.children
-      .filter((child) => child !== messageList)
-      .reduce((sum, child) => {
-        return sum + tui.renderChild(child, terminal.columns).length;
-      }, 0);
-    return Math.max(6, terminal.rows - otherHeight);
-  },
-  logoHeader, // scrolls with the messages instead of being pinned at top
+  messageListRows,
+  splash, // logo header (after the splash); scrolls with the messages instead of being pinned at top
   () => selectionStore.get(),
   getMessageListOffset,
 );
 messageList.setTui(tui);
+splash.setTui(tui);
 tui.addChild(messageList);
 
 // A terminal resize invalidates the rendered-line indices a selection is
@@ -1618,8 +1631,10 @@ async function submitPrompt(
   }
 
   messageCount++;
-  // First prompt reveals the top-right context-usage overlay.
+  // First prompt reveals the top-right context-usage overlay and ends the
+  // startup splash if it is still playing.
   hasFirstMessage = true;
+  splash.finish();
   // Reset the live streamed-token estimate for this turn.
   streamedChars = 0;
   renderedTextThisRun = false;
