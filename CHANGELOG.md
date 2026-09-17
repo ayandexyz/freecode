@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.33.0
+
+An auto-poke release plus a repository move. The auto-poke gate (`FREECODE_AUTO_POKE`) is reworked so a model that stops with open todos is sent back by a *persisted* user message rather than an ephemeral reminder, with a per-run cap, cancelled-todo handling, and user-visible notices. Single-prompt runs — `freecode run`, every bench trial — could never compact; that is fixed and cut the jcode bench from ~222K to ~59K input tokens per turn. The repo now lives at `ayandexyz/freecode`; installer, update checker and every hardcoded link follow.
+
+### Added
+
+- **Blog** on the web app (`1936b77`), with a first post on Copilot cost.
+- **`AUTO_POKE.md`** operator reference (`96154eb`): what the gate does, how to enable it, skip reasons, and how to read §06 on `/bench`.
+- **`eval ab` accepts `FREECODE_AUTO_POKE` and the other gate flags as variants** (`c79ec79`, `c6b1b61`), so a default-flip is an A/B decision with numbers.
+
+### Changed
+
+- **Auto-poke is a persisted user message** (`7724243`, `SerializedMessage.synthetic: "auto_poke"`). A reminder-only turn reads as an empty user message and the model replies to it instead of acting; a persisted turn keeps the transcript alternating on resume. Append-only, so cache anchors are untouched; `harvest.ts` skips it, the TUI renders it as a one-line notice.
+- **Auto-poke state resets per run, `cancelled` todos neither poke nor ask for a reframe, `no_budget` guard, poke/stop notices reach the frontend** (`1743e1c`).
+- **Harness-signals fold**: items rated only at completion are counted, the hill-climb headline is one vote per goal with raw ratings alongside (`c6b1b61`, `1af4c06`); `/bench` data refreshed (`fc919ec`), and `/bench` is folded into `/` on the web app (`7b9eeca`).
+- **Repository moved to `ayandexyz/freecode`** (`ae7e3fd`). Install scripts, the TUI update check, crash-handler issues link, graph-ui addon download, UA strings, system prompt, docs/web links, package.json `repository` fields and the settings schema `$id` all point at the new owner.
+- **Web app serves `/install` from disk** (`f9186db`, `7270f3c`) instead of `raw.githubusercontent.com`, and locates `scripts/` from any cwd so it works on Vercel.
+- **Release workflow has a `workflow_dispatch` fallback** (`9baeeb7`) taking a tag.
+
+### Fixed
+
+- **Single-prompt runs never compacted** (`577df35`). `selectForCompaction` returned nothing while `countUserTurns <= preserveRecentTurns`, and only a prompt makes a user turn, so `freecode run` and every bench trial sat at ~200K input per turn against a 120K target. With fewer user turns than N the selector now preserves the last N messages instead, and the head carve-out keeps the prompt.
+- **Auto-poke A/B on coding measured** (`47e4672`): 0 pokes fired — the suite cannot exercise early exits — so the default stays off. Gate-off poke test pins `autoPoke` off in project scope (`63676ae`).
+
 ## v0.32.0
 
 A TUI polish release plus the harness-bench subsystem. The TUI work reshapes how messages, tool calls, and code blocks lay out in the transcript — the prompt border now carries mode/model/effort, the input area and context box are redesigned, tool summaries are separated from the prompt above them, code blocks render with their own framing, and the in-progress row gets a blank line above it (and loses the one below the user). The harness bench is the new operator surface for measuring whether a harness change moved the needle: jcode-style optimisation tasks, confidence stepping, hill-climbable goals, auto-poke, and a `/bench` hub. All three gates were kept healthy — one eval case is quarantined to unblock the trajectory gate.
