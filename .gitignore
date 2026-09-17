@@ -59,3 +59,7 @@ bench/jcode-bench/target
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 graft/
+
+# jcode-bench local runs — regenerable, not committed
+bench/jcode-bench/.cache/
+bench/jcode-bench/results/
