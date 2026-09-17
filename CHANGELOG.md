@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.34.0
+
+Two parity fixes against opencode/pi/jcode. Instruction files are sent whole — the 40,000-character cap sliced this repo's own `CLAUDE.md` mid-word, so the model never saw its back half. Compaction no longer pops a modal; it shows a spinner in the status area while it runs and a transcript line after, like pi.
+
+### Changed
+
+- **Compaction UI is a status-line loader, not an overlay** (`19e528b`). A pi-tui `Loader` above the input while the conversation is summarized; the result (`Compacted context: ~X → ~Y tokens` / `Nothing to compact`) lands in the transcript. The centered modal, its sweep animation and linger timer are gone (−277 lines).
+
+### Fixed
+
+- **`CLAUDE.md`/`AGENTS.md` are no longer truncated** (`bc9ad45`). `context/instructions.ts` had a 40k-character budget enforced by a raw `slice`, so a project file past the cap lost its tail mid-sentence with only a `[Truncated…]` marker. opencode, pi and jcode all send the file in full; the tokens are prompt-cached after the first turn. The budget and its truncate/omit branch are removed.
+
 ## v0.33.0
 
 An auto-poke release plus a repository move. The auto-poke gate (`FREECODE_AUTO_POKE`) is reworked so a model that stops with open todos is sent back by a *persisted* user message rather than an ephemeral reminder, with a per-run cap, cancelled-todo handling, and user-visible notices. Single-prompt runs — `freecode run`, every bench trial — could never compact; that is fixed and cut the jcode bench from ~222K to ~59K input tokens per turn. The repo now lives at `ayandexyz/freecode`; installer, update checker and every hardcoded link follow.
