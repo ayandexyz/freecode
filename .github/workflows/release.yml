@@ -28,7 +28,7 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Resolve release tag
-        run: echo "GITHUB_REF_NAME=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
+        run: echo "RELEASE_TAG=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
 
       - uses: pnpm/action-setup@v4
 
@@ -113,8 +113,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
+          gh release create "${RELEASE_TAG}" \
+            --title "${RELEASE_TAG}" \
             --generate-notes \
             out/* \
-          || gh release upload "${GITHUB_REF_NAME}" out/* --clobber
+          || gh release upload "${RELEASE_TAG}" out/* --clobber
