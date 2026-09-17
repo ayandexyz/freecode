@@ -2,18 +2,22 @@ import {
   Key,
   matchesKey,
   truncateToWidth,
-  visibleWidth,
   type Component,
+  type TUI,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import type { AgentSummary } from "@thisisayande/freecode-shared";
+import type { AgentSummary, StreamEvent } from "@thisisayande/freecode-shared";
+import { MessageStore } from "../state/message-store.js";
+import { Transcript } from "./transcript.js";
+import { VirtualMessageList } from "./virtual-message-list.js";
 
 const ACCENT = "#5FD7FF";
 const DIM = "#666666";
 /** Header, rule, hint. */
 const CHROME_ROWS = 3;
 const MIN_BODY_ROWS = 3;
-const SCROLL_STEP = 5;
+/** A subagent's transcript is bounded like the main one, just smaller. */
+const MAX_MESSAGES = 500;
 
 export interface AgentViewerCallbacks {
   /** Interrupt the agent being watched. */
@@ -31,40 +35,51 @@ function elapsed(agent: AgentSummary): string {
 }
 
 /**
- * AgentViewer — a subagent's live activity, rendered IN PLACE OF the main
- * transcript rather than inside a card.
+ * AgentViewer — a subagent's transcript, rendered IN PLACE OF the main one.
  *
  * It takes the main area's slot in `tui.children` while a subagent is being
- * watched, which is why it is a plain viewport and carries no border: the
- * previous in-card detail pane had to fight the roster for six rows on a
- * terminal that had plenty, and read as a modal over the conversation rather
- * than a replacement for it.
- *
- * Unlike the message list this is a bounded window, not a growing transcript:
- * a live agent emits continuously and re-rendering its whole history on every
- * delta is what made watching one feel slow.
+ * watched. The body is the same VirtualMessageList the conversation uses,
+ * over the agent's own MessageStore, fed by its own Transcript: tool cards,
+ * thinking blocks and streaming rows look and behave exactly as they do for
+ * the main agent, and nothing leaks between the two.
  */
 export class AgentViewer implements Component {
   private agent: AgentSummary | null = null;
-  private lines: string[] = [""];
-  /** Rows scrolled up from the tail; 0 means "follow the live activity". */
-  private scroll = 0;
+  private readonly store = new MessageStore({ maxMessages: MAX_MESSAGES });
+  private readonly transcript: Transcript;
+  private readonly list: VirtualMessageList;
   private maxRowsSource: () => number = () => 24;
 
-  constructor(private readonly callbacks: AgentViewerCallbacks) {}
+  constructor(
+    private readonly callbacks: AgentViewerCallbacks,
+    tui?: TUI,
+  ) {
+    this.transcript = new Transcript(this.store, tui ?? null);
+    this.list = new VirtualMessageList(
+      200,
+      () => this.bodyRows,
+      undefined,
+      () => null,
+      () => 0,
+      this.store,
+    );
+    if (tui) this.list.setTui(tui);
+  }
 
   setMaxRows(rows: number | (() => number)): void {
     this.maxRowsSource = typeof rows === "function" ? rows : () => rows;
   }
 
-  /** Point the viewer at an agent, discarding the previous one's buffer. */
-  open(agent: AgentSummary, activity: string): void {
+  /** Point the viewer at an agent, replaying its recorded activity. */
+  open(agent: AgentSummary, activity: StreamEvent[]): void {
     this.agent = agent;
-    this.lines = activity.length > 0 ? activity.split("\n") : [""];
-    this.scroll = 0;
+    this.transcript.reset();
+    this.store.clear();
+    for (const event of activity) this.transcript.apply(event);
+    this.list.scrollToBottom();
   }
 
-  /** Roster refresh — status and elapsed time only, never the buffer. */
+  /** Roster refresh — status and elapsed time only, never the transcript. */
   update(agent: AgentSummary | undefined): void {
     if (agent && this.agent && agent.id === this.agent.id) this.agent = agent;
   }
@@ -73,15 +88,14 @@ export class AgentViewer implements Component {
     return this.agent?.id ?? undefined;
   }
 
-  /** Live chunk from an `agent_output` stream event. */
-  append(chunk: string): void {
-    const parts = chunk.split("\n");
-    this.lines[this.lines.length - 1] += parts[0];
-    for (const part of parts.slice(1)) this.lines.push(part);
-    // A viewport, not the archive — core's ring buffer is the source of truth.
-    if (this.lines.length > 2000) {
-      this.lines.splice(0, this.lines.length - 2000);
-    }
+  /** A live stream event published under the watched agent's session id. */
+  apply(event: StreamEvent): boolean {
+    return this.transcript.apply(event);
+  }
+
+  /** Rows of transcript in the store, for tests and the empty-state check. */
+  messageCount(): number {
+    return this.store.getMessages().length;
   }
 
   private get bodyRows(): number {
@@ -103,19 +117,13 @@ export class AgentViewer implements Component {
 
     const rows: string[] = [head, accent("─".repeat(Math.max(0, width)))];
 
-    const body = this.bodyRows;
-    const maxScroll = Math.max(0, this.lines.length - body);
-    if (this.scroll > maxScroll) this.scroll = maxScroll;
-    const end = this.lines.length - this.scroll;
-    const window = this.lines.slice(Math.max(0, end - body), end);
-    if (window.length === 0 || (window.length === 1 && window[0] === "")) {
+    if (this.store.getMessages().length === 0) {
       rows.push(dim("(no activity yet)"));
     } else {
-      for (const line of window) {
-        rows.push(
-          visibleWidth(line) > width ? truncateToWidth(line, width) : line,
-        );
-      }
+      const body = this.list.render(width);
+      // Follow mode renders the full history; the header and hint must stay
+      // on screen, so window the tail to the rows this viewer was given.
+      rows.push(...body.slice(-this.bodyRows));
     }
 
     rows.push(
@@ -123,7 +131,7 @@ export class AgentViewer implements Component {
         [
           "esc back to main",
           "pgup/pgdn scroll",
-          ...(this.scroll > 0 ? ["end follow"] : []),
+          ...(this.list.isScrolled ? ["end follow"] : []),
           ...(agent.status === "running" ? ["k stop"] : []),
         ].join(" · "),
       ),
@@ -136,16 +144,24 @@ export class AgentViewer implements Component {
       this.callbacks.onBack();
       return;
     }
-    if (matchesKey(data, Key.pageUp) || matchesKey(data, Key.up)) {
-      this.scroll += SCROLL_STEP;
+    if (matchesKey(data, Key.pageUp)) {
+      this.list.scrollPageUp();
       return;
     }
-    if (matchesKey(data, Key.pageDown) || matchesKey(data, Key.down)) {
-      this.scroll = Math.max(0, this.scroll - SCROLL_STEP);
+    if (matchesKey(data, Key.pageDown)) {
+      this.list.scrollPageDown();
+      return;
+    }
+    if (matchesKey(data, Key.up)) {
+      this.list.scrollBy(-1);
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.list.scrollBy(1);
       return;
     }
     if (matchesKey(data, Key.end) || data === "G") {
-      this.scroll = 0;
+      this.list.scrollToBottom();
       return;
     }
     if (data === "k" && this.agent?.status === "running") {
@@ -153,5 +169,12 @@ export class AgentViewer implements Component {
     }
   }
 
-  invalidate(): void {}
+  invalidate(): void {
+    this.list.invalidate();
+  }
+
+  /** Release the store subscription when the viewer is discarded. */
+  destroy(): void {
+    this.list.destroy();
+  }
 }

@@ -17,7 +17,7 @@ import { buildTool } from "./factory.js";
 import { BASH_DESCRIPTION } from "./bash-prompt.js";
 import { classifyCommand } from "./output-compress.js";
 import { spawnShell } from "./shells/spawn.js";
-import { getShellRegistry } from "./shells/index.js";
+import { getShellRegistry, shellSessionOf } from "./shells/index.js";
 import { BusEvents } from "../bus/index.js";
 
 interface BashParams {
@@ -145,14 +145,19 @@ function startBackground(
     };
   }
 
+  // Stamped with the ROOT session id, like agent_* events: the frontend
+  // subscribes to the root and filters everything else out, so a subagent's
+  // shells would otherwise never reach /shells.
+  const rootId = shellSessionOf(sessionId);
   const registry = getShellRegistry(sessionId);
   let shell;
   try {
     shell = registry.start({
       command: params.command,
       cwd,
+      owner: sessionId,
       onData: (id, chunk) => {
-        BusEvents.stream(sessionId, {
+        BusEvents.stream(rootId, {
           type: "shell_output",
           shellId: id,
           chunk,
@@ -160,7 +165,7 @@ function startBackground(
       },
       onExit: (id, status, exitCode) => {
         if (status === "running") return;
-        BusEvents.stream(sessionId, {
+        BusEvents.stream(rootId, {
           type: "shell_exit",
           shellId: id,
           status,
@@ -172,7 +177,7 @@ function startBackground(
     return { success: false, error: String((error as Error).message ?? error) };
   }
 
-  BusEvents.stream(sessionId, {
+  BusEvents.stream(rootId, {
     type: "shell_start",
     shellId: shell.id,
     command: shell.command,

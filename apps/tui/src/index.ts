@@ -96,19 +96,13 @@ import {
   createInProgressMessage,
   createQueuedUserMessage,
   removeMessageById,
-  removeToolProgressMessage,
   updateInProgressMessage,
   subscribeToMessages,
   onMessagesChange,
-  createToolProgressMessage,
-  createToolResultMessage,
-  createThinkingMessage,
-  appendThinkingDelta,
-  appendAssistantDelta,
   finalizeAssistantText,
-  ToolProgressMessage,
   type MessageInstance,
   loadSessionMessages,
+  mainTranscript,
 } from "./components/index.js";
 import { getMessageByQueueId } from "./state/message-store.js";
 import {
@@ -122,6 +116,7 @@ import {
 } from "./components/message-row.js";
 import { getMessages, clearMessages } from "./state/message-store.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
+import { parseAgentActivity } from "@thisisayande/freecode-shared";
 import { PromptEditor, stripImageTokens } from "./components/prompt-editor.js";
 import { ResumePicker } from "./components/resume-picker.js";
 import { MaskedInput } from "./components/masked-input.js";
@@ -142,6 +137,7 @@ import { createMcpSelector } from "./components/mcp-picker.js";
 import { ShellsPanel } from "./components/shells-panel.js";
 import { AgentsPanel } from "./components/agents-panel.js";
 import { AgentViewer } from "./components/agent-viewer.js";
+import { Transcript } from "./components/transcript.js";
 import { SearchableSelectList } from "./components/searchable-select-list.js";
 import { QuestionModal } from "./components/question-modal.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
@@ -223,6 +219,7 @@ async function clearSession(): Promise<void> {
       agentMode: currentAgentMode,
     })) as SessionInfo;
     currentSession = fresh;
+    resetSessionPanels();
   } catch (error) {
     // Keep the old session rather than leaving the UI pointing at nothing.
     showMessage(
@@ -291,15 +288,13 @@ let agentsTimer: NodeJS.Timeout | null = null;
  * Null whenever the main agent owns the main area.
  */
 let agentViewer: AgentViewer | null = null;
+/** True while the viewer watches an agent that was running when opened. */
+let viewerOpenedRunning = false;
 let apiKeyEditor: Input | null = null;
 let apiKeyPrompt: Text | null = null;
 
 let editor: PromptEditor;
 let messageList: VirtualMessageList;
-const toolMessageComponents = new Map<
-  string,
-  { progress: ToolProgressMessage; message: MessageInstance; args: Record<string, unknown> }
->();
 
 const terminal = new ProcessTerminal();
 // SafeTUI, not TUI: it clamps every rendered line to a single terminal row, so
@@ -659,10 +654,40 @@ function ensureShellsPanel(): ShellsPanel {
         void shellsRemove(sessionId, shellId).then(() => refreshShells());
       },
       onClose: () => hideShellsPanel(),
+      onSelect: (shellId) => void seedShellOutput(shellId),
     });
     shellsPanel.setMaxRows(() => Math.max(10, Math.floor(terminal.rows * 0.6)));
   }
   return shellsPanel;
+}
+
+/**
+ * Seed a shell's buffer from core: stream events only cover what arrived
+ * while this TUI was listening, and the shell may predate it.
+ */
+async function seedShellOutput(shellId: string): Promise<void> {
+  const sessionId = currentSession?.sessionId;
+  if (!sessionId || !shellsPanel) return;
+  try {
+    const output = await shellsOutput(sessionId, shellId, 0);
+    if (output.found) shellsPanel.setOutput(shellId, output.text);
+    tui.requestRender();
+  } catch {
+    // Fall back to whatever the stream events already delivered.
+  }
+}
+
+/**
+ * A session switch invalidates both rosters: they are keyed by session in
+ * core, so a chip counting the previous session's shells or agents is a lie.
+ * Panels are recreated lazily by the next event, exactly like first use.
+ */
+function resetSessionPanels(): void {
+  hideShellsPanel();
+  hideAgentsPanel();
+  closeAgentView();
+  shellsPanel = null;
+  agentsPanel = null;
 }
 
 /** Re-read the roster so status, exit codes and elapsed times stay honest. */
@@ -687,7 +712,7 @@ function hideShellsPanel(): void {
     if (idx !== -1) tui.children.splice(idx, 1);
   }
   shellsPanelOpen = false;
-  tui.setFocus(editor);
+  tui.setFocus(focusTarget());
   tui.requestRender();
 }
 
@@ -720,18 +745,8 @@ async function showShellsPanel(): Promise<void> {
     return;
   }
 
-  // Seed the selected shell's buffer from core: stream events only cover what
-  // arrived while this TUI was listening, and the panel may be opening on a
-  // shell that has been running since before it existed.
   const selected = panel.selectedShellId();
-  if (selected) {
-    try {
-      const output = await shellsOutput(sessionId, selected, 0);
-      if (output.found) panel.setOutput(selected, output.text);
-    } catch {
-      // Fall back to whatever the stream events already delivered.
-    }
-  }
+  if (selected) await seedShellOutput(selected);
 
   shellsPanelOpen = true;
   const editorIdx = tui.children.indexOf(editor);
@@ -783,25 +798,29 @@ async function openAgentView(agentId: string): Promise<void> {
   if (!sessionId || !agent) return;
 
   if (!agentViewer) {
-    agentViewer = new AgentViewer({
-      onStop: (id) => {
-        void agentsStop(sessionId, id).then(() => refreshAgents());
+    agentViewer = new AgentViewer(
+      {
+        onStop: (id) => {
+          void agentsStop(sessionId, id).then(() => refreshAgents());
+        },
+        onBack: () => closeAgentView(),
       },
-      onBack: () => closeAgentView(),
-    });
+      tui,
+    );
     agentViewer.setMaxRows(() => Math.max(6, terminal.rows - 8));
   }
 
   // Seed from core: stream events only cover what arrived while this TUI was
   // listening, and the agent may have been working since before that.
-  let activity = "";
+  let activity: StreamEvent[] = [];
   try {
     const output = await agentsOutput(sessionId, agentId, 0);
-    if (output.found) activity = output.text;
+    if (output.found) activity = parseAgentActivity(output.text);
   } catch {
-    // Fall back to an empty buffer; live chunks still arrive.
+    // Fall back to an empty transcript; live events still arrive.
   }
   agentViewer.open(agent, activity);
+  viewerOpenedRunning = agent.status === "running";
 
   const listIdx = tui.children.indexOf(messageList);
   if (listIdx !== -1) tui.children.splice(listIdx, 1, agentViewer);
@@ -814,8 +833,10 @@ function closeAgentView(): void {
   if (!agentViewer) return;
   const idx = tui.children.indexOf(agentViewer);
   if (idx !== -1) tui.children.splice(idx, 1, messageList);
+  agentViewer.destroy();
   agentViewer = null;
-  tui.setFocus(editor);
+  viewerOpenedRunning = false;
+  tui.setFocus(focusTarget());
   tui.requestRender();
 }
 
@@ -831,8 +852,11 @@ async function refreshAgents(): Promise<void> {
       const agent = agents.find((a) => a.id === watching);
       agentViewer?.update(agent);
       // The agent being watched just finished: hand the main area back, since
-      // the work has returned to the conversation this replaced.
-      if (!agent || agent.status !== "running") closeAgentView();
+      // the work has returned to the conversation this replaced. A viewer
+      // opened on an already-settled agent stays put until the user leaves.
+      if (!agent || (viewerOpenedRunning && agent.status !== "running")) {
+        closeAgentView();
+      }
     }
     tui.requestRender();
   } catch {
@@ -850,7 +874,7 @@ function hideAgentsPanel(): void {
     if (idx !== -1) tui.children.splice(idx, 1);
   }
   agentsPanelOpen = false;
-  tui.setFocus(agentViewer ?? editor);
+  tui.setFocus(focusTarget());
   tui.requestRender();
 }
 
@@ -1217,6 +1241,7 @@ async function showResumePicker(): Promise<void> {
           const result = await sessionResume(sessionId);
           currentSession = { sessionId: result.sessionId };
           resetSessionCacheTotals();
+          resetSessionPanels();
           hideTodoPanel(); // clear any prior session's pinned todos
           if (result.messages && result.messages.length > 0) {
             loadSessionMessages(result.messages);
@@ -1293,8 +1318,6 @@ async function loadCurrentModel(): Promise<void> {
   }
 }
 
-let globalThinkingStartTime: number | null = null;
-
 function handleToolEvent(event: StreamEvent) {
   // Core broadcasts EVERY bus event on stdout (server.ts) and the client hands
   // all of them here, so without this a subagent's text, reasoning and tool
@@ -1316,44 +1339,18 @@ function handleToolEvent(event: StreamEvent) {
     ownSessionId &&
     event.sessionId !== ownSessionId
   ) {
+    // The one subagent being watched gets its events drawn into its own
+    // transcript, through the same renderer as the main one. Every other
+    // subagent's are dropped: core's ring buffer replays them on open.
+    if (event.sessionId === agentViewer?.agentId()) agentViewer.apply(event);
     return;
   }
 
-  const isThinking =
-    event.type === "thinking" || event.type === "thinking_delta";
-
-  if (isThinking) {
-    if (globalThinkingStartTime === null) {
-      globalThinkingStartTime = Date.now();
-    }
-  } else {
-    // First non-thinking event ends the current reasoning block: freeze its
-    // elapsed timer so the header collapses to "Thought (Ns)".
-    const messages = getMessages();
-    const last = messages[messages.length - 1];
-    if (last?.component instanceof ThinkingMessage && !last.component.done) {
-      last.component.setDone();
-      globalThinkingStartTime = null;
-      tui.requestRender();
-    }
-  }
+  // The transcript rows themselves. What follows are the side effects the
+  // main conversation layers on top (token estimates, the todo panel, …).
+  if (Transcript.handles(event.type)) mainTranscript.apply(event);
 
   switch (event.type) {
-    case "tool_start": {
-      const { message, progress } = createToolProgressMessage(
-        event.toolCallId,
-        event.toolName,
-        event.args,
-      );
-      progress.setTui(tui);
-      toolMessageComponents.set(event.toolCallId, {
-        progress,
-        message,
-        args: event.args,
-      });
-      tui.requestRender();
-      break;
-    }
     // Background shells. Handled whether or not the /shells card is open so
     // that opening it later shows the whole run, not just the tail since the
     // keypress.
@@ -1374,16 +1371,10 @@ function handleToolEvent(event: StreamEvent) {
       void refreshAgents();
       break;
     }
-    case "agent_output": {
-      // Only the agent actually being watched is buffered in the TUI. Core's
-      // ring buffer holds the rest and `agents.output` seeds it on open, so
-      // there is nothing to gain from mirroring every agent here.
-      if (agentViewer?.agentId() === event.agentId) {
-        agentViewer.append(event.chunk);
-        tui.requestRender();
-      }
+    case "agent_output":
+      // The watched agent's live events reach its viewer through the session
+      // filter above; core's ring buffer (this chunk) is only for seeding.
       break;
-    }
     case "agent_exit": {
       void refreshAgents();
       break;
@@ -1392,34 +1383,7 @@ function handleToolEvent(event: StreamEvent) {
       void refreshShells();
       break;
     }
-    case "tool_output": {
-      const entry = toolMessageComponents.get(event.toolCallId);
-      if (entry) {
-        // Only the last 5 lines are ever shown, so don't split a large
-        // output in full — a 4KB tail is more than 5 terminal rows.
-        const tail =
-          event.content.length > 4096
-            ? event.content.slice(-4096)
-            : event.content;
-        entry.progress.updateOutput(tail.split("\n").slice(-5));
-      }
-      tui.requestRender();
-      break;
-    }
     case "tool_complete": {
-      const entry = toolMessageComponents.get(event.toolCallId);
-      if (entry) {
-        removeToolProgressMessage(entry.message, entry.progress);
-        toolMessageComponents.delete(event.toolCallId);
-      }
-      createToolResultMessage(
-        event.toolCallId,
-        event.toolName,
-        entry?.args ?? {},
-        event.result,
-        event.success,
-        event.duration_ms,
-      );
       // The tool result gets fed back into context for the next internal
       // turn, so grow the live ↓ estimate along with it (~4 chars/token).
       bumpLiveInputTokens(Math.round(event.result.length / 4));
@@ -1430,46 +1394,16 @@ function handleToolEvent(event: StreamEvent) {
       }
       break;
     }
-    case "thinking": {
-      // Turn-end reasoning snapshot — authoritative, replaces whatever the
-      // thinking_delta stream accumulated (it wins over any dropped chunk).
-      createThinkingMessage(
-        event.content,
-        globalThinkingStartTime || Date.now(),
-      );
-      tui.requestRender();
-      break;
-    }
-    case "text_delta": {
-      // Live prose: append into the streaming assistant row (created on the
-      // first delta of each internal turn). Also drive the in-progress
-      // line's live output-token estimate from the streamed text
-      // (~4 chars/token) so the number tracks real generation.
+    case "text_delta":
+    case "thinking_delta": {
+      // Drive the in-progress line's live output-token estimate from the
+      // streamed text (~4 chars/token) so the number tracks real generation.
       streamedChars += event.delta.length;
       setLiveOutputTokens(Math.round(streamedChars / 4));
-      appendAssistantDelta(event.delta);
-      tui.requestRender();
       break;
     }
     case "text": {
-      // Authoritative per-internal-turn snapshot (core emits it citation-
-      // stripped at every turn's end, final turn included). Settles the live
-      // streaming row — or, on the non-streaming provider path where no
-      // deltas ever arrive, is itself the whole render. This is also what
-      // keeps prose emitted between tool calls in the transcript: each turn
-      // settles its own row and the next turn starts a new one.
-      finalizeAssistantText(event.content);
       renderedTextThisRun = true;
-      tui.requestRender();
-      break;
-    }
-    case "thinking_delta": {
-      streamedChars += event.delta.length;
-      setLiveOutputTokens(Math.round(streamedChars / 4));
-      // Streams into the open thinking block, so expanding it (Ctrl+T)
-      // mid-turn shows live reasoning instead of waiting for the snapshot.
-      appendThinkingDelta(event.delta, globalThinkingStartTime || Date.now());
-      tui.requestRender();
       break;
     }
     case "memory_saved": {
@@ -1890,7 +1824,9 @@ async function submitPrompt(
     // interrupt, session.error reject) — no-op when nothing is live.
     finalizeAssistantText();
     activeTurnSessionId = null;
-    editor.setText("");
+    // Deliberately no editor.setText(""): pi-tui already emptied the editor
+    // before onSubmit fired, so clearing here only wiped a draft the user
+    // typed while the turn was running.
   }
 }
 
@@ -2752,6 +2688,7 @@ async function resumeFromArgs(id: string): Promise<void> {
     const result = await sessionResume(id);
     currentSession = { sessionId: result.sessionId };
     resetSessionCacheTotals();
+    resetSessionPanels();
     hideTodoPanel(); // clear any prior session's pinned todos
     if (result.messages && result.messages.length > 0) {
       loadSessionMessages(result.messages);

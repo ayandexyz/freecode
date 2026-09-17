@@ -724,3 +724,21 @@ export const REQUIRED_PARAMS: Record<
 };
 export type MethodParams<M extends MethodName> = (typeof METHODS)[M]["params"];
 export type MethodResult<M extends MethodName> = (typeof METHODS)[M]["result"];
+
+/**
+ * `agents.output` returns a subagent's activity as JSON lines, one replayable
+ * `StreamEvent` per line (snapshot events only — see core's activity.ts).
+ * Malformed lines (a partial first line the ring buffer cut) are dropped.
+ */
+export function parseAgentActivity(text: string): StreamEvent[] {
+  const events: StreamEvent[] = [];
+  for (const line of text.split("\n")) {
+    if (!line) continue;
+    try {
+      events.push(JSON.parse(line) as StreamEvent);
+    } catch {
+      // A line the ring buffer cut in half.
+    }
+  }
+  return events;
+}

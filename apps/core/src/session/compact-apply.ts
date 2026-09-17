@@ -66,7 +66,9 @@ export async function applyCompaction(opts: {
   if (!result.success || !result.summary) {
     return {
       compacted: false,
-      reason: result.blocked ? result.reason : "nothing to compact",
+      reason: result.blocked
+        ? (result.reason ?? "blocked by a PreCompact hook")
+        : "nothing to compact",
       tokensBefore: result.tokenCountBefore,
       tokensAfter: result.tokenCountAfter,
       messagesBefore: 0,

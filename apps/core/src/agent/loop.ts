@@ -1357,7 +1357,15 @@ export class AgentLoop {
       }
       outcome = {
         compacted,
-        reason: result.success ? undefined : result.reason,
+        // Same vocabulary as applyCompaction: a success with no summary means
+        // the selector found nothing old enough, which is routine, not a
+        // warning — without this it logged as "unknown reason" once per turn
+        // for every subagent (they run store-less until forked).
+        reason: compacted
+          ? undefined
+          : result.success
+            ? "nothing to compact"
+            : (result.reason ?? "blocked by a PreCompact hook"),
         tokensBefore: result.tokenCountBefore,
         tokensAfter: result.tokenCountAfter,
         messagesBefore: 0,
@@ -1385,7 +1393,7 @@ export class AgentLoop {
       logger.debug("[AgentLoop] Compaction skipped: nothing to compact");
     } else {
       logger.warn(
-        `[AgentLoop] Compaction skipped: ${outcome.reason ?? "unknown reason"}`,
+        `[AgentLoop] Compaction skipped: ${outcome.reason ?? "blocked by a PreCompact hook"}`,
       );
     }
 

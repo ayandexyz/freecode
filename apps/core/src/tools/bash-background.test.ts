@@ -89,6 +89,8 @@ test("killbash stops a running shell and says so", async () => {
     ctx(sessionId),
   );
   assert.equal(killed.success && killed.result.metadata?.killed, true);
+  // The record flips once the process actually exits, not on the signal.
+  await untilSettled(sessionId, shellId);
   // Buffered output outlives the process, so a crash is still diagnosable.
   const after = await BashOutputTool.execute(
     { bash_id: shellId },

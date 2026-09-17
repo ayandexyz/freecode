@@ -1,7 +1,7 @@
 import { type Component, type TUI } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import type { MessageInstance } from "./message-types.js";
-import { subscribeToMessages, getMessages } from "../state/message-store.js";
+import { messageStore, type MessageStore } from "../state/message-store.js";
 import { ThinkingMessage } from "./message-row.js";
 import { normalize, type Selection } from "../state/selection-store.js";
 import { highlightRange } from "../utils/ansi-select.js";
@@ -66,6 +66,7 @@ export class VirtualMessageList implements Component {
     header?: Component,
     getSelection: () => Selection | null = () => null,
     getVerticalOffset: () => number = () => 0,
+    store: MessageStore = messageStore,
   ) {
     this.maxVisible = maxVisible;
     this.getViewportRows = getViewportRows;
@@ -73,13 +74,13 @@ export class VirtualMessageList implements Component {
     this.getSelection = getSelection;
     this.getVerticalOffset = getVerticalOffset;
     // Subscribe to message store changes
-    this.unsubscribe = subscribeToMessages((msgs) => {
+    this.unsubscribe = store.subscribe((msgs) => {
       this.setMessages(msgs);
       this.invalidate();
       this.scheduleTick();
     });
     // Initialize with current messages
-    this.setMessages(getMessages());
+    this.setMessages(store.getMessages());
   }
 
   private setMessages(msgs: MessageInstance[]): void {
