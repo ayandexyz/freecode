@@ -30,7 +30,7 @@ const DEFAULT_HINT = "↑↓ scroll · pgup/pgdn page · esc close";
  * terminal, instead of losing it.
  *
  * This exists because nothing else in the TUI is height-aware: NoticeModal,
- * CompactionModal and QuestionModal each return a fixed `string[]`, and
+ * QuestionModal returns a fixed `string[]`, and
  * pi-tui's `maxHeight` does not scroll — it does `slice(0, maxHeight)`, so an
  * over-tall card silently loses its tail. For a report whose last lines are the
  * summary (`/context` ends with free space and the estimate caveat) that drops
