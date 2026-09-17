@@ -97,6 +97,41 @@
           "description": "Redirections per run. 0 disables as surely as enabled: false."
         }
       }
+    },
+
+    "signals": {
+      "description": "Harness signal gates. All off by default; see specs/2026-09-12-harness-bench.md. Env FREECODE_AUTO_POKE / FREECODE_CONFIDENCE_GATE / FREECODE_HILLCLIMB_GATE (\"1\"/\"0\") beats these.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "autoPoke": {
+          "description": "Send a model that stopped with open todos back to work.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "maxPerRun": { "type": "integer", "minimum": 0, "default": 3, "description": "Pokes per run." }
+          }
+        },
+        "confidenceGate": {
+          "description": "Send a completion whose confidence jumped by `spike` or more in one call back to verify.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "spike": { "type": "integer", "minimum": 0, "default": 40, "description": "Confidence rise, in points, that counts as a spike." }
+          }
+        },
+        "hillClimbGate": {
+          "description": "Ask for a reframe when a todo's hill-climbability is below `threshold`.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "threshold": { "type": "integer", "minimum": 0, "maximum": 100, "default": 90, "description": "Hill-climbability below which a reframe is requested." }
+          }
+        }
+      }
     }
   },
 
