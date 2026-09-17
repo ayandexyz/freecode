@@ -41,6 +41,7 @@ import {
   copyToClipboard,
   noClipboardImageMessage,
   readImageFromClipboard,
+  readTextFromClipboard,
 } from "./utils/clipboard.js";
 import {
   startCli,
@@ -2576,11 +2577,19 @@ tui.addInputListener((data) => {
     isReadingClipboard = true;
     // Fire-and-forget: the key handler is sync, and shelling out to the
     // clipboard tool takes long enough to stall input if awaited.
+    const before = editor.getText();
     void (async () => {
       try {
         const image = await readImageFromClipboard();
         if (!image) {
-          createSystemMessage(noClipboardImageMessage());
+          // No image — fall back to pasting whatever text is there. Some
+          // terminals bind Ctrl+V to their own paste and deliver the text as
+          // a bracketed paste alongside the chord; if the editor changed while
+          // we were reading, the terminal already pasted it, so don't repeat.
+          const text = await readTextFromClipboard();
+          await new Promise((r) => setTimeout(r, 100));
+          if (!text) createSystemMessage(noClipboardImageMessage());
+          else if (editor.getText() === before) editor.insertTextAtCursor(text);
         } else if (editor.hasImage(image.data)) {
           // Clipboard unchanged since the last paste — re-attaching the same
           // bytes is never what the user wants.

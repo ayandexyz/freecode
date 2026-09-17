@@ -197,6 +197,33 @@ export async function readImageFromClipboard(): Promise<
   }
 }
 
+/** Text on the system clipboard, or undefined when empty/unreadable. */
+export async function readTextFromClipboard(): Promise<string | undefined> {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+  const tools =
+    process.platform === "win32"
+      ? [["powershell.exe", "-NoProfile", "-Command", "Get-Clipboard -Raw"]]
+      : [
+          ["wl-paste", "--no-newline"],
+          ["xclip", "-selection", "clipboard", "-o"],
+          ["pbpaste"],
+        ];
+  for (const [cmd, ...args] of tools) {
+    try {
+      const { stdout } = await execFileAsync(cmd, args, {
+        maxBuffer: MAX_CLIPBOARD_IMAGE_SIZE,
+        timeout: POWERSHELL_TIMEOUT_MS,
+      });
+      if (stdout.length > 0) return stdout;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Why a paste came up empty. The install hint is wrong on Windows, where the
  * clipboard is read through PowerShell and there is nothing to install.
