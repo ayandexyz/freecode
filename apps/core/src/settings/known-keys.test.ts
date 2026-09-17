@@ -14,6 +14,7 @@ test("a known file produces no warnings", () => {
       permissions: { allow: ["Bash(git *)"], deny: [] },
       memory: { autoExtract: false, extractEveryNRuns: 4 },
       redirect: { enabled: true },
+      signals: { autoPoke: { enabled: true, maxPerRun: 3 } },
       hooks: { PostToolUse: [] },
     }),
     [],
@@ -30,7 +31,7 @@ test("a near-miss top-level key suggests the right one", () => {
 
 test("an unrecognizable top-level key lists what is known", () => {
   const [warning] = findUnknownSettings({ telemetry: { enabled: true } });
-  assert.match(warning.message, /known settings: permissions, hooks, memory, redirect/);
+  assert.match(warning.message, /known settings: permissions, hooks, memory, redirect, signals/);
 });
 
 test("a typo inside a section is reported with its full path", () => {

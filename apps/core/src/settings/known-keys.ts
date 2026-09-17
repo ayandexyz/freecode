@@ -1,8 +1,8 @@
 // =============================================================================
 // The known shape of `.freecode/settings.json`.
 //
-// Four modules read this file independently — permissions, hooks, memory and
-// redirect — and each ignores everything it does not recognise. That is the
+// Five modules read this file independently — permissions, hooks, memory,
+// redirect and signals — and each ignores everything it does not recognise. That is the
 // right behaviour per reader, but the sum of it was that an unknown key was
 // indistinguishable from a broken feature: `"permission"` for `"permissions"`
 // silently disabled every rule in a security-relevant, hand-edited file, with
@@ -38,6 +38,8 @@ export const KNOWN_SETTINGS: Readonly<
     "consolidateMinSessions",
   ],
   redirect: ["enabled", "maxPerRun"],
+  // `agent/signals/settings.ts` — the three loop gates, all off by default.
+  signals: ["autoPoke", "confidenceGate", "hillClimbGate"],
 };
 
 /**
