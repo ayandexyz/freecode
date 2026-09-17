@@ -4,7 +4,7 @@
   "type": "module",
   "description": "CLI backend for FreeCode AI coding assistant",
   "license": "MIT",
-  "repository": "https://github.com/ayan-de/freecode",
+  "repository": "https://github.com/ayandexyz/freecode",
   "bin": {
     "freecode": "./dist/cli.js"
   },

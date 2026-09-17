@@ -47,7 +47,7 @@ export function Navbar() {
               </Link>
             ))}
             <a
-              href="https://github.com/ayan-de/freecode"
+              href="https://github.com/ayandexyz/freecode"
               target="_blank"
               rel="noopener noreferrer"
               className="hidden md:flex items-center gap-2 text-sm text-white/60 hover:text-white transition-colors"

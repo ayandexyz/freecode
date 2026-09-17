@@ -19,7 +19,7 @@ import { addonDir } from "../../../graph-explorer/server.js";
 // `ui-uninstall` is simply `rm -rf addonDir()` — fully reversible.
 // =============================================================================
 
-const REPO = "ayan-de/freecode";
+const REPO = "ayandexyz/freecode";
 
 // Where the addon lives, mirrored from graph-explorer/server.ts so uninstall
 // removes exactly what install created (and nothing else).

@@ -25,7 +25,7 @@ const navbar = (
     logo={
       <Image src="/logo.svg" alt="FreeCode" width={143} height={30} priority />
     }
-    projectLink="https://github.com/ayan-de/freecode"
+    projectLink="https://github.com/ayandexyz/freecode"
   />
 );
 

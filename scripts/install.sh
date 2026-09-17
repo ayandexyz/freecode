@@ -10,7 +10,7 @@
 # =============================================================================
 set -euo pipefail
 
-REPO="ayan-de/freecode"
+REPO="ayandexyz/freecode"
 IS_WINDOWS=false
 
 info() { printf '\033[1;34m%s\033[0m\n' "$*"; }

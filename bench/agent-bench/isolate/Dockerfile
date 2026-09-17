@@ -24,7 +24,7 @@ RUN npm install -g \
       tsx@4
 
 RUN curl -fsSL -o /tmp/freecode.tar.gz \
-      https://github.com/ayan-de/freecode/releases/download/${FREECODE_VERSION}/freecode-linux-x86_64.tar.gz \
+      https://github.com/ayandexyz/freecode/releases/download/${FREECODE_VERSION}/freecode-linux-x86_64.tar.gz \
  && mkdir -p /opt/freecode \
  && tar -xzf /tmp/freecode.tar.gz -C /opt/freecode \
  && ln -s /opt/freecode/freecode /usr/local/bin/freecode \

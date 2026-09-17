@@ -46,7 +46,7 @@ export default function CopilotCostPlaybook() {
       <p>48.1 million input tokens. Seven user messages.</p>
       <p>
         That was one real session of{" "}
-        <a href="https://github.com/ayan-de/freecode">FreeCode</a>, my open-source CLI coding
+        <a href="https://github.com/ayandexyz/freecode">FreeCode</a>, my open-source CLI coding
         agent, replayed from its own logs in early August. Seven things I asked it to do, 229
         requests to the model, and a conversation that had grown to 270K tokens and was never
         compacted once. Roughly forty times the input tokens a comparable agent needed for the

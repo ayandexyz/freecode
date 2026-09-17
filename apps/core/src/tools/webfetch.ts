@@ -92,7 +92,7 @@ async function executeWebFetch(
       redirect: "follow",
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (compatible; freecode/0.2; +https://github.com/ayan-de/freecode)",
+          "Mozilla/5.0 (compatible; freecode/0.2; +https://github.com/ayandexyz/freecode)",
         Accept: accept,
         "Accept-Language": "en-US,en;q=0.9",
       },

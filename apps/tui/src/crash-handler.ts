@@ -27,7 +27,7 @@ export interface CrashHandlerDeps {
   getSessionId: () => string | undefined;
 }
 
-const ISSUES_URL = "https://github.com/ayan-de/freecode/issues";
+const ISSUES_URL = "https://github.com/ayandexyz/freecode/issues";
 
 /**
  * Build the text shown on the restored terminal. Pure so it can be tested

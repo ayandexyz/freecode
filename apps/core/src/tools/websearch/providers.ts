@@ -11,7 +11,7 @@ export interface SearchResult {
 }
 
 const USER_AGENT =
-  "Mozilla/5.0 (compatible; freecode/0.2; +https://github.com/ayan-de/freecode)";
+  "Mozilla/5.0 (compatible; freecode/0.2; +https://github.com/ayandexyz/freecode)";
 
 function decodeEntities(s: string): string {
   return s

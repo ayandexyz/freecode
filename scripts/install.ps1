@@ -14,7 +14,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Repo = "ayan-de/freecode"
+$Repo = "ayandexyz/freecode"
 
 if (-not $InstallDir) {
     $InstallDir = Join-Path $env:LOCALAPPDATA "freecode\bin"

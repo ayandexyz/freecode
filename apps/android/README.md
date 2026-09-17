@@ -1,6 +1,6 @@
 # FreeCode Remote (Android)
 
-Native Android client for [FreeCode](https://github.com/ayan-de/freecode)'s
+Native Android client for [FreeCode](https://github.com/ayandexyz/freecode)'s
 remote feature (see
 `../../docs/specs/2026-08-04-android-remote-client.md`).
 

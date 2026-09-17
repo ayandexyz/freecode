@@ -12,7 +12,7 @@ export function LandingPage() {
     <PageWrapper>
       {/* Same corner treatment as the theme toggle (fixed bottom-right). */}
       <a
-        href="https://github.com/ayan-de/freecode"
+        href="https://github.com/ayandexyz/freecode"
         target="_blank"
         rel="noopener noreferrer"
         aria-label="freecode on GitHub"

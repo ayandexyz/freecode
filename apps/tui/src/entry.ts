@@ -106,7 +106,7 @@ async function checkForUpdate(): Promise<void> {
   let latest: string;
   try {
     const res = await fetch(
-      "https://api.github.com/repos/ayan-de/freecode/releases/latest",
+      "https://api.github.com/repos/ayandexyz/freecode/releases/latest",
       { signal: AbortSignal.timeout(3000) },
     );
     if (!res.ok) return;

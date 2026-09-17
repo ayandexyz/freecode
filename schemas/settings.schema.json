@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "$id": "https://raw.githubusercontent.com/ayan-de/freecode/main/schemas/settings.schema.json",
+  "$id": "https://raw.githubusercontent.com/ayandexyz/freecode/main/schemas/settings.schema.json",
   "title": "FreeCode settings.json",
   "description": "Project (.freecode/settings.json) and user (~/.freecode/settings.json) settings. Both scopes use this shape; project wins per key.",
   "type": "object",
