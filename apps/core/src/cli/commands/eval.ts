@@ -544,15 +544,14 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
           `${yellow}Only ${history.length} recorded runs — rates are advisory.${reset}\n`,
         );
       }
+      const pct = (r: number) => `${(r * 100).toFixed(0)}%`;
+      const rates = (p: (typeof report.toQuarantine)[number]) =>
+        `${dim}(${pct(p.rate)} over last ${p.runs} trials · ${pct(p.allTime)} over ${p.allTimeRuns} all-time)${reset}`;
       for (const p of report.toQuarantine) {
-        console.log(
-          `${yellow}quarantine${reset} ${p.id} ${dim}(${(p.rate * 100).toFixed(0)}% over ${p.runs} trials)${reset}`,
-        );
+        console.log(`${yellow}quarantine${reset} ${p.id} ${rates(p)}`);
       }
       for (const p of report.toRelease) {
-        console.log(
-          `${green}release${reset}    ${p.id} ${dim}(${(p.rate * 100).toFixed(0)}% over ${p.runs} trials)${reset}`,
-        );
+        console.log(`${green}release${reset}    ${p.id} ${rates(p)}`);
       }
       if (!report.toQuarantine.length && !report.toRelease.length) {
         console.log("No quarantine changes proposed.");

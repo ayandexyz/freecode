@@ -671,13 +671,6 @@ that page's **Known gaps**.
 From releasing `todowrite-for-multistep` and `review-mode-readonly` from
 `evals/quarantine.txt` (10/10 recent trials each; gate opened on the confirm run).
 
-- [ ] **`--quarantine-report` has no scoring epoch and no recency window.** It
-      averages a case's pass rate over the whole of `eval_runs.jsonl`, so on
-      2026-09-20 it proposed quarantining three cases that were 7–9/10 recently
-      and did NOT propose releasing two that were 10/10 since 09-14 (72–73%
-      all-time). Same defect the 08-29 note in `quarantine.txt` records. A
-      "last N trials" window, or a per-case epoch stamp when expectations change,
-      would make the proposals trustworthy.
 - [ ] **Infra trials are not flagged on the outcome scorer.** `TrialResult.infra`
       (2026-09-20) excludes provider errors / stalls / hangs from `majority()`
       on the trajectory suite; `scorers/outcome.ts` only fails on `verify`, so a

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { loadQuarantine, proposeQuarantine } from "./quarantine.js";
+import { loadQuarantine, proposeQuarantine, RECENT_TRIALS } from "./quarantine.js";
 import type { CaseResult, TrialResult } from "./types.js";
 
 const trial = (passed: boolean): TrialResult => ({
@@ -72,6 +72,36 @@ test("proposes releasing a quarantined case that has become reliable", () => {
     ["fixed"],
   );
   // Already quarantined — it must not also be proposed for quarantine.
+  assert.equal(report.toQuarantine.length, 0);
+});
+
+test("the proposal rate is over the last RECENT_TRIALS, not all of history", () => {
+  // A quarantined case that was broken for a long time and then fixed: 20
+  // failures then 10 passes is 33% all-time, 100% recent. All-time never
+  // released it; the recent window does — and reports both numbers.
+  const past = Array.from({ length: 10 }, () => [result("fixed", [false, false])]);
+  const now = Array.from({ length: 5 }, () => [result("fixed", [true, true])]);
+  const report = proposeQuarantine([...past, ...now], new Set(["fixed"]));
+  assert.deepEqual(report.toRelease.map((p) => p.id), ["fixed"]);
+  assert.equal(report.toRelease[0].rate, 1);
+  assert.equal(report.toRelease[0].runs, RECENT_TRIALS);
+  assert.equal(report.toRelease[0].allTime, 1 / 3);
+  assert.equal(report.toRelease[0].allTimeRuns, 30);
+
+  // The reverse: a case that recently started flaking is proposed even though
+  // its all-time rate is still fine.
+  const solid = Array.from({ length: 10 }, () => [result("slipping", [true, true])]);
+  const shaky = Array.from({ length: 5 }, () => [result("slipping", [true, false])]);
+  const r2 = proposeQuarantine([...solid, ...shaky], new Set());
+  assert.deepEqual(r2.toQuarantine.map((p) => p.id), ["slipping"]);
+  assert.equal(r2.toQuarantine[0].rate, 0.5);
+});
+
+test("infra trials are not evidence about a case", () => {
+  const infra: TrialResult = { ...trial(false), infra: true };
+  const run: CaseResult = { ...result("a", [true, true]), trials: [trial(true), infra, infra] };
+  const report = proposeQuarantine([[run], [run]], new Set());
+  // 2 passes, 4 outages: 100% of what ran, not 33%.
   assert.equal(report.toQuarantine.length, 0);
 });
 

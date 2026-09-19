@@ -45,7 +45,7 @@ pnpm eval:gate                    # all three, in cost order — the release rit
 | `--save <file>` | write this run's report to disk | before a change you intend to measure |
 | `--compare <file>` | diff against a saved report; **exits 1 if the criterion is not met** | after that change — but prefer `eval ab`, below |
 | `--stuck` | with `--compare`, also require repetition to fall | the redirect suites specifically |
-| `--quarantine-report` | print promote/demote proposals from history and exit — runs nothing | periodic hygiene |
+| `--quarantine-report` | print promote/demote proposals from history and exit — runs nothing. Decides on the **last 10 scored trials** per case (infra trials excluded), all-time rate shown beside it | periodic hygiene |
 | `--accept-baseline` | record a *failing* run as the new baseline and exit 0 | only when the suite was deliberately re-scoped, never when the agent got worse |
 | `--otlp [url]` | ship scores to a collector, linked to the traces they graded | empty value falls back to `OTEL_EXPORTER_OTLP_ENDPOINT` |
 

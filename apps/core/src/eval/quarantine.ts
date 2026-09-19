@@ -11,7 +11,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { evalsDir } from "./dataset.js";
-import type { CaseResult } from "./types.js";
+import type { CaseResult, TrialResult } from "./types.js";
 
 /** Below this trailing pass rate a case is proposed for quarantine. */
 export const QUARANTINE_BELOW = 0.9;
@@ -19,6 +19,17 @@ export const QUARANTINE_BELOW = 0.9;
 export const RELEASE_ABOVE = 0.98;
 /** Rates computed on fewer runs than this are advisory, not actionable. */
 export const MIN_RUNS_FOR_RATE = 20;
+/**
+ * The proposal rate is over this many most-recent trials, not all of history.
+ * An all-time rate has no notion of a scoring epoch or a fix: on 2026-09-20 it
+ * proposed quarantining three cases that were 7–9 of their last 10, and said
+ * nothing about two quarantined cases that were 10/10 since a fix, because
+ * their 72–73% all-time still counted every failure from before it. Ten is
+ * three gated runs and a bit — enough to see a fix land, short enough to
+ * forget one. With 10 trials, `RELEASE_ABOVE` means 10/10 and
+ * `QUARANTINE_BELOW` means ≤8/10.
+ */
+export const RECENT_TRIALS = 10;
 
 export function quarantinePath(): string {
   return path.join(evalsDir(), "quarantine.txt");
@@ -37,8 +48,13 @@ export function loadQuarantine(): Set<string> {
 
 export interface RateProposal {
   id: string;
+  /** Pass rate over the last `RECENT_TRIALS` scored trials — what decides. */
   rate: number;
+  /** Trials behind `rate`. */
   runs: number;
+  /** All-time pass rate, reported beside `rate` so a reader sees the trend. */
+  allTime: number;
+  allTimeRuns: number;
 }
 
 export interface QuarantineReport {
@@ -46,6 +62,16 @@ export interface QuarantineReport {
   toRelease: RateProposal[];
   /** True while there is too little history for the rates to mean much. */
   thin: boolean;
+}
+
+/**
+ * History written before 2026-09-20 carries no `infra` flag, only the reason
+ * string those trials were given. This is the one reader of OLD history, so
+ * it recognises them by that string; fresh results carry the flag.
+ */
+const LEGACY_INFRA = /^(run failed:|model error: (provider|stall)$|model call hung$)/;
+function isInfra(trial: TrialResult): boolean {
+  return trial.infra === true || LEGACY_INFRA.test(trial.reason);
 }
 
 /**
@@ -57,28 +83,40 @@ export function proposeQuarantine(
   history: CaseResult[][],
   quarantined: Set<string>,
 ): QuarantineReport {
-  const trials = new Map<string, { pass: number; total: number }>();
+  // Every scored trial per case, oldest first — `history` is append order.
+  // An `infra` trial is not evidence about the agent (gate.ts leaves it out of
+  // the vote for the same reason), so it is not evidence about the case.
+  const trials = new Map<string, boolean[]>();
   for (const run of history) {
     for (const result of run) {
-      const acc = trials.get(result.id) ?? { pass: 0, total: 0 };
+      const acc = trials.get(result.id) ?? [];
       for (const trial of result.trials) {
-        acc.total++;
-        if (trial.passed) acc.pass++;
+        if (!isInfra(trial)) acc.push(trial.passed);
       }
       trials.set(result.id, acc);
     }
   }
 
+  const rateOf = (xs: boolean[]): number =>
+    xs.filter(Boolean).length / xs.length;
+
   const toQuarantine: RateProposal[] = [];
   const toRelease: RateProposal[] = [];
-  for (const [id, acc] of trials) {
-    if (acc.total === 0) continue;
-    const rate = acc.pass / acc.total;
-    const proposal = { id, rate, runs: acc.total };
+  for (const [id, all] of trials) {
+    if (all.length === 0) continue;
+    const recent = all.slice(-RECENT_TRIALS);
+    const rate = rateOf(recent);
+    const proposal = {
+      id,
+      rate,
+      runs: recent.length,
+      allTime: rateOf(all),
+      allTimeRuns: all.length,
+    };
     if (quarantined.has(id)) {
       if (rate >= RELEASE_ABOVE) toRelease.push(proposal);
-    } else if (rate < QUARANTINE_BELOW && acc.pass > 0) {
-      // `acc.pass > 0`: quarantine is for FLAKY cases, not failing ones.
+    } else if (rate < QUARANTINE_BELOW && recent.some(Boolean)) {
+      // `recent.some(Boolean)`: quarantine is for FLAKY cases, not failing ones.
       //
       // A case that has never passed is not noise to be suppressed — it is
       // either a real finding about the agent or a broken case, and both want
