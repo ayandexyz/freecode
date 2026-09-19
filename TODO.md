@@ -666,6 +666,34 @@ that page's **Known gaps**.
   `system.md` edits without a rebuild; the compiled binary has no disk copy to
   find.
 
+## Eval quarantine hygiene (2026-09-20)
+
+From releasing `todowrite-for-multistep` and `review-mode-readonly` from
+`evals/quarantine.txt` (10/10 recent trials each; gate opened on the confirm run).
+
+- [ ] **`--quarantine-report` has no scoring epoch and no recency window.** It
+      averages a case's pass rate over the whole of `eval_runs.jsonl`, so on
+      2026-09-20 it proposed quarantining three cases that were 7–9/10 recently
+      and did NOT propose releasing two that were 10/10 since 09-14 (72–73%
+      all-time). Same defect the 08-29 note in `quarantine.txt` records. A
+      "last N trials" window, or a per-case epoch stamp when expectations change,
+      would make the proposals trustworthy.
+- [ ] **A quarantined case's FAIL line can print `ok` as its reason.** Second
+      confirm run: `FAIL ask-when-the-answer-is-off-repo [quarantined] ok` —
+      majority failed, but the reason string came from the one passing trial.
+      The reporter should pick the reason from a failing trial.
+- [ ] **A majority provider-error closes the gate as if the agent regressed.**
+      `explore-mode-stays-readonly` hit `model error: provider` on 2 of 3 trials
+      (MiniMax outage) and the run recorded `GATE CLOSED`. Spec §7 says an outage
+      never fails a run for the judge; the same rule does not exist for the
+      trajectory scorer. An errored trial should be excluded from majority-of-N
+      (and a case with 0 scored trials reported as unscored, not failed).
+- [ ] Three cases remain quarantined and are all deterministic M3 gaps, not
+      flakes: `frustrated-user-wants-one-line` (0/10), `ask-when-the-answer-is-
+      off-repo` (1/10), `greeting-uses-no-tools` (3/10, one 25-turn session on
+      `hi`). The first two share a cause (M3 answers from memory instead of
+      reaching for a tool). A fix is a prompt change measured by `eval ab`.
+
 ## Spec findings (eval harness — 2026-08-23)
 
 From writing `docs/specs/2026-08-23-eval-harness.md`. Details in that

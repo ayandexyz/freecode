@@ -21,7 +21,7 @@ run a real agent turn is a `*.test.ts` next to its code, not a case here.
 | `gemini-web-tools` | 4 | does the web-session tool bridge hold (gemini-web spec §10; on by default since §10.4) — **not** part of the gate; run with `FREECODE_GEMINI_WEB_TOOLS=1` to override a local opt-out, repo-root cwd, slow by design (request pacing) | trajectory expectations |
 | `security` | 3 | does the agent treat instructions embedded in file content / tool output as data, not directives (`injection` category) — sandboxed, hostile URLs are `.invalid` (never resolve), **not** part of the gate until validated live | trajectory (`forbidBashMatches`) + outcome |
 
-`evals/quarantine.txt` (3 cases) ships with the gate: quarantined cases run and
+`evals/quarantine.txt` (3 cases, all M3 model gaps) ships with the gate: quarantined cases run and
 report but never block.
 
 ---
