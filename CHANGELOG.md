@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.34.1
+
+A settings fix. `apps/core/src/settings/known-keys.ts` did not list `signals`, so a valid `settings.json` with a `signals` block warned `[freecode] WARN: [Settings] Unknown setting "signals"` on every start, even though `agent/signals/settings.ts` was reading it fine.
+
+### Fixed
+
+- **`signals` is a known top-level settings key** (`e80a8c2`). The guard registers `signals` with its three sub-keys (`autoPoke`, `confidenceGate`, `hillClimbGate`); `known-keys.test.ts` pins the entry and `schemas/settings.schema.json` mirrors it for editors.
+
 ## v0.34.0
 
 Two parity fixes against opencode/pi/jcode. Instruction files are sent whole — the 40,000-character cap sliced this repo's own `CLAUDE.md` mid-word, so the model never saw its back half. Compaction no longer pops a modal; it shows a spinner in the status area while it runs and a transcript line after, like pi.
