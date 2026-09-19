@@ -13,13 +13,15 @@ the model ends its turn. If items are still open it sends the model back with
 a **user-role message** listing them, and the model gets another go.
 
 ```
-You stopped with 2 todo items still open (poke 1 of 3):
-[~] wire the new flag through settings.ts
-[ ] add the test
-Continue working: pick the next open item, do it, and mark it completed
-with todowrite. If an item cannot or should not be done, say why in its
-content and mark it cancelled — never completed — so the list stays honest.
+You stopped with 2 todo items still open (poke 1 of 3): "wire the new flag through settings.ts", "add the test".
+Continue working, or update the list with todowrite: mark an item blocked if it is waiting on the user, cancelled if you will not do it. Do not repeat a call that already failed.
 ```
+
+One line of names (at most six, cut at 80 chars), jcode-style. It used to
+print the full checklist with "pick the next open item, do it": on a list
+whose items were all waiting on the user that read as an order to retry, and
+session `698c5001` (2026-09-19) ran the same 403 `git push` 38 times until
+loop-health killed it.
 
 Rules, in the order they are checked (`auto-poke.ts` `decidePoke`):
 
@@ -27,14 +29,23 @@ Rules, in the order they are checked (`auto-poke.ts` `decidePoke`):
 | --- | --- |
 | `disabled` | the gate is off — the list was never looked at |
 | `nothing_open` | every item is `completed` or `cancelled` |
+| `all_blocked` | every open item is `blocked` — waiting on the user; a poke could only make the model retry or lie |
 | `cap_reached` | already poked `maxPerRun` times this run (a run = one prompt; the counter resets per `run()`) |
 | `no_budget` | `--max-turns` would land before the poked turn could execute |
-| `no_progress` | the open items are byte-identical to the last poke's — the model ignored it; poking again would burn tokens |
+| `no_progress` | the open items' ids and statuses match the last poke's — the model ignored it; poking again would burn tokens. Content is deliberately ignored (re-wording "blocked on 403" to "still blocked on 403" is not progress), and the fingerprint **survives across runs**: a user's "continue" on an unchanged list is one more turn, not three fresh pokes |
 | **poke** | otherwise |
 
-`cancelled` is a closed status: the model dropped the item on purpose, which
-is not an early exit. The message tells it to cancel rather than fake
-`completed`, so the list stays a record of what was actually done.
+`cancelled` and `blocked` are the two honest exits. `cancelled` is closed: the
+model dropped the item on purpose, which is not an early exit. `blocked` is
+still open but parked on the user (credentials, a paste, a decision); the
+prompt block renders it `[!]`, the TUI panel as a red `!`, and the model is
+told to report it once and not retry. The message tells it to use either
+rather than fake `completed`, so the list stays a record of what was done.
+
+Between the 3rd and 6th identical tool call, loop-health also hands the model
+one `<system-reminder>` naming the call (`agent/reminders.ts`
+`repeatedCallReminder`), so a stuck model hears about it before the hard stop
+rather than only from a debug log.
 
 Every poke and every stop reaches the frontend as a one-line `notice`
 (`"2 todos still open — sent the agent back (poke 1 of 3)."`).

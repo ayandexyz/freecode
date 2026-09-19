@@ -183,7 +183,7 @@ test("a stop with open todos is poked once, and a poke that moves nothing ends t
   // not a reminder-only tail — naming the open item.
   const poked = lastUserSeen.filter((t) => t.includes("still open"));
   assert.equal(poked.length, 1);
-  assert.match(poked[0]!, /\[ \] make it faster/);
+  assert.match(poked[0]!, /"make it faster"/);
   assert.match(poked[0]!, /poke 1 of 3/);
   assert.ok(!poked[0]!.includes("<system-reminder>"));
   assert.ok(!tailsSeen.some((t) => t.includes("still open")));
@@ -219,17 +219,18 @@ test("the poke is persisted as a synthetic user message, so the transcript alter
   assert.match(poke.parts[0]!.content!, /still open/);
 });
 
-test("poke state is per run: the next prompt on the same loop is poked afresh", async () => {
-  // Run 1: plan, stop → poke, stop → no progress. Run 2 starts with the same
-  // open list; a stale fingerprint would read it as no progress and never
-  // poke, and a stale count would spend the cap across prompts.
+test("the fingerprint survives a run: a second prompt on an unchanged list is not re-poked", async () => {
+  // Run 1: plan, stop → poke, stop → no progress. Run 2 is the user's
+  // "continue" on the same open list; the model stops again without moving
+  // it. Before 2026-09-20 the fingerprint was reset per run and every
+  // "continue"/"status?" bought three fresh pokes (session 698c5001).
   const { events } = await runLoop("poke-two-runs", { autoPoke: { enabled: true, maxPerRun: 3 } }, 2);
   const triggered = events.filter((e) => e.type === "poke.triggered");
-  assert.equal(triggered.length, 2, "one poke per run");
+  assert.equal(triggered.length, 1, "the second run is not poked");
+  const skipped = events.filter((e) => e.type === "poke.skipped");
   assert.deepEqual(
-    triggered.map((e) => e.pokeIndex),
-    [1, 1],
-    "the count restarted with the run",
+    skipped.map((e) => e.reason),
+    ["no_progress", "no_progress"],
   );
 });
 

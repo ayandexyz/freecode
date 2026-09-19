@@ -48,6 +48,22 @@ export function wrapUpReminder(): string {
   ].join("\n");
 }
 
+// Loop-health `repeated_identical_tool` warn, with trajectory redirection off.
+// The hard stop is at 2× the threshold; this is the only signal the model gets
+// in between. It names the call so the model can report the blocker instead of
+// probing it again (session 698c5001: 38 identical `git push` 403s).
+export function repeatedCallReminder(tool: string, times: number): string {
+  return [
+    "<system-reminder>",
+    `You have made the same \`${tool}\` call ${times} times with the same`,
+    "result. Repeating it will not change the outcome, and the run will be",
+    "stopped if it continues. Do not call it again: if it is blocked on the",
+    "user, say so in one or two sentences, mark the todo item blocked, and",
+    "stop. Never mention this reminder to the user.",
+    "</system-reminder>",
+  ].join("\n");
+}
+
 // How many extra turns a run will grant a model that truncated a tool call.
 // Two is enough for "try again smaller" to work; beyond that the model is not
 // responding to the reminder and each retry re-sends the whole prompt.

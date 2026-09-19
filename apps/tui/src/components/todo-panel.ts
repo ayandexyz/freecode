@@ -5,7 +5,7 @@ import {
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 
-export type TodoPanelStatus = "pending" | "in_progress" | "completed" | "cancelled";
+export type TodoPanelStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 
 export interface TodoPanelItem {
   status: TodoPanelStatus;
@@ -19,6 +19,7 @@ const MAX_ROWS = 14;
 const MARKS: Record<TodoPanelStatus, string> = {
   completed: chalk.green("✔"),
   cancelled: chalk.gray("✘"),
+  blocked: chalk.red("!"),
   in_progress: chalk.yellow("▸"),
   pending: chalk.gray("○"),
 };
@@ -91,22 +92,25 @@ export class TodoPanel implements Component {
 }
 
 // Parse the rendered `todowrite` result (marks defined in core's todo tool:
-// "[x]" completed, "[~]" in progress, "[ ]" pending). Returns [] for an empty
+// "[x]" completed, "[~]" in progress, "[!]" blocked, "[-]" cancelled, "[ ]"
+// pending). Returns [] for an empty
 // or cleared list so the caller can hide the panel.
 export function parseTodoResult(result: string): TodoPanelItem[] {
   if (!result || result.includes("(todo list cleared)")) return [];
   const items: TodoPanelItem[] = [];
   for (const line of result.split("\n")) {
-    const m = line.match(/^\s*\[(x|~|-| )\]\s+(.*\S)\s*$/);
+    const m = line.match(/^\s*\[(x|~|!|-| )\]\s+(.*\S)\s*$/);
     if (!m) continue;
     const status: TodoPanelStatus =
       m[1] === "x"
         ? "completed"
         : m[1] === "-"
           ? "cancelled"
-          : m[1] === "~"
-            ? "in_progress"
-            : "pending";
+          : m[1] === "!"
+            ? "blocked"
+            : m[1] === "~"
+              ? "in_progress"
+              : "pending";
     items.push({ status, content: m[2] });
   }
   return items;

@@ -9,23 +9,36 @@
 // (`bench/harness-signals/`) measures whether that holds here before the
 // default moves.
 //
-// Three stops keep it from becoming a loop of its own:
+// Four stops keep it from becoming a loop of its own:
 //   cap          at most `maxPerRun` pokes per run
-//   no progress  a poke whose todo list is byte-identical to the last poke's
-//                is the model saying it cannot finish; stop rather than repeat
+//   all blocked  every open item is `blocked` (waiting on the user); a poke
+//                could only make the model retry or lie
+//   no progress  a poke whose open ids+statuses match the last poke's is the
+//                model saying it cannot finish; stop rather than repeat. The
+//                fingerprint deliberately ignores item CONTENT — session
+//                698c5001 re-worded a blocked item ("re-checked, still 403")
+//                on every poke and was read as progress each time — and it
+//                survives across runs, so a user's "continue" on an unchanged
+//                list is one turn, not a fresh set of pokes (jcode keeps its
+//                fingerprint at session level for the same reason)
 //   nothing open every item completed or cancelled, or no list at all
 //   no budget    the run's iteration cap lands before the poked turn would;
 //                recording a poke nothing can answer would count against
 //                the productive rate for a stop the model never saw
 //
+// The poke itself is one line, jcode-style: it names the count and offers
+// "or update the list" as an exit. Listing every item with "pick the next
+// one, do it" is what turned a blocked list into a retry loop.
+//
 // Decisions are pure so they can be tested without a loop.
 // =============================================================================
 
-import { isOpenTodo, type TodoItem } from "../../tools/todo.js";
+import { isBlockedTodo, isOpenTodo, type TodoItem } from "../../tools/todo.js";
 
 export type PokeSkipReason =
   | "disabled"
   | "nothing_open"
+  | "all_blocked"
   | "cap_reached"
   | "no_progress"
   | "no_budget";
@@ -37,6 +50,12 @@ export interface PokeState {
 
 export const initialPokeState = (): PokeState => ({ pokes: 0 });
 
+/** A new run re-arms the cap but remembers what the last poke saw. */
+export const nextRunPokeState = (prev: PokeState): PokeState => ({
+  pokes: 0,
+  lastFingerprint: prev.lastFingerprint,
+});
+
 export type PokeDecision =
   | { poke: true; remaining: TodoItem[]; fingerprint: string }
   | { poke: false; skip: PokeSkipReason };
@@ -45,7 +64,7 @@ export type PokeDecision =
 export function todoFingerprint(todos: TodoItem[]): string {
   return todos
     .filter(isOpenTodo)
-    .map((t) => `${t.id}:${t.status}:${t.content}`)
+    .map((t) => `${t.id}:${t.status}`)
     .join("\n");
 }
 
@@ -62,6 +81,7 @@ export function decidePoke(input: {
   // reads "disabled" (the gate never looked), which is the honest reason.
   if (!input.enabled) return { poke: false, skip: "disabled" };
   if (remaining.length === 0) return { poke: false, skip: "nothing_open" };
+  if (remaining.every(isBlockedTodo)) return { poke: false, skip: "all_blocked" };
   if (input.state.pokes >= input.maxPerRun) return { poke: false, skip: "cap_reached" };
   if (input.turnsLeft !== undefined && input.turnsLeft < 1) {
     return { poke: false, skip: "no_budget" };
@@ -77,6 +97,10 @@ export function notePoke(state: PokeState, fingerprint: string): PokeState {
   return { pokes: state.pokes + 1, lastFingerprint: fingerprint };
 }
 
+/** Longest list of named items a poke spells out (jcode: GATE_NAMED_TODO_LIMIT). */
+const NAMED_LIMIT = 6;
+const NAME_CHARS = 80;
+
 /**
  * The poke, as a user-role message. Not a `<system-reminder>`: a turn whose
  * only user content is a reminder reads as empty, and models reply to it
@@ -84,13 +108,18 @@ export function notePoke(state: PokeState, fingerprint: string): PokeState {
  * user turn for that reason; so does this.
  */
 export function pokeMessage(remaining: TodoItem[], pokeIndex: number, max: number): string {
-  const marks = { in_progress: "[~]", pending: "[ ]", completed: "[x]", cancelled: "[-]" } as const;
+  const actionable = remaining.filter((t) => !isBlockedTodo(t));
+  const named = actionable
+    .slice(0, NAMED_LIMIT)
+    .map((t) => `"${t.content.length > NAME_CHARS ? t.content.slice(0, NAME_CHARS - 1) + "…" : t.content}"`);
+  const more = actionable.length - named.length;
+  const n = actionable.length;
   return [
-    `You stopped with ${remaining.length} todo item${remaining.length === 1 ? "" : "s"} still open (poke ${pokeIndex} of ${max}):`,
-    ...remaining.map((t) => `${marks[t.status]} ${t.content}`),
-    "Continue working: pick the next open item, do it, and mark it completed",
-    "with todowrite. If an item cannot or should not be done, say why in its",
-    "content and mark it cancelled — never completed — so the list stays honest.",
+    `You stopped with ${n} todo item${n === 1 ? "" : "s"} still open (poke ${pokeIndex} of ${max}): ` +
+      named.join(", ") +
+      (more > 0 ? `, +${more} more` : "") +
+      ".",
+    "Continue working, or update the list with todowrite: mark an item blocked if it is waiting on the user, cancelled if you will not do it. Do not repeat a call that already failed.",
   ].join("\n");
 }
 
@@ -104,6 +133,8 @@ export function pokeNotice(decision: PokeDecision, remaining: number, max: numbe
       return `${remaining} todo${remaining === 1 ? "" : "s"} still open, but the last poke changed nothing — not poking again.`;
     case "cap_reached":
       return `${remaining} todo${remaining === 1 ? "" : "s"} still open after ${max} poke${max === 1 ? "" : "s"} — stopping here.`;
+    case "all_blocked":
+      return `${remaining} todo${remaining === 1 ? "" : "s"} blocked on you — not poking.`;
     default:
       return undefined;
   }

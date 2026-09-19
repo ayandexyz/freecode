@@ -228,4 +228,13 @@ test("with the setting off, the warning is recorded and nothing is spent", async
   assert.ok(!systemsSeen.some((s) => s.includes("Progress check")));
   const turns = systemsSeen.length;
   assert.equal(result.usage?.inputTokens, turns * 10, "no supervisor tokens");
+
+  // The warn still reaches the model, as one static reminder naming the
+  // call — before this the only signal between the 3rd identical call and
+  // the hard stop was a debug log line.
+  const warned = systemsSeen.filter((s) => s.includes("made the same `ls` call"));
+  assert.equal(warned.length, 1, "once per reason per run, not every turn");
+  assert.match(warned[0]!, /mark the todo item blocked/);
+  // And the hard stop still fires when the model ignores it.
+  assert.match(result.message ?? "", /repeated_identical_tool/);
 });

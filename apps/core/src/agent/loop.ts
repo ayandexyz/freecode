@@ -61,6 +61,7 @@ import {
   confidenceSpikeReminder,
   hillClimbReminder,
   decidePoke,
+  nextRunPokeState,
   notePoke,
   initialPokeState,
   pokeMessage,
@@ -75,6 +76,7 @@ import { createToolOrchestrator, getTool } from "../tools/index.js";
 import { getTodos, isOpenTodo, renderTodoPromptBlock, type TodoItem } from "../tools/todo.js";
 import {
   MAX_TRUNCATED_TOOL_RETRIES,
+  repeatedCallReminder,
   shouldNudgeTodo,
   todoNudgeReminder,
   truncatedToolCallReminder,
@@ -397,6 +399,8 @@ export class AgentLoop {
   // Reminder state: transient <system-reminder> blocks drained into the next
   // turn's prompt, plus counters for the todo nudge.
   private pendingReminders: string[] = [];
+  // Loop-health reasons already turned into a reminder this run.
+  private healthWarned = new Set<string>();
   private turnsSinceTodoWrite = 0;
   // Did the model save a memory itself during this run? If so, extraction is
   // skipped — it has already said what it wanted to keep.
@@ -688,16 +692,19 @@ export class AgentLoop {
     this.recentToolCalls = [];
     this.recentEdits = [];
     this.pendingReminders = [];
+    this.healthWarned = new Set<string>();
     this.turnsSinceTodoWrite = 0;
     this.turnsSinceLastNudge = 0;
     this.filesMutatedThisRun = false;
     this.verifyAttempts = 0;
     this.mutatedFiles = new Set<string>();
     this.verifierAttempts = 0;
-    // Pokes are per run: a stale fingerprint from the previous prompt would
-    // read the user's "continue" as no progress, and the cap would be per
-    // session instead of per prompt.
-    this.pokeState = initialPokeState();
+    // The poke CAP is per run, so one prompt's pokes never spend the next
+    // prompt's. The FINGERPRINT is not: a user's "continue" on a list the
+    // last poke already saw unchanged is one more turn, not three more pokes
+    // (session 698c5001 got 3 fresh pokes on every "continue"/"status?",
+    // each one a retry of the same 403 push).
+    this.pokeState = nextRunPokeState(this.pokeState);
     this.truncatedRetries = 0;
     this.lastVerifierReport = undefined;
     this.lastMemoryBlock = undefined;
@@ -893,6 +900,23 @@ export class AgentLoop {
             input.provider,
             input.model,
           );
+          // With redirection off the warn used to reach nobody: the model
+          // got no signal between the 3rd identical call and the hard stop
+          // at the 6th. One static reminder per reason per run names the
+          // repeated call so the model can report the blocker instead.
+          if (
+            !spent &&
+            healthAction.reason === "repeated_identical_tool" &&
+            !this.healthWarned.has(healthAction.reason)
+          ) {
+            this.healthWarned.add(healthAction.reason);
+            const last = this.recentToolCalls[this.recentToolCalls.length - 1];
+            if (last) {
+              this.pendingReminders.push(
+                repeatedCallReminder(last.tool, this.state.loopHealth.repeatedTools + 1),
+              );
+            }
+          }
           if (spent) {
             // D7: the supervisor's tokens are the run's tokens. A cost the
             // spend circuit breaker below cannot see would reintroduce the

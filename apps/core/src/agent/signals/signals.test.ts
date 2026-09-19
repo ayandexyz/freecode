@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import type { TodoItem } from "../../tools/todo.js";
 import { resolveSignalSettings, DEFAULT_SIGNAL_SETTINGS } from "./settings.js";
 import { diffTodoSignals } from "./todo-signals.js";
-import { decidePoke, initialPokeState, notePoke, todoFingerprint } from "./auto-poke.js";
+import {
+  decidePoke,
+  initialPokeState,
+  nextRunPokeState,
+  notePoke,
+  pokeMessage,
+  todoFingerprint,
+} from "./auto-poke.js";
 
 const item = (o: Partial<TodoItem> & { id: string }): TodoItem => ({
   content: `task ${o.id}`,
@@ -157,6 +164,65 @@ test("the fingerprint ignores completed items, so finishing one is progress", ()
   assert.notEqual(todoFingerprint(a), todoFingerprint(b));
   const c = [item({ id: "2" })];
   assert.equal(todoFingerprint(b), todoFingerprint(c));
+});
+
+test("re-wording an open item is not progress", () => {
+  // Session 698c5001: "push — BLOCKED on 403" became "push — BLOCKED on 403.
+  // Re-checked, still 403" on every poke, and each re-wording bought another
+  // poke and another identical push.
+  const a = [item({ id: "1", content: "push - blocked on 403" })];
+  const b = [item({ id: "1", content: "push - blocked on 403, re-checked" })];
+  assert.equal(todoFingerprint(a), todoFingerprint(b));
+});
+
+test("a list whose open items are all blocked is not poked", () => {
+  const parked = [
+    item({ id: "1", status: "completed" }),
+    item({ id: "2", status: "blocked", content: "push tag - need push rights" }),
+    item({ id: "3", status: "blocked", content: "verify release - after push" }),
+  ];
+  assert.deepEqual(
+    decidePoke({ enabled: true, maxPerRun: 3, todos: parked, state: initialPokeState() }),
+    { poke: false, skip: "all_blocked" },
+  );
+  // One actionable item among blocked ones is still poked for, and the poke
+  // names only that one.
+  const mixed = [...parked, item({ id: "4", content: "write the changelog" })];
+  const d = decidePoke({ enabled: true, maxPerRun: 3, todos: mixed, state: initialPokeState() });
+  assert.equal(d.poke, true);
+  if (!d.poke) return;
+  const msg = pokeMessage(d.remaining, 1, 3);
+  assert.match(msg, /1 todo item still open/);
+  assert.match(msg, /"write the changelog"/);
+  assert.ok(!msg.includes("push tag"));
+  assert.ok(!msg.includes("[ ]"), "one line of names, not a checklist");
+});
+
+test("the poke names at most six items, truncated, on one line", () => {
+  const many = Array.from({ length: 9 }, (_, i) =>
+    item({ id: String(i), content: `item ${i} ${"x".repeat(100)}` }),
+  );
+  const msg = pokeMessage(many, 2, 3);
+  const [head, tail] = msg.split("\n");
+  assert.match(head!, /9 todo items still open \(poke 2 of 3\)/);
+  assert.equal((head!.match(/"item \d/g) ?? []).length, 6);
+  assert.match(head!, /\+3 more/);
+  assert.ok(!head!.includes("x".repeat(90)), "long content is cut");
+  assert.match(tail!, /mark an item blocked/);
+});
+
+test("a new run re-arms the cap but keeps the fingerprint", () => {
+  const spent = { pokes: 3, lastFingerprint: todoFingerprint(open) };
+  const next = nextRunPokeState(spent);
+  assert.equal(next.pokes, 0);
+  // Same list after the user's "continue": that was the poke. No more.
+  assert.deepEqual(
+    decidePoke({ enabled: true, maxPerRun: 3, todos: open, state: next }),
+    { poke: false, skip: "no_progress" },
+  );
+  // The list moved: poke as normal.
+  const moved = [item({ id: "1", status: "completed" }), item({ id: "2", status: "in_progress" })];
+  assert.equal(decidePoke({ enabled: true, maxPerRun: 3, todos: moved, state: next }).poke, true);
 });
 
 test("a cancelled item is closed: it is not poked for and not asked to reframe", () => {

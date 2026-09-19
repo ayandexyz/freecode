@@ -17,7 +17,12 @@ import { formatSessionDirName } from "../store/path-formatter.js";
 // claiming the work was done, so auto-poke stops asking for it and the
 // completed count stays true. Before it existed the poke reminder told the
 // model to "mark it completed and say why", which faked both.
-export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
+// `blocked` is the honest way to park one: still open, but waiting on
+// something outside the model's reach (credentials, a paste, a decision).
+// Auto-poke never asks for a blocked item. Before it existed the only exits
+// from a poke were cancel (wrong) or retry (session 698c5001: 38 identical
+// `git push` 403s until loop-health killed the run).
+export type TodoStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 
 export interface TodoItem {
   id: string;
@@ -42,11 +47,16 @@ interface TodoWriteParams {
   todos: TodoItem[];
 }
 
-const STATUSES: TodoStatus[] = ["pending", "in_progress", "completed", "cancelled"];
+const STATUSES: TodoStatus[] = ["pending", "in_progress", "blocked", "completed", "cancelled"];
 
 /** Still to be worked on — neither done nor dropped. */
 export function isOpenTodo(t: Pick<TodoItem, "status">): boolean {
   return t.status !== "completed" && t.status !== "cancelled";
+}
+
+/** Open, but waiting on the user — nothing the model can do until they act. */
+export function isBlockedTodo(t: Pick<TodoItem, "status">): boolean {
+  return t.status === "blocked";
 }
 const TODOS_FILE = "todos.json";
 
@@ -198,6 +208,7 @@ export function renderTodoPromptBlock(
   const marks: Record<TodoStatus, string> = {
     completed: "[x]",
     cancelled: "[-]",
+    blocked: "[!]",
     in_progress: "[~]",
     pending: "[ ]",
   };
@@ -226,7 +237,8 @@ const todoSchema: JsonSchema = {
   properties: {
     todos: {
       description:
-        "The full, updated todo list. Keep exactly one item 'in_progress' at a time.",
+        "The full, updated todo list. Keep exactly one item 'in_progress' at a time. " +
+        "Rewrite it at milestones (an item finished, a blocker hit, the plan changed), not after every command.",
       type: "array",
       // An array without `items` leaves providers that constrain decoding
       // against the schema with nothing to shape the elements with, so the
@@ -241,7 +253,7 @@ const todoSchema: JsonSchema = {
             type: "string",
             enum: STATUSES,
             description:
-              "Current state of the task. Use 'cancelled' to drop an item you will not do (say why in its content) — never mark undone work 'completed'.",
+              "Current state of the task. Use 'blocked' when it is waiting on the user (credentials, a decision, a paste) — say what is needed in its content and do not retry it. Use 'cancelled' to drop an item you will not do (say why in its content). Never mark undone work 'completed'.",
           },
           confidence: {
             type: "number",
@@ -320,6 +332,7 @@ function render(todos: TodoItem[]): string {
   const marks: Record<TodoStatus, string> = {
     completed: "[x]",
     cancelled: "[-]",
+    blocked: "[!]",
     in_progress: "[~]",
     pending: "[ ]",
   };
@@ -368,7 +381,7 @@ export const TodoWriteTool: Tool<TodoWriteParams> = buildTool({
     "",
     "Use it when the work needs 3+ distinct steps, the user named several deliverables, asked for a plan, or new instructions arrive mid-task (capture before acting). Write the list BEFORE exploring — the plan frames the exploration. Do NOT use it for a single straightforward task or an informational question.",
     "",
-    "States: pending, in_progress (exactly ONE at a time), completed. Mark items completed as you finish them — never batched at the end, only when genuinely done. If blocked, leave in_progress and add an item naming the blocker.",
+    "States: pending, in_progress (exactly ONE at a time), blocked, completed, cancelled. Mark items completed as you finish them — never batched at the end, only when genuinely done. An item waiting on the user (credentials, a decision, something to paste) is `blocked`: say what is needed in its content, report it to the user once, and do not retry it. Rewrite the list at milestones, not after every command.",
     "",
     "Each item may carry two 0-100 scores. `confidence`: how sure you are the item is done correctly — set it honestly at assignment and step it up only as verification happens, never straight to 100. `hillClimbability`: how measurable progress on the item is (a test, a number, a check to iterate against). An item under 90 is a goal you cannot climb — reframe it, or add an item that builds the check.",
   ].join("\n"),
