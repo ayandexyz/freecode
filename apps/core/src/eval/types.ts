@@ -234,6 +234,13 @@ export interface TrialResult {
   passed: boolean;
   /** "ok" on success, else the FIRST failed expectation, kept short. */
   reason: string;
+  /**
+   * The trial never produced a trajectory to score — provider error, SSE
+   * stall, hung call, trial timeout. Always `passed: false`, but it says
+   * nothing about the agent, so `majority()` leaves it out of the vote
+   * (spec §7 constraint 3, applied to the deterministic suites).
+   */
+  infra?: true;
   durationMs: number;
   inputTokens: number;
   outputTokens: number;
@@ -402,4 +409,6 @@ export type Scorer = (run: RunRecord, kase: EvalCase) => TrialScore;
 export interface TrialScore {
   passed: boolean;
   reason: string;
+  /** See `TrialResult.infra`. */
+  infra?: true;
 }

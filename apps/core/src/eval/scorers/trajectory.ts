@@ -19,9 +19,20 @@ export function scoreTrajectory(run: RunRecord, kase: EvalCase): TrialScore {
 
   // A hung or errored model call is never a pass, however the tools look —
   // otherwise a case can go green off a trajectory that never finished.
-  if (run.trace.hung) return fail("model call hung");
+  //
+  // A provider error, a stalled stream or a hung call is INFRA, not the agent:
+  // it still fails the trial, but it is flagged so the case's majority vote is
+  // taken over the trials that actually ran. Before this a MiniMax outage on
+  // 2 of 3 trials of one case closed the gate as if the agent had regressed.
+  // An `abort` or unknown kind stays unflagged — its cause is not known to be
+  // outside the agent.
+  if (run.trace.hung) return { ...fail("model call hung"), infra: true };
   const errored = run.trace.modelSpans.find((s) => s.status === "error");
-  if (errored) return fail(`model error: ${errored.errorKind ?? "unknown"}`);
+  if (errored) {
+    const kind = errored.errorKind ?? "unknown";
+    const score = fail(`model error: ${kind}`);
+    return kind === "provider" || kind === "stall" ? { ...score, infra: true } : score;
+  }
 
   for (const forbidden of kase.forbidTools ?? []) {
     if (fired.includes(forbidden)) return fail(`called forbidden ${forbidden}`);

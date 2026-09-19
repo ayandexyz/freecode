@@ -51,6 +51,9 @@ pnpm eval:gate                    # all three, in cost order — the release rit
 
 **Gate rule:** majority-of-N **plus delta vs the baseline**, never absolute 100%
 (spec §9.1: at p=0.93 across 20 cases, pass^3 is green ~1.3% of the time). The
+vote is over trials that *ran*: a provider error, SSE stall, hang or trial
+timeout is an `infra` trial and is excluded (shown as `(N infra)`), so an outage
+on 2 of 3 trials passes on the third. All 3 infra still fails the case. The
 baseline is the last run that did *not* close the gate, **on the same resolved
 model** — so a new model's first run is "run zero" and passes unconditionally.
 

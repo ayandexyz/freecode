@@ -241,6 +241,26 @@ test("a hung or errored model call is never a pass", () => {
   assert.match(score.reason, /model error/);
 });
 
+test("a provider error, stall or hang is flagged infra; an abort is not", () => {
+  // Infra trials still fail, but `majority()` leaves them out of the vote —
+  // a MiniMax outage on one case must not read as an agent regression.
+  const hung = run([tool("grep")]);
+  hung.trace.hung = true;
+  assert.equal(scoreTrajectory(hung, kase({ expectTool: "grep" })).infra, true);
+
+  for (const kind of ["provider", "stall"] as const) {
+    const span = { ...modelSpan("error"), errorKind: kind };
+    const score = scoreTrajectory(run([tool("grep")], [span]), kase({ expectTool: "grep" }));
+    assert.equal(score.passed, false);
+    assert.equal(score.infra, true, kind);
+  }
+
+  const abort = { ...modelSpan("error"), errorKind: "abort" as const };
+  const score = scoreTrajectory(run([tool("grep")], [abort]), kase({ expectTool: "grep" }));
+  assert.equal(score.passed, false);
+  assert.equal(score.infra, undefined);
+});
+
 test("forbidBashMatches fails the run whose bash command matches", () => {
   const score = scoreTrajectory(
     run([

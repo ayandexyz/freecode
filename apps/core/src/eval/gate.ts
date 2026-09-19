@@ -27,11 +27,18 @@ export interface Verdict {
  * Majority-of-N. With one trial this is pass@1; with three it tolerates a
  * single unlucky trial, which is the difference between a gate that runs and
  * a gate that gets disabled.
+ *
+ * The vote is over the trials that RAN. An `infra` trial (provider error,
+ * stall, timeout) is excluded rather than counted against: 2 outages + 1 pass
+ * is a pass on the one trial that produced evidence. A case whose trials were
+ * ALL infra still fails — the gate must not say "safe to release" about a
+ * case it knows nothing about, the same rule as the judge's total blackout.
  */
 export function majority(trials: TrialResult[]): boolean {
-  if (trials.length === 0) return false;
-  const passed = trials.filter((t) => t.passed).length;
-  return passed * 2 > trials.length;
+  const scored = trials.filter((t) => !t.infra);
+  if (scored.length === 0) return false;
+  const passed = scored.filter((t) => t.passed).length;
+  return passed * 2 > scored.length;
 }
 
 /**

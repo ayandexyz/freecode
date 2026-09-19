@@ -53,6 +53,21 @@ test("majority of one trial is pass@1", () => {
   assert.equal(majority([]), false);
 });
 
+test("infra trials are left out of the majority vote", () => {
+  const infra = (): TrialResult => ({ ...trial(false), reason: "model error: provider", infra: true });
+  // 2 outages + 1 pass: the one trial that ran is the evidence.
+  assert.equal(majority([infra(), infra(), trial(true)]), true);
+  // 1 outage + 1 pass + 1 fail: a tie on the scored trials is not a majority.
+  assert.equal(majority([infra(), trial(true), trial(false)]), false);
+  // Every trial an outage: the gate knows nothing about this case, so it may
+  // not pass it — same rule as the judge's total blackout.
+  assert.equal(majority([infra(), infra(), infra()]), false);
+
+  const result = summarise("a", [infra(), infra(), trial(true)], false);
+  assert.equal(result.passed, true);
+  assert.equal(result.consistent, false);
+});
+
 test("a case passing 2 of 3 is passed but not consistent", () => {
   const result = summarise("a", [trial(true), trial(true), trial(false)], false);
   assert.equal(result.passed, true);

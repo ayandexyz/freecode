@@ -254,6 +254,7 @@ async function runTrialIn(
     return {
       passed: false,
       reason: `run failed: ${(err as Error).message}`.slice(0, 200),
+      infra: true,
       durationMs: Date.now() - startedAt,
       inputTokens: 0,
       outputTokens: 0,
@@ -365,6 +366,7 @@ async function runTrialIn(
       : typeof judged?.score === "number"
         ? `${judged.score}/5 — ${judged.reason}`
         : (judged?.reason ?? score.reason),
+    ...(score.infra ? { infra: true } : {}),
     ...(kase.rubric ? { score: judged?.score ?? null } : {}),
     ...(judged?.costUsd !== undefined ? { judgeCostUsd: judged.costUsd } : {}),
     durationMs: Date.now() - startedAt,

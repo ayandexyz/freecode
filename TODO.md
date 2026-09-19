@@ -678,16 +678,10 @@ From releasing `todowrite-for-multistep` and `review-mode-readonly` from
       all-time). Same defect the 08-29 note in `quarantine.txt` records. A
       "last N trials" window, or a per-case epoch stamp when expectations change,
       would make the proposals trustworthy.
-- [ ] **A quarantined case's FAIL line can print `ok` as its reason.** Second
-      confirm run: `FAIL ask-when-the-answer-is-off-repo [quarantined] ok` —
-      majority failed, but the reason string came from the one passing trial.
-      The reporter should pick the reason from a failing trial.
-- [ ] **A majority provider-error closes the gate as if the agent regressed.**
-      `explore-mode-stays-readonly` hit `model error: provider` on 2 of 3 trials
-      (MiniMax outage) and the run recorded `GATE CLOSED`. Spec §7 says an outage
-      never fails a run for the judge; the same rule does not exist for the
-      trajectory scorer. An errored trial should be excluded from majority-of-N
-      (and a case with 0 scored trials reported as unscored, not failed).
+- [ ] **Infra trials are not flagged on the outcome scorer.** `TrialResult.infra`
+      (2026-09-20) excludes provider errors / stalls / hangs from `majority()`
+      on the trajectory suite; `scorers/outcome.ts` only fails on `verify`, so a
+      `coding` case whose model call died still counts as an agent failure.
 - [ ] Three cases remain quarantined and are all deterministic M3 gaps, not
       flakes: `frustrated-user-wants-one-line` (0/10), `ask-when-the-answer-is-
       off-repo` (1/10), `greeting-uses-no-tools` (3/10, one 25-turn session on

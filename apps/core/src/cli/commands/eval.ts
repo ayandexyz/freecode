@@ -587,13 +587,23 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
             : "";
           // A judged case shows its score even when it passed — the number IS
           // the result there, and "PASS" alone hides a 2.0 scraping the floor.
+          // A failed case explains itself from a trial that FAILED: reading
+          // trials[0] printed "FAIL … ok" whenever the first trial happened to
+          // be the passing minority.
+          const shown = result.passed
+            ? result.trials[0]
+            : (result.trials.find((t) => !t.passed && !t.infra) ??
+              result.trials.find((t) => !t.passed));
           const why =
             result.score !== undefined || !result.passed
-              ? ` ${dim}${result.trials[0]?.reason}${reset}`
+              ? ` ${dim}${shown?.reason}${reset}`
               : "";
+          const infra = result.trials.filter((t) => t.infra).length;
           const flaky =
             result.passed && !result.consistent
-              ? ` ${yellow}(flaky)${reset}`
+              ? infra > 0
+                ? ` ${yellow}(${infra} infra)${reset}`
+                : ` ${yellow}(flaky)${reset}`
               : "";
           console.log(`${mark} ${result.id}${tag}${flaky}${why}`);
         },
