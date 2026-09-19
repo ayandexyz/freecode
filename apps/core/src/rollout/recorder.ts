@@ -480,6 +480,15 @@ export class RolloutRecorder {
     );
   }
 
+  recordMessageSteered(
+    turnId: string,
+    fields: { messageId: string; remaining: number },
+  ): void {
+    this.write(
+      this.makeEvent("message.steered", { aggregateID: this.sessionId, turnId, fields }),
+    );
+  }
+
   recordPokeSkipped(turnId: string, reason: string, remaining: number): void {
     this.write(
       this.makeEvent("poke.skipped", {

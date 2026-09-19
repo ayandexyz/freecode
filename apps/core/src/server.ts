@@ -264,6 +264,18 @@ async function runSessionTurn(
     // with the new loop. The pending recursive Promise keeps the activeLoops
     // map populated the whole time — there's no window where a session.send
     // could race the drain and miss the "busy" check.
+    // A steer that arrived after the loop's last drain point never reached
+    // the model. Re-park it as a follow-up so the user's words still get a
+    // turn; the TUI already shows it as queued.
+    for (const text of loop.takeUndeliveredSteers()) {
+      const id = getOrCreateQueue(sessionId).enqueue(text);
+      BusEvents.stream(sessionId, {
+        type: "message_queued",
+        id,
+        content: text,
+        kind: "followUp",
+      });
+    }
     const queue = messageQueues.get(sessionId);
     const next = queue?.shiftNext();
     if (next) {
@@ -463,6 +475,7 @@ export const methodHandlers: Record<
       effort,
       agentMode: paramAgentMode,
       images,
+      streamingBehavior,
     } = params as {
       sessionId: string;
       message: string;
@@ -470,6 +483,7 @@ export const methodHandlers: Record<
       effort?: EffortLevel;
       agentMode?: string;
       images?: Array<{ data: string; mediaType: string; altText?: string }>;
+      streamingBehavior?: "steer" | "followUp";
     };
     const session = getSession(sessionId);
 
@@ -490,11 +504,31 @@ export const methodHandlers: Record<
             "Wait for the current turn to finish, then resubmit.",
         );
       }
+      // Steering (spec 2026-09-20-pi-parity-plan Phase 1): hand the prompt
+      // to the running loop; it becomes a user message at the next
+      // tool-batch boundary. The loop, not this queue, owns it from here —
+      // session.dequeue cannot pull it back, and `message_steered` marks the
+      // moment it reached the model.
+      const active = activeLoops.get(sessionId);
+      if (streamingBehavior === "steer" && active) {
+        // Same id on the queued row and the persisted message, so the
+        // TUI can promote the row when `message_steered` arrives.
+        const id = randomUUID();
+        active.steer(message, id);
+        BusEvents.stream(sessionId, {
+          type: "message_queued",
+          id,
+          content: message,
+          kind: "steer",
+        });
+        return { queued: true, id } as const;
+      }
       const id = getOrCreateQueue(sessionId).enqueue(message);
       BusEvents.stream(sessionId, {
         type: "message_queued",
         id,
         content: message,
+        kind: "followUp",
       });
       return { queued: true, id } as const;
     }

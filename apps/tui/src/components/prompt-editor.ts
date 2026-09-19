@@ -260,6 +260,16 @@ export class PromptEditor extends Editor {
    * its hands.
    */
   handleInput(data: string): void {
+    // Alt+Enter submits as a follow-up (delivered after the run ends) instead
+    // of a steer (delivered inside the running turn). Only meaningful while a
+    // turn is running; otherwise both are a plain send. The flag is read once
+    // by onSubmit via takeSubmitBehavior().
+    if (matchesKey(data, "alt+enter")) {
+      this.submitBehavior = "followUp";
+      // `submitValue` is what Enter calls; it is not in pi-tui's public types.
+      (this as unknown as { submitValue(): void }).submitValue();
+      return;
+    }
     if (this.isBackspace(data)) {
       const token = this.tokenBeforeCursor();
       if (token) {
@@ -268,6 +278,15 @@ export class PromptEditor extends Editor {
       }
     }
     super.handleInput(data);
+  }
+
+  private submitBehavior: "steer" | "followUp" = "steer";
+
+  /** How the submission just made should be queued if a turn is running. Resets to "steer". */
+  takeSubmitBehavior(): "steer" | "followUp" {
+    const b = this.submitBehavior;
+    this.submitBehavior = "steer";
+    return b;
   }
 
   private isBackspace(data: string): boolean {

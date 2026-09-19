@@ -290,7 +290,10 @@ export function createUserMessageComponent(content: string): Component {
  * Once the turn actually starts, index.ts replaces this component with a
  * normal user message + an in-progress line — no special upgrade logic here.
  */
-export function createQueuedUserMessageComponent(content: string): Component {
+export function createQueuedUserMessageComponent(
+  content: string,
+  kind: "steer" | "followUp" = "followUp",
+): Component {
   const displayContent = stripPrefix(content);
 
   let prefixPending = true;
@@ -317,7 +320,11 @@ export function createQueuedUserMessageComponent(content: string): Component {
       prefixPending = true;
       // Badge first (sits on its own line, dim, narrow), then the regular
       // user-message block below. The trailing blank matches createUserMessageComponent.
-      const badge = chalk.dim("(queued — Ctrl+Backspace to remove or edit)");
+      const badge = chalk.dim(
+        kind === "steer"
+          ? "(steering — delivered at the next tool boundary)"
+          : "(queued — Ctrl+Backspace to remove or edit)",
+      );
       return [badge, ...boundedBox.render(width), ""];
     },
     invalidate() {

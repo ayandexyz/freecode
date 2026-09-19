@@ -524,6 +524,7 @@ export async function sessionSendStreaming(
     | undefined,
   onEvent: (event: StreamEvent) => void,
   effort?: EffortLevel,
+  streamingBehavior?: "steer" | "followUp",
 ): Promise<SessionSendResult | SessionQueuedResult> {
   return new Promise((resolve, reject) => {
     if (!cliProcess || !cliProcess.stdin) {
@@ -538,7 +539,15 @@ export async function sessionSendStreaming(
       jsonrpc: "2.0",
       id,
       method: "session.send",
-      params: { sessionId, message, model, agentMode, images, effort },
+      params: {
+        sessionId,
+        message,
+        model,
+        agentMode,
+        images,
+        effort,
+        streamingBehavior,
+      },
     };
     // Idle deadline, not a total one — this promise settles only when the
     // whole turn is done, which is unbounded by design.

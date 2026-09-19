@@ -46,7 +46,8 @@ export type RolloutEvent =
   | RedirectSkippedEvent
   | PokeTriggeredEvent
   | PokeSkippedEvent
-  | TodoSignalEvent;
+  | TodoSignalEvent
+  | MessageSteeredEvent;
 
 export interface TurnStartedEvent extends BaseEvent {
   type: "turn.started";
@@ -330,4 +331,19 @@ export interface TodoSignalEvent extends BaseEvent {
   to: number;
   /** Whether the gate was on and a reminder was queued for the next turn. */
   gated: boolean;
+}
+
+// ============================================================================
+// Steering (spec 2026-09-20-pi-parity-plan, Phase 1): a user message that
+// arrived mid-turn and was delivered between one tool batch and the next
+// model call, without aborting the run. Message id only — never the text.
+// ============================================================================
+
+export interface MessageSteeredEvent extends BaseEvent {
+  type: "message.steered";
+  turnId: string;
+  /** Id of the persisted user message carrying the steer. */
+  messageId: string;
+  /** Steers still waiting after this one was delivered. */
+  remaining: number;
 }

@@ -71,7 +71,10 @@ export interface SerializedMessage {
    * models answer it instead of acting — jcode's finding); frontends render
    * a one-line notice instead of "You:", and harvest never scopes a turn on it.
    */
-  synthetic?: "auto_poke";
+  // "steer": the user typed it mid-turn (spec 2026-09-20-pi-parity-plan
+  // Phase 1). Persisted as a real user turn for the same reason as the poke;
+  // the frontend renders it as a normal user message, badged "steered".
+  synthetic?: "auto_poke" | "steer";
   interrupted?: boolean;
   usage?: MessageUsage;
 }

@@ -95,6 +95,7 @@ import {
   createSystemMessage,
   createInProgressMessage,
   createQueuedUserMessage,
+  promoteQueuedToUser,
   removeMessageById,
   updateInProgressMessage,
   subscribeToMessages,
@@ -1558,7 +1559,14 @@ function handleToolEvent(event: StreamEvent) {
     // user message with a dim "queued" badge so the user can see it's in
     // line, and Ctrl+Backspace lets them pull it back out.
     case "message_queued": {
-      createQueuedUserMessage(event.content, event.id);
+      createQueuedUserMessage(event.content, event.id, event.kind);
+      tui.requestRender();
+      break;
+    }
+    // A steer reached the model (spec 2026-09-20-pi-parity-plan Phase 1):
+    // the queued row becomes a normal user message in place.
+    case "message_steered": {
+      promoteQueuedToUser(event.id);
       tui.requestRender();
       break;
     }
@@ -1602,6 +1610,9 @@ async function submitPrompt(
   promptText: string,
   displayText?: string,
   images?: Array<{ data: string; mediaType: string; altText?: string }>,
+  // Only matters while a turn is running (spec 2026-09-20-pi-parity-plan
+  // Phase 1): Enter steers the running turn, Alt+Enter queues a follow-up.
+  streamingBehavior: "steer" | "followUp" = "steer",
 ): Promise<void> {
   // Before anything is sent: if the cache has expired and the context is large,
   // this request pays full price for the whole conversation. Only the user
@@ -1708,6 +1719,7 @@ async function submitPrompt(
         handleToolEvent(event);
       },
       currentEffort,
+      streamingBehavior,
     );
 
     // Spec 2026-08-05: server parked the prompt in the follow-up queue
@@ -1974,6 +1986,7 @@ editor.onSubmit = async (value: string) => {
     promptText,
     images.length > 0 ? value.trim() : undefined,
     images,
+    editor.takeSubmitBehavior(),
   );
 };
 

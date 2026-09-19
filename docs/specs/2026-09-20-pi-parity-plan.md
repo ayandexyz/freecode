@@ -22,6 +22,8 @@ Pi reference paths are under `packages/coding-agent/src/core/` unless stated.
 
 ## Phase 1 — Mid-turn steering
 
+**Built 2026-09-20.** `AgentLoop.steer()` / `drainSteers()`, `session.send` `streamingBehavior`, `message_steered` event, Alt+Enter in the TUI, `FREECODE_STEERING_MODE=all`. Tests: `agent/loop-steer.test.ts`.
+
 ### Problem
 
 `session.send` during a running turn parks the message in the follow-up queue
