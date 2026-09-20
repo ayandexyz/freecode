@@ -88,6 +88,7 @@ import {
 import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { initMcpServers, listClients, getMcpTools } from "./mcp/index.js";
+import { loadExtensions, listExtensions } from "./extensions/index.js";
 import { getConfigDir } from "./cli/utils/config.js";
 import { initHooks } from "./hooks/bootstrap.js";
 import {
@@ -1327,6 +1328,10 @@ export const methodHandlers: Record<
     return manager.fork(sessionId);
   },
 
+  // --- extensions (spec 2026-09-20-pi-parity-plan, Phase 5) ------------------
+  "extensions.list": async (): Promise<unknown> => listExtensions(),
+  "extensions.reload": async (): Promise<unknown> => loadExtensions(process.cwd()),
+
   // --- session tree (spec 2026-09-20-pi-parity-plan, Phase 3) ---------------
   "session.tree": async (params: Record<string, unknown>): Promise<unknown> => {
     const { sessionId } = params as { sessionId: string };
@@ -1562,6 +1567,7 @@ export async function startServer() {
 
   await initProviders();
   await initMcpServers();
+  await loadExtensions(process.cwd());
 
   // Built-in hooks + settings.json hooks (project + user scopes). Shared with
   // `freecode run` so headless and served runs load the same hooks.

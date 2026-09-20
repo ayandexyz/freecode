@@ -138,6 +138,22 @@ const forkCommand: Command = {
   },
 };
 
+const extensionsCommand: Command = {
+  name: "extensions",
+  description: "List loaded extensions (~/.freecode/extensions, .freecode/extensions)",
+  execute: (_args, ctx) => {
+    void ctx.showExtensions?.();
+  },
+};
+
+const reloadCommand: Command = {
+  name: "reload",
+  description: "Reload extensions and prompt commands",
+  execute: (_args, ctx) => {
+    void ctx.reloadExtensions?.();
+  },
+};
+
 const compactCommand: Command = {
   name: "compact",
   description: "Summarize older turns to free up context",
@@ -307,6 +323,8 @@ export function registerBuiltInCommands(): void {
   registerCommand(resumeCommand);
   registerCommand(compactCommand);
   registerCommand(treeCommand);
+  registerCommand(extensionsCommand);
+  registerCommand(reloadCommand);
   registerCommand(forkCommand);
   registerCommand(contextCommand);
   registerCommand(usageCommand);

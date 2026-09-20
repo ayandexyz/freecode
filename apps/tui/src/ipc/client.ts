@@ -809,6 +809,23 @@ export interface SessionTreeEntry {
   active: boolean;
 }
 
+export interface LoadedExtensionInfo {
+  source: string;
+  scope: "user" | "project";
+  tools: string[];
+  commands: string[];
+  hooks: Array<{ event: string; name: string }>;
+  error?: string;
+}
+
+export async function extensionsList(): Promise<LoadedExtensionInfo[]> {
+  return (await sendRequest("extensions.list", {})) as LoadedExtensionInfo[];
+}
+
+export async function extensionsReload(): Promise<LoadedExtensionInfo[]> {
+  return (await sendRequest("extensions.reload", {})) as LoadedExtensionInfo[];
+}
+
 export async function sessionTree(sessionId: string): Promise<SessionTreeEntry[]> {
   return (await sendRequest("session.tree", { sessionId })) as SessionTreeEntry[];
 }

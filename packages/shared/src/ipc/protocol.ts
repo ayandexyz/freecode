@@ -613,6 +613,23 @@ export const METHODS = {
   // only, never bodies. `session.navigate` moves the leaf; with `summarize`
   // the abandoned branch is condensed into a branch_summary message under
   // the new leaf. Refused while a turn is running (stop it first).
+  // Extensions (spec 2026-09-20-pi-parity-plan, Phase 5): what is loaded,
+  // and a reload that re-imports every file (tools/commands/hooks re-registered).
+  "extensions.list": {
+    params: {},
+    result: [] as Array<{
+      source: string;
+      scope: "user" | "project";
+      tools: string[];
+      commands: string[];
+      hooks: Array<{ event: string; name: string }>;
+      error?: string;
+    }>,
+  },
+  "extensions.reload": {
+    params: {},
+    result: [] as Array<{ source: string; error?: string }>,
+  },
   "session.tree": {
     params: { sessionId: "" },
     result: [] as Array<{
@@ -762,6 +779,8 @@ export const REQUIRED_PARAMS: Record<
   "memory.buildPrompt": {},
   "session.switch": { sessionId: "string" },
   "session.fork": { sessionId: "string" },
+  "extensions.list": {},
+  "extensions.reload": {},
   "session.tree": { sessionId: "string" },
   "session.navigate": { sessionId: "string", entryId: "string" },
   "session.label": { sessionId: "string", entryId: "string", label: "string" },

@@ -53,6 +53,9 @@ import {
   sessionStop,
   sessionDequeue,
   callTool,
+  extensionsList,
+  extensionsReload,
+  type LoadedExtensionInfo,
   sessionTree,
   sessionNavigate,
   sessionFork,
@@ -676,6 +679,42 @@ async function openExternalEditor(): Promise<void> {
     tui.start();
     tui.setFocus(editor);
     tui.requestRender(true);
+  }
+}
+
+function renderExtensions(list: LoadedExtensionInfo[]): string {
+  if (list.length === 0) {
+    return "**No extensions loaded.** Drop a `.ts`/`.js` file exporting `(api) => …` into `~/.freecode/extensions/`.";
+  }
+  return list
+    .map((e) => {
+      const name = e.source.split("/").pop();
+      if (e.error) return `- ✗ **${name}** (${e.scope}): ${e.error}`;
+      const parts = [
+        e.tools.length ? `${e.tools.length} tool(s): ${e.tools.join(", ")}` : "",
+        e.commands.length ? `${e.commands.length} command(s): /${e.commands.join(", /")}` : "",
+        e.hooks.length ? `${e.hooks.length} hook(s)` : "",
+      ].filter(Boolean);
+      return `- ✓ **${name}** (${e.scope}): ${parts.join("; ") || "nothing registered"}`;
+    })
+    .join("\n");
+}
+
+async function showExtensions(): Promise<void> {
+  try {
+    showMessage(renderExtensions(await extensionsList()));
+  } catch (err) {
+    showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function reloadExtensions(): Promise<void> {
+  try {
+    const list = await extensionsReload();
+    showMessage(`**Reloaded.**\n${renderExtensions(list)}`);
+    await refreshCoreCommands();
+  } catch (err) {
+    showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -2053,6 +2092,8 @@ editor.onSubmit = async (value: string) => {
           showResumePicker: showResumePicker,
           showTreePicker,
           forkSession,
+          showExtensions,
+          reloadExtensions,
           // Undefined until a run completes, so /cost omits the Session row
           // rather than printing a 0% that looks like a cache failure.
           getSessionUsage: () => (sessionRuns > 0 ? sessionUsage : undefined),
@@ -2178,36 +2219,46 @@ void (async () => {
     } catch {
       // Backend not up yet (or no history) — start with an empty ring.
     }
-    for (const info of coreCommands) {
-      registerCommand({
-        name: info.name,
-        description: info.description,
-        argHint: info.argHint,
-        execute: async (args: string[]) => {
-          try {
-            const prompt = await resolveCommand(info.name, args, process.cwd());
-            const display = `/${info.name}${args.length ? ` ${args.join(" ")}` : ""}`;
-            await submitPrompt(prompt, display);
-          } catch (error) {
-            showMessage(
-              `**Error:** ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        },
-      });
-    }
-    // Rebuild autocomplete so the freshly registered commands appear.
-    editor.setAutocompleteProvider(
-      createAutocompleteProvider(
-        commandRegistry.getSlashCommands(),
-        process.cwd(),
-      ),
-    );
-    tui.requestRender();
+    registerCoreCommands(coreCommands);
   } catch {
     // Core commands are optional; ignore if the backend is unavailable.
   }
 })();
+
+// Prompt commands from core (built-in, user, extension). Re-run by /reload so
+// a command an extension just registered shows up without a restart.
+function registerCoreCommands(coreCommands: Awaited<ReturnType<typeof listCommands>>): void {
+  for (const info of coreCommands) {
+    registerCommand({
+      name: info.name,
+      description: info.description,
+      argHint: info.argHint,
+      execute: async (args: string[]) => {
+        try {
+          const prompt = await resolveCommand(info.name, args, process.cwd());
+          const display = `/${info.name}${args.length ? ` ${args.join(" ")}` : ""}`;
+          await submitPrompt(prompt, display);
+        } catch (error) {
+          showMessage(
+            `**Error:** ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      },
+    });
+  }
+  // Rebuild autocomplete so the freshly registered commands appear.
+  editor.setAutocompleteProvider(
+    createAutocompleteProvider(
+      commandRegistry.getSlashCommands(),
+      process.cwd(),
+    ),
+  );
+  tui.requestRender();
+}
+
+async function refreshCoreCommands(): Promise<void> {
+  registerCoreCommands(await listCommands(process.cwd()));
+}
 
 const interruptController = new InterruptController({
   isTurnActive: () => activeTurnSessionId !== null,

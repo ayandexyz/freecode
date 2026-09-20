@@ -36,6 +36,8 @@ export interface CommandContext extends MessageCreators {
   showTreePicker?(): Promise<void>;
   /** `/fork` — new session from the active path. */
   forkSession?(): Promise<void>;
+  showExtensions?(): Promise<void>;
+  reloadExtensions?(): Promise<void>;
   /**
    * Pick a web-session provider (the /web command). Separate from
    * `showModelSelector` because the two lists answer different questions: one

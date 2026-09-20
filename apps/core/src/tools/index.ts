@@ -101,9 +101,25 @@ export function getMcpTools(): Record<string, Tool> {
   return { ...mcpTools };
 }
 
+// Extension tools (spec 2026-09-20-pi-parity-plan, Phase 5): the same
+// dynamic slot as MCP tools, keyed by the id the model sees. Built-ins win a
+// name collision — an extension cannot shadow `bash`.
+const extensionTools: Record<string, Tool> = {};
+
+export function registerExtensionTool(tool: Tool): void {
+  if (tools[tool.id as ToolId]) {
+    throw new Error(`Extension tool "${tool.id}" collides with a built-in tool`);
+  }
+  extensionTools[tool.id] = tool;
+}
+
+export function unregisterExtensionTool(id: string): void {
+  delete extensionTools[id];
+}
+
 export function getTool(id: string): Tool | undefined {
   if (tools[id as ToolId]) return tools[id as ToolId] as Tool;
-  return mcpTools[id];
+  return mcpTools[id] ?? extensionTools[id];
 }
 
 export function listTools(): {
@@ -123,7 +139,13 @@ export function listTools(): {
     parameters: t.schemas.parameters,
   }));
 
-  return [...builtIn, ...mcp];
+  const extension = Object.values(extensionTools).map((t) => ({
+    id: t.id,
+    description: t.description,
+    parameters: t.schemas.parameters,
+  }));
+
+  return [...builtIn, ...mcp, ...extension];
 }
 
 export { createToolOrchestrator };

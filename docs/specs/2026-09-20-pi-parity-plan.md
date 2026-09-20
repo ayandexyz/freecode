@@ -240,6 +240,8 @@ but not Unicode normalization: a model that emits `’` for `'` or `—` for
 
 ## Phase 5 — In-process TypeScript extensions
 
+**Built 2026-09-20** (smaller than the outline, deliberately): `extensions/` — `loader.ts` discovers `~/.freecode/extensions/*.{ts,js,mjs}` always and `<project>/.freecode/extensions/` only when the project is in `extensions.trustedProjects` (`~/.freecode/settings.json`) or `FREECODE_TRUST_PROJECT_EXTENSIONS=1`; plain `import()` (tsx and bun both take .ts), no jiti. `ExtensionAPI`: `registerTool` (goes through `buildTool`, a `readOnly: true` claim reaches mode policy via `claimToolReadOnly`, built-in names cannot be shadowed), `registerCommand` (prompt command, same precedence as built-ins), `on(event, handler, {matcher})` (callback hook, source `"plugin"`), `log`. Every registration is tracked per file and undone on reload or on a throwing factory. IPC `extensions.list` / `extensions.reload`; TUI `/extensions`, `/reload` (re-registers prompt commands too). `FREECODE_DISABLE_EXTENSIONS=1` skips loading. Not built: `registerProvider`, extension UI. Example: `docs/examples/extensions/hello.ts`. Tests: `extensions/loader.test.ts`.
+
 ### Problem
 
 Adding a tool or a slash command means editing core. Hooks are shell
