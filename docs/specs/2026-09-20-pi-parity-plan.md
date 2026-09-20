@@ -198,6 +198,8 @@ work done there survives as context. Pi: `session-manager.ts`,
 
 ## Phase 4 — Fuzzy edit matching + per-file mutation queue
 
+**Built 2026-09-20** (`unicodeNormalizedReplacer` in `tools/edit.ts`). The mutation queue was not needed: `edit`/`write` are `isConcurrencySafe: false`, so the batcher already serializes them.
+
 ### Problem
 
 `tools/edit.ts` has whitespace-collapsed and indentation-flexible replacers,
