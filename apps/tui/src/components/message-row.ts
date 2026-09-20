@@ -86,14 +86,11 @@ export function resetLiveUsageTotals(): void {
 
 /**
  * In-progress message component with live timer and token counts.
- * Renders "phrase (Xs) ↓inputTokens ↑outputTokens [████░░░░░ 50k/200k]"
+ * Renders "phrase (Xs) ↓inputTokens ↑outputTokens (xN)"
  * Output tokens track the live streamed-text estimate until the final usage
  * arrives; input tokens show the real value once known (0 while streaming).
- *
- * ↓/↑ are run totals (billed tokens summed over every turn), while the meter
- * shows context *occupancy* — what the provider saw on the latest request.
- * They are different quantities, so the meter takes `contextTokens` rather
- * than deriving itself from the run totals.
+ * ↓/↑ are run totals (billed tokens summed over every turn); context
+ * occupancy lives in the /context overlay, not on this row.
  */
 class InProgressMessage implements Component {
   private phrase: string;
@@ -149,22 +146,6 @@ class InProgressMessage implements Component {
       display += ` ${chalk.dim(`cached: ${formatTokenCount(cachedTokens)}`)}`;
     }
     display += ` ${chalk.dim(`(x${this.turns})`)}`;
-
-    if (this.contextLimit > 0) {
-      // Generated output is not part of the request that was just sent, so it
-      // never counts toward occupancy; without an explicit value fall back to
-      // the same estimate the final summary line uses (input + cache reads).
-      const contextTokens =
-        this.contextTokens ?? this.baseInputTokens + this.cachedTokens;
-      const pct = Math.min(contextTokens / this.contextLimit, 1);
-      const barWidth = Math.min(10, Math.max(3, Math.floor(width / 12)));
-      const filled = Math.round(pct * barWidth);
-      const empty = barWidth - filled;
-      const bar = "█".repeat(filled) + "░".repeat(empty);
-      const current = formatTokenCount(contextTokens);
-      const limit = formatTokenCount(this.contextLimit);
-      display += ` ${chalk.dim(`[${bar} ${current}/${limit}]`)}`;
-    }
 
     // Always use a reasonable max width to ensure fit on all screens
     // 80 is safe minimum, but use actual width if reasonable
