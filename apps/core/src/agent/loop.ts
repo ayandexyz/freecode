@@ -28,8 +28,13 @@ import type {
   HookContext,
   AgentMode,
 } from "./types.js";
-import type { SystemBlock, ExecuteUsage } from "../providers/types.js";
+import type { SystemBlock, ExecuteUsage, ExecuteOptions } from "../providers/types.js";
 import { subscriptionAuth } from "../providers/config.js";
+import {
+  getCacheWarmer,
+  resolveCacheWarmingMode,
+  type WarmRequest,
+} from "../providers/cache-warmer.js";
 import type { PermissionRequestResult } from "../hooks/PermissionRequest.js";
 import { evaluatePermission } from "../permission/evaluate.js";
 import { isReadOnlyMode } from "../permission/mode-policy.js";
@@ -256,6 +261,13 @@ export interface AgentLoopConfig {
    */
   autoPoke?: boolean;
   /**
+   * Keep the prompt cache warm between turns (spec 2026-09-20-pi-parity-plan
+   * Phase 2). Defaults to true and is still gated by the off-by-default
+   * `cache.warming` setting; subagents pass false — their contexts die with
+   * them, so there is nothing to keep warm.
+   */
+  cacheWarming?: boolean;
+  /**
    * Answer every `ask` decision with "allow" instead of prompting. Set by
    * `freecode run --yes`, where there is no frontend to prompt: `askPermission`
    * rejects with no subscriber, so an unattended `build` run was denied every
@@ -363,6 +375,7 @@ export class AgentLoop {
     redirect: boolean;
     budgetMaxRedirects?: number;
     autoPoke: boolean;
+    cacheWarming: boolean;
     autoApproveAsks: boolean;
   };
   private memory: MemoryService;
@@ -471,6 +484,7 @@ export class AgentLoop {
       redirect: config?.redirect ?? true,
       budgetMaxRedirects: config?.budgetMaxRedirects,
       autoPoke: config?.autoPoke ?? true,
+      cacheWarming: config?.cacheWarming ?? true,
       autoApproveAsks: config?.autoApproveAsks ?? false,
     };
     this.sessionGrants = config?.sessionGrants;
@@ -2273,7 +2287,7 @@ export class AgentLoop {
         // Holds back the citation tag so it never reaches a frontend (D12).
         const citationFilter = new CitationStreamFilter();
 
-        for await (const chunk of aiProvider.stream({
+        const requestOptions: ExecuteOptions = {
           messages: prunedMessages,
           system,
           tools,
@@ -2283,7 +2297,8 @@ export class AgentLoop {
           abortSignal: this.abort.signal,
           sessionId: this.state.sessionId,
           ephemeralTail: ephemeralTail || undefined,
-        })) {
+        };
+        for await (const chunk of aiProvider.stream(requestOptions)) {
           if (ttft_ms === undefined) {
             ttft_ms = Date.now() - startedAt;
             this.recorder.recordModelFirstToken(turnId, ttft_ms);
@@ -2363,6 +2378,7 @@ export class AgentLoop {
         }
 
         this.emitCacheWarm(usage);
+        this.armCacheWarmer(provider, model, requestOptions, usage);
         this.recorder.recordModelResponse(turnId, {
           provider,
           model: resolvedModel,
@@ -2393,7 +2409,7 @@ export class AgentLoop {
       // No explicit bound here either: a non-streaming body is delivered in
       // one piece, so the header timeout in fetch-timeout.ts already covers
       // "the provider never answered", and generation time is not ours to cap.
-      const result = await aiProvider.execute({
+      const requestOptions: ExecuteOptions = {
         messages: prunedMessages,
         system,
         tools,
@@ -2402,9 +2418,11 @@ export class AgentLoop {
         abortSignal: this.abort.signal,
         sessionId: this.state.sessionId,
         ephemeralTail: ephemeralTail || undefined,
-      });
+      };
+      const result = await aiProvider.execute(requestOptions);
 
       this.emitCacheWarm(result.usage);
+      this.armCacheWarmer(provider, model, requestOptions, result.usage);
       this.recorder.recordModelResponse(turnId, {
         provider,
         model: resolvedModel,
@@ -2437,6 +2455,75 @@ export class AgentLoop {
 
   // Surface post-turn cache hit/write token counts (jcode #9). Only emitted when
   // the provider actually reported cache activity, so non-caching turns stay quiet.
+  // ===========================================================================
+  // PRIVATE: cache warmer (spec 2026-09-20-pi-parity-plan, Phase 2)
+  // After every provider response the request that produced it is handed to
+  // the session's warmer; the next real request replaces it, complete()/
+  // fail() flip it to idle. The warmer's own replays are recorded as
+  // `cache.warm`, never as model.request/response, and billed to the day.
+  // Subagents never warm: their contexts are short-lived by construction.
+  // ===========================================================================
+  private cacheWarmer() {
+    if (!this.config.cacheWarming) return undefined;
+    const sessionId = this.state.sessionId;
+    const projectPath = this.state.projectPath;
+    return getCacheWarmer(sessionId, {
+      getProvider: (id) => getProvider(id as ProviderId),
+      getMode: () => resolveCacheWarmingMode(projectPath),
+      onWarmed: (r) => {
+        const u = r.usage;
+        this.recorder.recordCacheWarm({
+          provider: r.provider,
+          model: r.model,
+          phase: r.phase,
+          delayMs: r.delayMs,
+          expectedSavingsUsd: r.decision.expectedSavingsUsd,
+          warmCostUsd: r.decision.warmCostUsd,
+          inputTokens: u?.inputTokens,
+          outputTokens: u?.outputTokens,
+          cacheReadTokens: u?.cacheReadInputTokens,
+          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
+          authMode: subscriptionAuth(r.provider),
+        });
+        recordDailyUsage({
+          inputTokens: u?.inputTokens ?? 0,
+          outputTokens: u?.outputTokens ?? 0,
+          cacheReadTokens: u?.cacheReadInputTokens ?? 0,
+          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens ?? 0,
+        });
+        // The cold-cache warning keys off the last send; a refresh is one.
+        noteSendAndCheckCold(sessionId, r.provider);
+        BusEvents.stream(sessionId, {
+          type: "cache_status",
+          state: "warm",
+          message: `Prompt cache refreshed (${r.phase}, ~$${r.decision.warmCostUsd.toFixed(3)})`,
+          cacheReadTokens: u?.cacheReadInputTokens,
+          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
+        });
+      },
+      onStopped: (reason) => logger.debug(`[CacheWarmer] ${sessionId}: ${reason}`),
+    });
+  }
+
+  private armCacheWarmer(
+    provider: string,
+    model: string | undefined,
+    options: ExecuteOptions,
+    usage: ExecuteUsage | undefined,
+  ): void {
+    const warmer = this.cacheWarmer();
+    if (!warmer || !model || !usage?.inputTokens) return;
+    const request: WarmRequest = {
+      provider,
+      model,
+      // The replay carries its own abort signal; the run's would be aborted
+      // by the time an idle warm fires.
+      options: { ...options, abortSignal: undefined },
+      promptTokens: usage.inputTokens,
+    };
+    warmer.start(request);
+  }
+
   private emitCacheWarm(usage?: {
     inputTokens?: number;
     cacheReadInputTokens?: number;
@@ -3365,6 +3452,7 @@ export class AgentLoop {
   }
 
   private async fail(message: string, error?: string): Promise<LoopResult> {
+    this.cacheWarmer()?.onRunSettled();
     // Emit session.error event
     BusEvents.sessionError(this.state.sessionId, error || message);
     await this.hooks.runStop(error || message, {
@@ -3391,6 +3479,7 @@ export class AgentLoop {
       contextTokens?: number;
     },
   ): Promise<LoopResult> {
+    this.cacheWarmer()?.onRunSettled();
     // Emit session.updated event
     BusEvents.sessionUpdated(this.state.sessionId);
     await this.hooks.runStop(message, {

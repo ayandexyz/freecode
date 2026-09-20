@@ -95,6 +95,8 @@ next request without the turn being aborted. Pi: `agent/src/agent.ts`
 
 ## Phase 2 — Prompt-cache warmer
 
+**Built 2026-09-20.** `providers/cache-warmer.ts` (pure economics + `CacheWarmer` + per-session registry), armed from `callProviderOnce`, idled from `complete()`/`fail()`, disposed in `end-session.ts`. Records `cache.warm`, bills the day, resets the cold-cache clock, and tells the TUI. Off by default; `cache.warming` / `FREECODE_CACHE_WARMING`. Tests: `providers/cache-warmer.test.ts`.
+
 ### Problem
 
 FreeCode has deep cache *observability* (`providers/cache-miss.ts`, D2

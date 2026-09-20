@@ -43,16 +43,18 @@ test("both OpenAI request paths are built by the same function", () => {
 
 test("the loop passes sessionId to both provider entry points", () => {
   // Without this the key is undefined at the provider and the whole mechanism
-  // is a no-op — silently, since nothing errors.
+  // is a no-op — silently, since nothing errors. Both call sites build a
+  // `requestOptions` object (shared with the cache warmer) and pass it on.
   for (const method of ["stream", "execute"]) {
-    const call = loopSrc.match(
-      new RegExp(`aiProvider\\.${method}\\(\\{[\\s\\S]*?\\}\\)`),
-    );
-    assert.ok(call, `expected an aiProvider.${method}({...}) call site`);
     assert.match(
-      call[0],
-      /sessionId: this\.state\.sessionId/,
-      `aiProvider.${method} is not given the session id`,
+      loopSrc,
+      new RegExp(`aiProvider\\.${method}\\(requestOptions\\)`),
+      `expected an aiProvider.${method}(requestOptions) call site`,
     );
+  }
+  const builders = loopSrc.match(/const requestOptions: ExecuteOptions = \{[\s\S]*?\};/g) ?? [];
+  assert.equal(builders.length, 2, "one requestOptions per entry point");
+  for (const b of builders) {
+    assert.match(b, /sessionId: this\.state\.sessionId/, "request is not given the session id");
   }
 });

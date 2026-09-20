@@ -1531,6 +1531,11 @@ function handleToolEvent(event: StreamEvent) {
         // Louder than "cold": a cold cache is the clock running out, this is
         // the harness having broken its own prefix (spec 2026-08-09 D2).
         showMessage(`⚠ **${event.message}**`);
+      } else if (event.state === "warm" && event.message) {
+        // A warm refresh (cache warmer, spec 2026-09-20-pi-parity-plan
+        // Phase 2) resets the idle clock the cold nudge is measured from.
+        lastTurnCompletedAt = Date.now();
+        showMessage(`*${event.message}*`);
       }
       // Warm hits are the expected state — one line per model call said
       // nothing actionable. The header's token counters already carry usage.

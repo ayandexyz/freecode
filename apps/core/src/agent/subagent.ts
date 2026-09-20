@@ -127,6 +127,7 @@ export async function executeSubagent(
       redirect: false,
       // And for auto-poke: a subagent's stop is its parent's to judge.
       autoPoke: false,
+      cacheWarming: false,
       sessionStore,
     });
     if (parentSessionId) agents.attachInterrupt(id, () => loop.interrupt());

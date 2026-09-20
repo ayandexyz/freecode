@@ -17,6 +17,7 @@ import { disposeAgentsForRoot } from "../agent/registry/index.js";
 import { resetExtractPolicy } from "../memory/extract-policy.js";
 import { disposeOutputStore } from "../tools/output-store/index.js";
 import { disposeShellRegistry } from "../tools/shells/index.js";
+import { disposeCacheWarmer } from "../providers/cache-warmer.js";
 import { disposeReadState } from "../tools/read-state.js";
 import { disposePruneState } from "../agent/prune-state.js";
 import { disposeCacheAwareness } from "../providers/cache-awareness.js";
@@ -117,6 +118,8 @@ export async function endSession(
     ["readState", () => disposeReadState(sessionId)],
     ["pruneState", () => disposePruneState(sessionId)],
     ["cacheAwareness", () => disposeCacheAwareness(sessionId)],
+    // A pending warm replay must not outlive the session it was for.
+    ["cacheWarmer", () => disposeCacheWarmer(sessionId)],
     ["sessionContext", () => disposeFrozenSessionContext(sessionId)],
     // The documented-invalidation journal and its static-prefix fingerprint.
     ["cacheInvalidation", () => clearInvalidations(sessionId)],

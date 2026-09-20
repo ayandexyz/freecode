@@ -47,7 +47,8 @@ export type RolloutEvent =
   | PokeTriggeredEvent
   | PokeSkippedEvent
   | TodoSignalEvent
-  | MessageSteeredEvent;
+  | MessageSteeredEvent
+  | CacheWarmEvent;
 
 export interface TurnStartedEvent extends BaseEvent {
   type: "turn.started";
@@ -346,4 +347,27 @@ export interface MessageSteeredEvent extends BaseEvent {
   messageId: string;
   /** Steers still waiting after this one was delivered. */
   remaining: number;
+}
+
+// ============================================================================
+// Cache warm (spec 2026-09-20-pi-parity-plan, Phase 2): a one-token replay
+// of the run's last request, sent to keep the prompt-cache entry alive. It is
+// NOT a model.request/response pair — a trace must not read it as a turn —
+// but it is billed, so usage rides here for the cost fold.
+// ============================================================================
+
+export interface CacheWarmEvent extends BaseEvent {
+  type: "cache.warm";
+  provider: string;
+  model: string;
+  /** "streaming" while the run was active, "idle" after it ended. */
+  phase: "streaming" | "idle";
+  delayMs: number;
+  expectedSavingsUsd: number;
+  warmCostUsd: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  authMode?: "oauth" | "api-key";
 }

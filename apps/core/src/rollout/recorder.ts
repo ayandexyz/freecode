@@ -10,6 +10,7 @@ import * as path from "path";
 import * as os from "os";
 import type {
   BaseEvent,
+  CacheWarmEvent,
   DenySource,
   ModelErrorEvent,
   ModelRequestEvent,
@@ -487,6 +488,10 @@ export class RolloutRecorder {
     this.write(
       this.makeEvent("message.steered", { aggregateID: this.sessionId, turnId, fields }),
     );
+  }
+
+  recordCacheWarm(fields: Omit<CacheWarmEvent, keyof BaseEvent | "type">): void {
+    this.write(this.makeEvent("cache.warm", { aggregateID: this.sessionId, fields }));
   }
 
   recordPokeSkipped(turnId: string, reason: string, remaining: number): void {
