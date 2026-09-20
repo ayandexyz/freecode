@@ -137,6 +137,8 @@ export const runCommand: CommandModule<object, RunArgs> = {
 
     await initProviders();
     await initMcpServers();
+    const { loadExtensions } = await import("../../extensions/index.js");
+    await loadExtensions(process.cwd());
     // Same hooks a served session gets. Not watched: this process runs one turn
     // and exits, so a settings.json edit mid-run could not take effect anyway.
     const hookSettings = initHooks(process.cwd(), { watch: false });

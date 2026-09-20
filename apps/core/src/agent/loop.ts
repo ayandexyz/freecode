@@ -28,8 +28,13 @@ import type {
   HookContext,
   AgentMode,
 } from "./types.js";
-import type { SystemBlock, ExecuteUsage } from "../providers/types.js";
+import type { SystemBlock, ExecuteUsage, ExecuteOptions } from "../providers/types.js";
 import { subscriptionAuth } from "../providers/config.js";
+import {
+  getCacheWarmer,
+  resolveCacheWarmingMode,
+  type WarmRequest,
+} from "../providers/cache-warmer.js";
 import type { PermissionRequestResult } from "../hooks/PermissionRequest.js";
 import { evaluatePermission } from "../permission/evaluate.js";
 import { isReadOnlyMode } from "../permission/mode-policy.js";
@@ -256,6 +261,13 @@ export interface AgentLoopConfig {
    */
   autoPoke?: boolean;
   /**
+   * Keep the prompt cache warm between turns (spec 2026-09-20-pi-parity-plan
+   * Phase 2). Defaults to true and is still gated by the off-by-default
+   * `cache.warming` setting; subagents pass false — their contexts die with
+   * them, so there is nothing to keep warm.
+   */
+  cacheWarming?: boolean;
+  /**
    * Answer every `ask` decision with "allow" instead of prompting. Set by
    * `freecode run --yes`, where there is no frontend to prompt: `askPermission`
    * rejects with no subscriber, so an unattended `build` run was denied every
@@ -363,6 +375,7 @@ export class AgentLoop {
     redirect: boolean;
     budgetMaxRedirects?: number;
     autoPoke: boolean;
+    cacheWarming: boolean;
     autoApproveAsks: boolean;
   };
   private memory: MemoryService;
@@ -399,6 +412,11 @@ export class AgentLoop {
   // Reminder state: transient <system-reminder> blocks drained into the next
   // turn's prompt, plus counters for the todo nudge.
   private pendingReminders: string[] = [];
+  // Steering queue (spec 2026-09-20-pi-parity-plan, Phase 1): user messages
+  // that arrived mid-turn. Drained into the transcript between one tool batch
+  // and the next model call — see drainSteers(). Distinct from the server's
+  // follow-up queue, which waits for the run to end.
+  private pendingSteers: Array<{ id: string; text: string }> = [];
   // Loop-health reasons already turned into a reminder this run.
   private healthWarned = new Set<string>();
   private turnsSinceTodoWrite = 0;
@@ -428,6 +446,9 @@ export class AgentLoop {
   // settings resolved once per run so a mid-run settings edit cannot flip a
   // gate between two turns of the same trajectory.
   private pokeState: PokeState = initialPokeState();
+  // Whether a tool has run since the last poke — a poke answered with prose
+  // alone is a bounce, not a "cannot finish" (see auto-poke.ts).
+  private actedSincePoke = false;
   private signalSettings?: SignalSettings;
   // How many times this run has given the model another turn after it
   // truncated a tool call. Capped: a model that keeps overflowing the output
@@ -466,6 +487,7 @@ export class AgentLoop {
       redirect: config?.redirect ?? true,
       budgetMaxRedirects: config?.budgetMaxRedirects,
       autoPoke: config?.autoPoke ?? true,
+      cacheWarming: config?.cacheWarming ?? true,
       autoApproveAsks: config?.autoApproveAsks ?? false,
     };
     this.sessionGrants = config?.sessionGrants;
@@ -692,6 +714,7 @@ export class AgentLoop {
     this.recentToolCalls = [];
     this.recentEdits = [];
     this.pendingReminders = [];
+    this.pendingSteers = [];
     this.healthWarned = new Set<string>();
     this.turnsSinceTodoWrite = 0;
     this.turnsSinceLastNudge = 0;
@@ -937,9 +960,16 @@ export class AgentLoop {
         if (
           shouldNudgeTodo(this.turnsSinceTodoWrite, this.turnsSinceLastNudge)
         ) {
-          this.pendingReminders.push(todoNudgeReminder());
+          const hasList =
+            getTodos(this.state.sessionId, this.state.projectPath).length > 0;
+          this.pendingReminders.push(todoNudgeReminder(hasList));
           this.turnsSinceLastNudge = 0;
         }
+
+        // A steer that landed while the last tool batch ran is delivered
+        // now, before this turn's model call — the correction reaches the
+        // model without the run being aborted.
+        await this.drainSteers();
 
         // TurnStart Hook — per-turn setup, context injection
         await this.hooks.runTurnStart({
@@ -1090,6 +1120,19 @@ export class AgentLoop {
               turnResult.thinking,
               usageSoFar(),
             );
+          }
+
+          // The model stopped, but the user said something while it was
+          // finishing: give the model one more turn to act on it. Sits ahead
+          // of the verification gates because the steer may change what
+          // "done" means.
+          if (await this.drainSteers()) {
+            this.state = {
+              ...this.state,
+              iterationCount: this.state.iterationCount + 1,
+              turnCount: this.state.turnCount + 1,
+            };
+            continue;
           }
 
           // Verification gate: if this run changed files, run the project's
@@ -1911,6 +1954,8 @@ export class AgentLoop {
       // yields the real total instead of a multiple of it.
       let pendingUsage: MessageUsage | undefined = providerResult.usage;
 
+      if (toolCalls.length > 0) this.actedSincePoke = true;
+
       // No tools? Return early
       if (toolCalls.length === 0) {
         this.memory.addMessage("assistant", providerResult.content);
@@ -2249,7 +2294,7 @@ export class AgentLoop {
         // Holds back the citation tag so it never reaches a frontend (D12).
         const citationFilter = new CitationStreamFilter();
 
-        for await (const chunk of aiProvider.stream({
+        const requestOptions: ExecuteOptions = {
           messages: prunedMessages,
           system,
           tools,
@@ -2259,7 +2304,8 @@ export class AgentLoop {
           abortSignal: this.abort.signal,
           sessionId: this.state.sessionId,
           ephemeralTail: ephemeralTail || undefined,
-        })) {
+        };
+        for await (const chunk of aiProvider.stream(requestOptions)) {
           if (ttft_ms === undefined) {
             ttft_ms = Date.now() - startedAt;
             this.recorder.recordModelFirstToken(turnId, ttft_ms);
@@ -2339,6 +2385,7 @@ export class AgentLoop {
         }
 
         this.emitCacheWarm(usage);
+        this.armCacheWarmer(provider, model, requestOptions, usage);
         this.recorder.recordModelResponse(turnId, {
           provider,
           model: resolvedModel,
@@ -2369,7 +2416,7 @@ export class AgentLoop {
       // No explicit bound here either: a non-streaming body is delivered in
       // one piece, so the header timeout in fetch-timeout.ts already covers
       // "the provider never answered", and generation time is not ours to cap.
-      const result = await aiProvider.execute({
+      const requestOptions: ExecuteOptions = {
         messages: prunedMessages,
         system,
         tools,
@@ -2378,9 +2425,11 @@ export class AgentLoop {
         abortSignal: this.abort.signal,
         sessionId: this.state.sessionId,
         ephemeralTail: ephemeralTail || undefined,
-      });
+      };
+      const result = await aiProvider.execute(requestOptions);
 
       this.emitCacheWarm(result.usage);
+      this.armCacheWarmer(provider, model, requestOptions, result.usage);
       this.recorder.recordModelResponse(turnId, {
         provider,
         model: resolvedModel,
@@ -2413,6 +2462,75 @@ export class AgentLoop {
 
   // Surface post-turn cache hit/write token counts (jcode #9). Only emitted when
   // the provider actually reported cache activity, so non-caching turns stay quiet.
+  // ===========================================================================
+  // PRIVATE: cache warmer (spec 2026-09-20-pi-parity-plan, Phase 2)
+  // After every provider response the request that produced it is handed to
+  // the session's warmer; the next real request replaces it, complete()/
+  // fail() flip it to idle. The warmer's own replays are recorded as
+  // `cache.warm`, never as model.request/response, and billed to the day.
+  // Subagents never warm: their contexts are short-lived by construction.
+  // ===========================================================================
+  private cacheWarmer() {
+    if (!this.config.cacheWarming) return undefined;
+    const sessionId = this.state.sessionId;
+    const projectPath = this.state.projectPath;
+    return getCacheWarmer(sessionId, {
+      getProvider: (id) => getProvider(id as ProviderId),
+      getMode: () => resolveCacheWarmingMode(projectPath),
+      onWarmed: (r) => {
+        const u = r.usage;
+        this.recorder.recordCacheWarm({
+          provider: r.provider,
+          model: r.model,
+          phase: r.phase,
+          delayMs: r.delayMs,
+          expectedSavingsUsd: r.decision.expectedSavingsUsd,
+          warmCostUsd: r.decision.warmCostUsd,
+          inputTokens: u?.inputTokens,
+          outputTokens: u?.outputTokens,
+          cacheReadTokens: u?.cacheReadInputTokens,
+          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
+          authMode: subscriptionAuth(r.provider),
+        });
+        recordDailyUsage({
+          inputTokens: u?.inputTokens ?? 0,
+          outputTokens: u?.outputTokens ?? 0,
+          cacheReadTokens: u?.cacheReadInputTokens ?? 0,
+          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens ?? 0,
+        });
+        // The cold-cache warning keys off the last send; a refresh is one.
+        noteSendAndCheckCold(sessionId, r.provider);
+        BusEvents.stream(sessionId, {
+          type: "cache_status",
+          state: "warm",
+          message: `Prompt cache refreshed (${r.phase}, ~$${r.decision.warmCostUsd.toFixed(3)})`,
+          cacheReadTokens: u?.cacheReadInputTokens,
+          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
+        });
+      },
+      onStopped: (reason) => logger.debug(`[CacheWarmer] ${sessionId}: ${reason}`),
+    });
+  }
+
+  private armCacheWarmer(
+    provider: string,
+    model: string | undefined,
+    options: ExecuteOptions,
+    usage: ExecuteUsage | undefined,
+  ): void {
+    const warmer = this.cacheWarmer();
+    if (!warmer || !model || !usage?.inputTokens) return;
+    const request: WarmRequest = {
+      provider,
+      model,
+      // The replay carries its own abort signal; the run's would be aborted
+      // by the time an idle warm fires.
+      options: { ...options, abortSignal: undefined },
+      promptTokens: usage.inputTokens,
+    };
+    warmer.start(request);
+  }
+
   private emitCacheWarm(usage?: {
     inputTokens?: number;
     cacheReadInputTokens?: number;
@@ -3056,6 +3174,67 @@ export class AgentLoop {
   }
 
   // ===========================================================================
+  // PUBLIC: steer()
+  // Queue a user message for delivery inside the running turn. Called by the
+  // server when session.send arrives with streamingBehavior "steer" while
+  // this loop is active. No-op semantics if the run ends first: the server
+  // routes to the follow-up queue instead when no loop is active, and a
+  // steer left over at completion is returned by takeUndeliveredSteers().
+  // ===========================================================================
+  steer(text: string, id: string = randomUUID()): void {
+    this.pendingSteers.push({ id, text });
+  }
+
+  // Steers that never reached the model because the run ended (interrupt,
+  // failure, hard stop) before the next drain point. The server re-parks
+  // them as follow-ups so a user's words are never dropped.
+  takeUndeliveredSteers(): string[] {
+    const left = this.pendingSteers.map((s) => s.text);
+    this.pendingSteers = [];
+    return left;
+  }
+
+  // ===========================================================================
+  // PRIVATE: drainSteers()
+  // Move queued steers into the transcript as persisted user messages —
+  // history, session store, and the compaction transcript (it is a real user
+  // instruction, unlike the poke). Append-only, so cache anchors hold. One
+  // per drain by default (pi's "one-at-a-time"); FREECODE_STEERING_MODE=all
+  // delivers every pending steer at once. Returns true if anything was
+  // delivered.
+  // ===========================================================================
+  private async drainSteers(): Promise<boolean> {
+    if (this.pendingSteers.length === 0) return false;
+    const all = process.env.FREECODE_STEERING_MODE === "all";
+    const batch = all ? this.pendingSteers.splice(0) : this.pendingSteers.splice(0, 1);
+    const turnId = `turn-${this.state.turnCount}`;
+    // The user changed the task, so the last poke's "no progress"
+    // fingerprint no longer describes this list — an unchanged list after a
+    // steer is a fresh stop, not a repeat.
+    this.pokeState = { ...this.pokeState, lastFingerprint: undefined };
+    for (const { id, text } of batch) {
+      this.history.push({
+        id,
+        role: "user",
+        parts: [{ type: "text", content: text }],
+        timestamp: Date.now(),
+      });
+      this.memory.addMessage("user", text);
+      await this.appendUserMessage(text, [], { synthetic: "steer" }, id);
+      this.recorder.recordMessageSteered(turnId, {
+        messageId: id,
+        remaining: this.pendingSteers.length,
+      });
+      BusEvents.stream(this.state.sessionId, {
+        type: "message_steered",
+        id,
+        content: text,
+      });
+    }
+    return true;
+  }
+
+  // ===========================================================================
   // PRIVATE: maybePoke()
   // The model stopped. If todos are open and the gate is on, append the poke
   // as a user turn and return true so run() grants another one. Every stop
@@ -3083,17 +3262,23 @@ export class AgentLoop {
       // The poked turn is iteration+1; run() ends the run when that reaches
       // the cap, so a poke queued there would be recorded and never sent.
       turnsLeft: this.config.maxIterations - (this.state.iterationCount + 1),
+      actedSincePoke: this.actedSincePoke,
+      readOnly: isReadOnlyMode(this.state.agentMode),
     });
     const remaining = todos.filter(isOpenTodo).length;
     const max = settings.autoPoke.maxPerRun;
     if (decision.poke) {
       this.pokeState = notePoke(this.pokeState, decision.fingerprint);
+      this.actedSincePoke = false;
       this.recorder.recordPokeTriggered(turnId, {
         pokeIndex: this.pokeState.pokes,
         maxPerRun: max,
         remaining,
+        retry: decision.retry,
       });
-      const text = pokeMessage(decision.remaining, this.pokeState.pokes, max);
+      const text = pokeMessage(decision.remaining, this.pokeState.pokes, max, {
+        retry: decision.retry,
+      });
       this.history.push({
         id: randomUUID(),
         role: "user",
@@ -3280,6 +3465,7 @@ export class AgentLoop {
   }
 
   private async fail(message: string, error?: string): Promise<LoopResult> {
+    this.cacheWarmer()?.onRunSettled();
     // Emit session.error event
     BusEvents.sessionError(this.state.sessionId, error || message);
     await this.hooks.runStop(error || message, {
@@ -3306,6 +3492,7 @@ export class AgentLoop {
       contextTokens?: number;
     },
   ): Promise<LoopResult> {
+    this.cacheWarmer()?.onRunSettled();
     // Emit session.updated event
     BusEvents.sessionUpdated(this.state.sessionId);
     await this.hooks.runStop(message, {
@@ -3347,12 +3534,13 @@ export class AgentLoop {
     content: string,
     imageParts: MessagePart[] = [],
     extra: Pick<SerializedMessage, "synthetic"> = {},
+    id: string = randomUUID(),
   ): Promise<void> {
     if (!this.sessionStore) return;
     await this.ensureProjectPath();
     const message: SerializedMessage = {
       ...extra,
-      id: randomUUID(),
+      id,
       role: "user",
       parts: [
         { type: "text", content },

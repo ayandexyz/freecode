@@ -65,6 +65,29 @@ export class MemoryService {
     };
   }
 
+  /**
+   * Session tree navigation (spec 2026-09-20-pi-parity-plan, Phase 3): the
+   * transcript is rebuilt from the new active path so the next compaction
+   * summarizes what the model can see, not the abandoned branch. Earlier
+   * summaries are kept — they describe work that still happened.
+   */
+  resetTranscript(entries: Array<{ role: MemoryRole; content: string }>): void {
+    this.state.messages = [];
+    this.state.tokenCount = 0;
+    for (const e of entries) {
+      const message: MemoryMessage = {
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        role: e.role,
+        content: e.content,
+        timestamp: Date.now(),
+        tokenCount: estimateTokenCount(e.content),
+      };
+      this.state.messages.push(message);
+      this.state.tokenCount += message.tokenCount;
+    }
+    this.storage.save(this.state);
+  }
+
   addMessage(role: MemoryRole, content: string): MemoryMessage {
     const message: MemoryMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`,

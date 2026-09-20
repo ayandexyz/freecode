@@ -88,6 +88,7 @@ import {
 import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { initMcpServers, listClients, getMcpTools } from "./mcp/index.js";
+import { loadExtensions, listExtensions } from "./extensions/index.js";
 import { getConfigDir } from "./cli/utils/config.js";
 import { initHooks } from "./hooks/bootstrap.js";
 import {
@@ -107,6 +108,12 @@ import { getSkillsManagerForProject } from "./skills/manager.js";
 import { startGraphExplorer } from "./graph-explorer/server.js";
 import { openBrowser } from "./utils/open-browser.js";
 import { randomUUID } from "crypto";
+import { createRecorder } from "./rollout/recorder.js";
+import {
+  summarizeBranch,
+  branchSummaryMessage,
+  renderEntryForSummary,
+} from "./session/branch-summary.js";
 import { existsSync } from "fs";
 import {
   listClaudeSessions,
@@ -264,6 +271,18 @@ async function runSessionTurn(
     // with the new loop. The pending recursive Promise keeps the activeLoops
     // map populated the whole time — there's no window where a session.send
     // could race the drain and miss the "busy" check.
+    // A steer that arrived after the loop's last drain point never reached
+    // the model. Re-park it as a follow-up so the user's words still get a
+    // turn; the TUI already shows it as queued.
+    for (const text of loop.takeUndeliveredSteers()) {
+      const id = getOrCreateQueue(sessionId).enqueue(text);
+      BusEvents.stream(sessionId, {
+        type: "message_queued",
+        id,
+        content: text,
+        kind: "followUp",
+      });
+    }
     const queue = messageQueues.get(sessionId);
     const next = queue?.shiftNext();
     if (next) {
@@ -463,6 +482,7 @@ export const methodHandlers: Record<
       effort,
       agentMode: paramAgentMode,
       images,
+      streamingBehavior,
     } = params as {
       sessionId: string;
       message: string;
@@ -470,6 +490,7 @@ export const methodHandlers: Record<
       effort?: EffortLevel;
       agentMode?: string;
       images?: Array<{ data: string; mediaType: string; altText?: string }>;
+      streamingBehavior?: "steer" | "followUp";
     };
     const session = getSession(sessionId);
 
@@ -490,11 +511,31 @@ export const methodHandlers: Record<
             "Wait for the current turn to finish, then resubmit.",
         );
       }
+      // Steering (spec 2026-09-20-pi-parity-plan Phase 1): hand the prompt
+      // to the running loop; it becomes a user message at the next
+      // tool-batch boundary. The loop, not this queue, owns it from here —
+      // session.dequeue cannot pull it back, and `message_steered` marks the
+      // moment it reached the model.
+      const active = activeLoops.get(sessionId);
+      if (streamingBehavior === "steer" && active) {
+        // Same id on the queued row and the persisted message, so the
+        // TUI can promote the row when `message_steered` arrives.
+        const id = randomUUID();
+        active.steer(message, id);
+        BusEvents.stream(sessionId, {
+          type: "message_queued",
+          id,
+          content: message,
+          kind: "steer",
+        });
+        return { queued: true, id } as const;
+      }
       const id = getOrCreateQueue(sessionId).enqueue(message);
       BusEvents.stream(sessionId, {
         type: "message_queued",
         id,
         content: message,
+        kind: "followUp",
       });
       return { queued: true, id } as const;
     }
@@ -1287,6 +1328,98 @@ export const methodHandlers: Record<
     return manager.fork(sessionId);
   },
 
+  // --- extensions (spec 2026-09-20-pi-parity-plan, Phase 5) ------------------
+  "extensions.list": async (): Promise<unknown> => listExtensions(),
+  "extensions.reload": async (): Promise<unknown> => loadExtensions(process.cwd()),
+
+  // --- session tree (spec 2026-09-20-pi-parity-plan, Phase 3) ---------------
+  "session.tree": async (params: Record<string, unknown>): Promise<unknown> => {
+    const { sessionId } = params as { sessionId: string };
+    const session = getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    const store = await getSessionStore();
+    return store.getTree(sessionId, session.projectPath);
+  },
+
+  "session.navigate": async (params: Record<string, unknown>): Promise<unknown> => {
+    const { sessionId, entryId, summarize } = params as {
+      sessionId: string;
+      entryId: string;
+      summarize?: boolean;
+    };
+    const session = getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    // A running loop appends as it goes; moving the leaf under it would
+    // splice its next message onto the wrong branch. The frontend stops the
+    // turn first (session.stop) and retries.
+    if (activeLoops.has(sessionId)) {
+      throw new Error("A turn is in progress; stop it before navigating the session tree.");
+    }
+    const store = await getSessionStore();
+    const before = await store.getMessages(sessionId, session.projectPath);
+    const nav = await store.navigate(sessionId, entryId, session.projectPath);
+
+    let summarized = false;
+    if (summarize && nav.abandoned.length > 0) {
+      const config = readConfig();
+      const provider = config.current?.provider || session.provider;
+      const model = config.current?.model || session.model;
+      let llm;
+      // FREECODE_BRANCH_SUMMARY=heuristic: no model call (tests, offline).
+      if (process.env.FREECODE_BRANCH_SUMMARY !== "heuristic") {
+        try {
+          llm = createLlmSummarizer(getProvider(provider as ProviderId), model);
+        } catch {
+          // No provider configured — heuristic digest.
+        }
+      }
+      const summary = await summarizeBranch(sessionId, nav.abandoned, llm);
+      const text = branchSummaryMessage(summary.text, nav.abandoned.length);
+      const message = {
+        id: randomUUID(),
+        role: "user" as const,
+        parts: [{ type: "text" as const, content: text }],
+        timestamp: Date.now(),
+        synthetic: "branch_summary" as const,
+      };
+      await store.appendMessage(sessionId, message, session.projectPath);
+      nav.path.push(message);
+      summarized = true;
+    }
+
+    // The compaction transcript must describe the path the model now sees.
+    const memory = new MemoryService(sessionId);
+    memory.resetTranscript(
+      nav.path.map((m) => ({ role: m.role, content: renderEntryForSummary(m) })),
+    );
+
+    createRecorder(sessionId).recordSessionNavigate({
+      from: before[before.length - 1]?.id,
+      to: entryId,
+      abandoned: nav.abandoned.length,
+      summarized,
+    });
+    logger.info("Session navigated", {
+      sessionId,
+      entryId,
+      abandoned: nav.abandoned.length,
+      summarized,
+    });
+    return { messages: nav.path, abandoned: nav.abandoned.length, summarized };
+  },
+
+  "session.label": async (params: Record<string, unknown>): Promise<void> => {
+    const { sessionId, entryId, label } = params as {
+      sessionId: string;
+      entryId: string;
+      label: string;
+    };
+    const session = getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    const store = await getSessionStore();
+    await store.labelEntry(sessionId, entryId, label, session.projectPath);
+  },
+
   "session.archive": async (params: Record<string, unknown>): Promise<void> => {
     const { sessionId } = params as { sessionId: string };
     const manager = await getSessionManager();
@@ -1434,6 +1567,7 @@ export async function startServer() {
 
   await initProviders();
   await initMcpServers();
+  await loadExtensions(process.cwd());
 
   // Built-in hooks + settings.json hooks (project + user scopes). Shared with
   // `freecode run` so headless and served runs load the same hooks.

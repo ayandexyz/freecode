@@ -342,6 +342,53 @@ function indentationFlexibleReplacer(
   return results;
 }
 
+// Models regularly emit typographic quotes and dashes (’ “ ” — –) for the
+// ASCII the file actually holds, or the reverse; and NFKC folds the rest
+// (ligatures, full-width forms, non-breaking spaces). Matching happens in
+// normalized space line by line, but the candidate is the ORIGINAL span, so
+// the replacement leaves every neighbouring byte untouched (pi's
+// edit-diff.ts does the same and maps back to original offsets).
+const UNICODE_ASCII: Record<string, string> = {
+  "\u2018": "'", "\u2019": "'", "\u201A": "'", "\u201B": "'",
+  "\u201C": '"', "\u201D": '"', "\u201E": '"', "\u201F": '"',
+  "\u2013": "-", "\u2014": "-", "\u2015": "-", "\u2212": "-",
+  "\u00A0": " ", "\u2026": "...",
+};
+const UNICODE_ASCII_RE = new RegExp(`[${Object.keys(UNICODE_ASCII).join("")}]`, "g");
+
+export function normalizeUnicodeForMatch(text: string): string {
+  return text
+    .normalize("NFKC")
+    .replace(UNICODE_ASCII_RE, (c) => UNICODE_ASCII[c] ?? c)
+    .split("\n")
+    .map((l) => l.replace(/\s+$/, ""))
+    .join("\n");
+}
+
+function unicodeNormalizedReplacer(
+  content: string,
+  find: string,
+): ReplacerCandidate[] {
+  const results: ReplacerCandidate[] = [];
+  const findLines = find.split("\n");
+  const normalizedFind = normalizeUnicodeForMatch(find);
+  // Nothing to normalize on the search side and nothing in the content:
+  // every earlier replacer already saw the same bytes, so skip the scan.
+  if (normalizedFind === find && normalizeUnicodeForMatch(content) === content)
+    return results;
+  const contentLines = content.split("\n");
+  for (let i = 0; i <= contentLines.length - findLines.length; i++) {
+    const block = contentLines.slice(i, i + findLines.length).join("\n");
+    if (normalizeUnicodeForMatch(block) === normalizedFind) {
+      let start = 0;
+      for (let k = 0; k < i; k++) start += contentLines[k].length + 1;
+      const end = start + block.length;
+      results.push({ match: block, startIndex: start, endIndex: end });
+    }
+  }
+  return results;
+}
+
 function escapedNormalizedReplacer(
   content: string,
   find: string,
@@ -517,6 +564,7 @@ export function applyEdit(
     blockAnchorReplacer,
     whitespaceNormalizedReplacer,
     indentationFlexibleReplacer,
+    unicodeNormalizedReplacer,
     escapedNormalizedReplacer,
     trimmedBoundaryReplacer,
     contextAwareReplacer,

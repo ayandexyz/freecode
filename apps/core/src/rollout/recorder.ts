@@ -10,12 +10,14 @@ import * as path from "path";
 import * as os from "os";
 import type {
   BaseEvent,
+  CacheWarmEvent,
   DenySource,
   ModelErrorEvent,
   ModelRequestEvent,
   ModelResponseEvent,
   RedirectTriggeredEvent,
   RolloutEvent,
+  SessionNavigateEvent,
 } from "./types.js";
 
 // ============================================================================
@@ -473,11 +475,30 @@ export class RolloutRecorder {
 
   recordPokeTriggered(
     turnId: string,
-    fields: { pokeIndex: number; maxPerRun: number; remaining: number },
+    fields: { pokeIndex: number; maxPerRun: number; remaining: number; retry?: boolean },
   ): void {
     this.write(
       this.makeEvent("poke.triggered", { aggregateID: this.sessionId, turnId, fields }),
     );
+  }
+
+  recordMessageSteered(
+    turnId: string,
+    fields: { messageId: string; remaining: number },
+  ): void {
+    this.write(
+      this.makeEvent("message.steered", { aggregateID: this.sessionId, turnId, fields }),
+    );
+  }
+
+  recordSessionNavigate(
+    fields: Omit<SessionNavigateEvent, keyof BaseEvent | "type">,
+  ): void {
+    this.write(this.makeEvent("session.navigate", { aggregateID: this.sessionId, fields }));
+  }
+
+  recordCacheWarm(fields: Omit<CacheWarmEvent, keyof BaseEvent | "type">): void {
+    this.write(this.makeEvent("cache.warm", { aggregateID: this.sessionId, fields }));
   }
 
   recordPokeSkipped(turnId: string, reason: string, remaining: number): void {

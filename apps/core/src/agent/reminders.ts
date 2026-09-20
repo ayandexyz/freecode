@@ -2,32 +2,66 @@
 // Session reminders — nudge the model to maintain a todo list during long work.
 // Todo state remains context, not a completion gate: a user may legitimately
 // ask for a plan and stop there, with every planned item still pending.
+//
+// Thresholds follow Claude Code (TODO_REMINDER_CONFIG: 10 turns since the
+// last write, 10 between reminders). Until 2026-09-20 they were 3 and 5, the
+// most aggressive nudge of any harness we compare against (opencode, codex
+// and pi have none), and the rollout fold over 2,553 sessions showed what
+// that did: a turn with no list yet wrote one 1.8% of the time unprompted and
+// 36.7% of the time on a nudged turn — 97 of the 216 first lists (45%) were
+// made on the exact turn the harness asked. With a list the nudge doubled
+// the rewrite rate (24.8% → 45.6%) although the list is already re-rendered
+// into every prompt. `FREECODE_TODO_NUDGE=legacy` restores 3/5 and the old
+// text for `eval ab`; read per call so a variant can flip it per side.
 // =============================================================================
 
-// Nudge the model to plan after this many turns with no todowrite call, but no
-// more often than TODO_NUDGE_GAP turns apart (matches grok-build defaults).
-export const TODO_NUDGE_TURNS = 3;
-export const TODO_NUDGE_GAP = 5;
+export const TODO_NUDGE_TURNS = 10;
+export const TODO_NUDGE_GAP = 10;
+const LEGACY_TURNS = 3;
+const LEGACY_GAP = 5;
+
+function legacy(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.FREECODE_TODO_NUDGE === "legacy";
+}
 
 // Whether to emit the planning nudge this turn, given how long it has been
 // since the last todowrite and the last nudge.
 export function shouldNudgeTodo(
   turnsSinceTodoWrite: number,
   turnsSinceLastNudge: number,
+  env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return (
-    turnsSinceTodoWrite >= TODO_NUDGE_TURNS &&
-    turnsSinceLastNudge >= TODO_NUDGE_GAP
-  );
+  const [turns, gap] = legacy(env) ? [LEGACY_TURNS, LEGACY_GAP] : [TODO_NUDGE_TURNS, TODO_NUDGE_GAP];
+  return turnsSinceTodoWrite >= turns && turnsSinceLastNudge >= gap;
 }
 
-export function todoNudgeReminder(): string {
+// Claude Code's wording: a gentle reminder the model is told it may ignore,
+// and — when a list exists — an invitation to clean it up rather than an
+// order to write one. The old text ("maintain a todo list so your plan
+// survives compaction") read as an instruction, and was followed as one.
+export function todoNudgeReminder(
+  hasList = false,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (legacy(env)) {
+    return [
+      "<system-reminder>",
+      "You have not used the todowrite tool recently. For a multi-step task,",
+      "maintain a todo list so your plan survives context compaction and progress",
+      "stays trackable; mark items completed as you finish them. Ignore this if the",
+      "task is trivial. Never mention this reminder to the user.",
+      "</system-reminder>",
+    ].join("\n");
+  }
   return [
     "<system-reminder>",
-    "You have not used the todowrite tool recently. For a multi-step task,",
-    "maintain a todo list so your plan survives context compaction and progress",
-    "stays trackable; mark items completed as you finish them. Ignore this if the",
-    "task is trivial. Never mention this reminder to the user.",
+    "The todowrite tool hasn't been used recently. If you're working on tasks that",
+    "would benefit from tracking progress, consider using it. " +
+      (hasList
+        ? "Also consider cleaning up the todo list if it has become stale and no longer matches what you are working on."
+        : "Only use it if it's relevant to the current work."),
+    "This is just a gentle reminder — ignore if not applicable. Never mention this",
+    "reminder to the user.",
     "</system-reminder>",
   ].join("\n");
 }

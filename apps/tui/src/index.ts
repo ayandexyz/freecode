@@ -52,6 +52,13 @@ import {
   failActiveStream,
   sessionStop,
   sessionDequeue,
+  callTool,
+  extensionsList,
+  extensionsReload,
+  type LoadedExtensionInfo,
+  sessionTree,
+  sessionNavigate,
+  sessionFork,
   sessionCompact,
   getContextStats,
   sessionList,
@@ -95,6 +102,7 @@ import {
   createSystemMessage,
   createInProgressMessage,
   createQueuedUserMessage,
+  promoteQueuedToUser,
   removeMessageById,
   updateInProgressMessage,
   subscribeToMessages,
@@ -266,6 +274,7 @@ let providerSelector: SearchableSelectList | null = null;
 let effortPicker: EffortPicker | null = null;
 let resumeSelector: ResumePicker | null = null;
 let mcpSelector: SearchableSelectList | null = null;
+let treeSelector: SearchableSelectList | null = null;
 /**
  * The /shells card. Also kept up to date while CLOSED — shell_* stream events
  * land in it regardless — so opening it shows history rather than only what
@@ -549,6 +558,184 @@ function hideModelSelector(): void {
   // credential prompt) set it immediately after this returns.
   tui.setFocus(focusTarget());
   tui.requestRender();
+}
+
+function hideTreeSelector(): void {
+  removeSelector(treeSelector);
+  treeSelector = null;
+  tui.setFocus(focusTarget());
+  tui.requestRender();
+}
+
+/**
+ * `/tree` (spec 2026-09-20-pi-parity-plan Phase 3): every entry in the
+ * session log, active path marked, newest first. Enter rewinds to that entry;
+ * the abandoned branch is summarized under the new leaf. A running turn is
+ * stopped first — core refuses to move the leaf under an appending loop.
+ */
+async function showTreePicker(): Promise<void> {
+  hideTreeSelector();
+  hideModelSelector();
+  hideMcpSelector();
+  if (!currentSession) {
+    showMessage("**No active session.**");
+    return;
+  }
+  const sessionId = currentSession.sessionId;
+  let entries;
+  try {
+    entries = await sessionTree(sessionId);
+  } catch (err) {
+    showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  if (entries.length === 0) {
+    showMessage("**Nothing to navigate yet.**");
+    return;
+  }
+  const items = [...entries].reverse().map((e, i) => {
+    const who = e.role === "user" ? (e.synthetic ? "harness" : "you") : "agent";
+    const mark = e.active ? "●" : "○";
+    const tools = e.tools.length ? ` [${e.tools.join(", ")}]` : "";
+    const label = e.label ? ` ★ ${e.label}` : "";
+    return {
+      value: e.id,
+      label: `${mark} ${who}: ${e.preview || "(no text)"}${tools}${label}`,
+      description: i === 0 ? "current leaf" : new Date(e.timestamp).toLocaleTimeString(),
+    };
+  });
+  treeSelector = new SearchableSelectList(items, 12, defaultSelectListTheme);
+  treeSelector.onSelect = (item) => {
+    hideTreeSelector();
+    void (async () => {
+      try {
+        if (activeTurnSessionId === sessionId) {
+          await sessionStop(sessionId);
+        }
+        const result = await sessionNavigate(sessionId, item.value, true);
+        clearMessages();
+        loadSessionMessages(result.messages);
+        showMessage(
+          result.abandoned > 0
+            ? `**Rewound.** ${result.abandoned} message(s) set aside${result.summarized ? " and summarized" : ""}; continue from here.`
+            : "**Already at this point.**",
+        );
+      } catch (err) {
+        showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+      }
+      tui.setFocus(editor);
+      tui.requestRender();
+    })();
+  };
+  treeSelector.onCancel = () => hideTreeSelector();
+  const editorIdx = tui.children.indexOf(editor);
+  tui.children.splice(editorIdx + 1, 0, treeSelector);
+  tui.setFocus(treeSelector);
+  tui.requestRender();
+}
+
+async function runBangCommand(command: string, send: boolean): Promise<void> {
+  showMessage(`\`$ ${command}\``);
+  let output: string;
+  try {
+    const result = await callTool("bash", { command, description: command });
+    output = result.output;
+  } catch (err) {
+    output = err instanceof Error ? err.message : String(err);
+  }
+  const shown = output.trim() || "(no output)";
+  const body = shown.length > 4000 ? shown.slice(0, 4000) + "\n…" : shown;
+  createSystemMessage("```\n" + body + "\n```");
+  tui.requestRender();
+  if (!send) return;
+  await submitPrompt(
+    `I ran \`${command}\` in the project. Output:\n\n\`\`\`\n${shown}\n\`\`\``,
+    `! ${command}`,
+  );
+}
+
+/**
+ * Ctrl+G: edit the prompt in $VISUAL / $EDITOR (spec 2026-09-20-pi-parity-plan
+ * Phase 6). pi-tui is detached while the editor owns the terminal; the file's
+ * contents replace the prompt buffer on return.
+ */
+async function openExternalEditor(): Promise<void> {
+  const cmd = process.env.VISUAL || process.env.EDITOR || "nano";
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  const dir = mkdtempSync(join(tmpdir(), "freecode-edit-"));
+  const file = join(dir, "prompt.md");
+  writeFileSync(file, editor.getText(), "utf-8");
+  tui.stop();
+  try {
+    spawnSync(cmd, [file], { stdio: "inherit", shell: true });
+    const text = readFileSync(file, "utf-8").replace(/\n$/, "");
+    editor.setText(text);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    process.stdout.write(ENTER_ALT_SCREEN);
+    tui.start();
+    tui.setFocus(editor);
+    tui.requestRender(true);
+  }
+}
+
+function renderExtensions(list: LoadedExtensionInfo[]): string {
+  if (list.length === 0) {
+    return "**No extensions loaded.** Drop a `.ts`/`.js` file exporting `(api) => …` into `~/.freecode/extensions/`.";
+  }
+  return list
+    .map((e) => {
+      const name = e.source.split("/").pop();
+      if (e.error) return `- ✗ **${name}** (${e.scope}): ${e.error}`;
+      const parts = [
+        e.tools.length ? `${e.tools.length} tool(s): ${e.tools.join(", ")}` : "",
+        e.commands.length ? `${e.commands.length} command(s): /${e.commands.join(", /")}` : "",
+        e.hooks.length ? `${e.hooks.length} hook(s)` : "",
+      ].filter(Boolean);
+      return `- ✓ **${name}** (${e.scope}): ${parts.join("; ") || "nothing registered"}`;
+    })
+    .join("\n");
+}
+
+async function showExtensions(): Promise<void> {
+  try {
+    showMessage(renderExtensions(await extensionsList()));
+  } catch (err) {
+    showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function reloadExtensions(): Promise<void> {
+  try {
+    const list = await extensionsReload();
+    showMessage(`**Reloaded.**\n${renderExtensions(list)}`);
+    await refreshCoreCommands();
+  } catch (err) {
+    showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function forkSession(): Promise<void> {
+  if (!currentSession) {
+    showMessage("**No active session.**");
+    return;
+  }
+  try {
+    const newId = await sessionFork(currentSession.sessionId);
+    const result = await sessionResume(newId);
+    currentSession = { sessionId: result.sessionId };
+    resetSessionCacheTotals();
+    resetSessionPanels();
+    hideTodoPanel();
+    clearMessages();
+    if (result.messages && result.messages.length > 0) loadSessionMessages(result.messages);
+    showMessage(`**Forked into a new session** (${result.messages?.length ?? 0} messages carried over).`);
+  } catch (err) {
+    showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 function hideMcpSelector(): void {
@@ -1530,6 +1717,11 @@ function handleToolEvent(event: StreamEvent) {
         // Louder than "cold": a cold cache is the clock running out, this is
         // the harness having broken its own prefix (spec 2026-08-09 D2).
         showMessage(`⚠ **${event.message}**`);
+      } else if (event.state === "warm" && event.message) {
+        // A warm refresh (cache warmer, spec 2026-09-20-pi-parity-plan
+        // Phase 2) resets the idle clock the cold nudge is measured from.
+        lastTurnCompletedAt = Date.now();
+        showMessage(`*${event.message}*`);
       }
       // Warm hits are the expected state — one line per model call said
       // nothing actionable. The header's token counters already carry usage.
@@ -1558,7 +1750,14 @@ function handleToolEvent(event: StreamEvent) {
     // user message with a dim "queued" badge so the user can see it's in
     // line, and Ctrl+Backspace lets them pull it back out.
     case "message_queued": {
-      createQueuedUserMessage(event.content, event.id);
+      createQueuedUserMessage(event.content, event.id, event.kind);
+      tui.requestRender();
+      break;
+    }
+    // A steer reached the model (spec 2026-09-20-pi-parity-plan Phase 1):
+    // the queued row becomes a normal user message in place.
+    case "message_steered": {
+      promoteQueuedToUser(event.id);
       tui.requestRender();
       break;
     }
@@ -1602,6 +1801,9 @@ async function submitPrompt(
   promptText: string,
   displayText?: string,
   images?: Array<{ data: string; mediaType: string; altText?: string }>,
+  // Only matters while a turn is running (spec 2026-09-20-pi-parity-plan
+  // Phase 1): Enter steers the running turn, Alt+Enter queues a follow-up.
+  streamingBehavior: "steer" | "followUp" = "steer",
 ): Promise<void> {
   // Before anything is sent: if the cache has expired and the context is large,
   // this request pays full price for the whole conversation. Only the user
@@ -1708,6 +1910,7 @@ async function submitPrompt(
         handleToolEvent(event);
       },
       currentEffort,
+      streamingBehavior,
     );
 
     // Spec 2026-08-05: server parked the prompt in the follow-up queue
@@ -1852,6 +2055,19 @@ editor.onSubmit = async (value: string) => {
   editor.addToHistory(promptText);
   void appendPromptHistory(promptText);
 
+  // `!cmd` runs a shell command through core's bash tool and sends the output
+  // to the model as the next prompt; `!!cmd` runs it and only shows it (spec
+  // 2026-09-20-pi-parity-plan Phase 6, pi's editor). Thin-client rule holds:
+  // the TUI never spawns anything — core runs it via tools.call.
+  if (promptText.startsWith("!") && images.length === 0) {
+    const send = !promptText.startsWith("!!");
+    const command = promptText.replace(/^!!?/, "").trim();
+    if (!command) return;
+    editor.setText("");
+    await runBangCommand(command, send);
+    return;
+  }
+
   if (promptText.startsWith("/")) {
     const parts = promptText.slice(1).split(/\s+/);
     const commandName = parts[0]?.toLowerCase();
@@ -1874,6 +2090,10 @@ editor.onSubmit = async (value: string) => {
           showAgentsPanel: () => showAgentsPanel(),
           showEffortPicker,
           showResumePicker: showResumePicker,
+          showTreePicker,
+          forkSession,
+          showExtensions,
+          reloadExtensions,
           // Undefined until a run completes, so /cost omits the Session row
           // rather than printing a 0% that looks like a cache failure.
           getSessionUsage: () => (sessionRuns > 0 ? sessionUsage : undefined),
@@ -1974,6 +2194,7 @@ editor.onSubmit = async (value: string) => {
     promptText,
     images.length > 0 ? value.trim() : undefined,
     images,
+    editor.takeSubmitBehavior(),
   );
 };
 
@@ -1998,36 +2219,46 @@ void (async () => {
     } catch {
       // Backend not up yet (or no history) — start with an empty ring.
     }
-    for (const info of coreCommands) {
-      registerCommand({
-        name: info.name,
-        description: info.description,
-        argHint: info.argHint,
-        execute: async (args: string[]) => {
-          try {
-            const prompt = await resolveCommand(info.name, args, process.cwd());
-            const display = `/${info.name}${args.length ? ` ${args.join(" ")}` : ""}`;
-            await submitPrompt(prompt, display);
-          } catch (error) {
-            showMessage(
-              `**Error:** ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        },
-      });
-    }
-    // Rebuild autocomplete so the freshly registered commands appear.
-    editor.setAutocompleteProvider(
-      createAutocompleteProvider(
-        commandRegistry.getSlashCommands(),
-        process.cwd(),
-      ),
-    );
-    tui.requestRender();
+    registerCoreCommands(coreCommands);
   } catch {
     // Core commands are optional; ignore if the backend is unavailable.
   }
 })();
+
+// Prompt commands from core (built-in, user, extension). Re-run by /reload so
+// a command an extension just registered shows up without a restart.
+function registerCoreCommands(coreCommands: Awaited<ReturnType<typeof listCommands>>): void {
+  for (const info of coreCommands) {
+    registerCommand({
+      name: info.name,
+      description: info.description,
+      argHint: info.argHint,
+      execute: async (args: string[]) => {
+        try {
+          const prompt = await resolveCommand(info.name, args, process.cwd());
+          const display = `/${info.name}${args.length ? ` ${args.join(" ")}` : ""}`;
+          await submitPrompt(prompt, display);
+        } catch (error) {
+          showMessage(
+            `**Error:** ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      },
+    });
+  }
+  // Rebuild autocomplete so the freshly registered commands appear.
+  editor.setAutocompleteProvider(
+    createAutocompleteProvider(
+      commandRegistry.getSlashCommands(),
+      process.cwd(),
+    ),
+  );
+  tui.requestRender();
+}
+
+async function refreshCoreCommands(): Promise<void> {
+  registerCoreCommands(await listCommands(process.cwd()));
+}
 
 const interruptController = new InterruptController({
   isTurnActive: () => activeTurnSessionId !== null,
@@ -2497,7 +2728,15 @@ tui.addInputListener((data) => {
       hideMcpSelector();
       return { consume: true };
     }
+    if (treeSelector) {
+      hideTreeSelector();
+      return { consume: true };
+    }
     interruptController.handle();
+    return { consume: true };
+  }
+  if (matchesKey(data, "ctrl+g") && editor.focused) {
+    void openExternalEditor();
     return { consume: true };
   }
   if (matchesKey(data, Key.shift("tab"))) {

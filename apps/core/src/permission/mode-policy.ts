@@ -49,6 +49,19 @@ export function setMcpToolReadOnly(toolName: string): void {
 }
 
 /**
+ * The same explicit claim for an extension tool (`readOnly: true` on its
+ * definition — spec 2026-09-20-pi-parity-plan Phase 5). Same set, same rule:
+ * absent means mutating.
+ */
+export function claimToolReadOnly(toolName: string): void {
+  READONLY_MCP_TOOLS.add(toolName.toLowerCase());
+}
+
+export function dropToolReadOnlyClaim(toolName: string): void {
+  READONLY_MCP_TOOLS.delete(toolName.toLowerCase());
+}
+
+/**
  * Drop every recorded tool under a server prefix (`mcp__linear__`), so a
  * disconnected server can't leave a read-only claim behind for a later tool
  * that happens to reuse the name.

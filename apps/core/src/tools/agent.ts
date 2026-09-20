@@ -260,6 +260,7 @@ async function executeSubagent(
       memoryExtraction: false,
       redirect: false,
       autoPoke: false,
+      cacheWarming: false,
     });
     // Late-bound because the loop cannot exist until the spawn has been
     // allowed; this is what makes `k` in the /agents panel able to stop it.

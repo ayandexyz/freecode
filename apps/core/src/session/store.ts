@@ -28,6 +28,16 @@ export interface SessionMeta {
   turnCount: number;
   parentId?: string;
   aggregatedTokenCount?: number;
+  /**
+   * Session tree (spec 2026-09-20-pi-parity-plan, Phase 3). Set by
+   * `navigate()` when the active leaf is NOT the last line of messages.jsonl;
+   * cleared by the next append (which becomes the leaf) or replace. Unset
+   * means "the log is linear from the last line", which is every session
+   * that never navigated.
+   */
+  leafId?: string;
+  /** Bookmarks for the tree view, keyed by entry id. */
+  labels?: Record<string, string>;
 }
 
 /**
@@ -71,9 +81,42 @@ export interface SerializedMessage {
    * models answer it instead of acting — jcode's finding); frontends render
    * a one-line notice instead of "You:", and harvest never scopes a turn on it.
    */
-  synthetic?: "auto_poke";
+  // "steer": the user typed it mid-turn (spec 2026-09-20-pi-parity-plan
+  // Phase 1). Persisted as a real user turn for the same reason as the poke;
+  // the frontend renders it as a normal user message, badged "steered".
+  synthetic?: "auto_poke" | "steer" | "branch_summary";
   interrupted?: boolean;
   usage?: MessageUsage;
+  /**
+   * Session tree: the entry this one continues from. Written ONLY when it
+   * differs from the previous line in the file (i.e. the first append after a
+   * `navigate()`), so a session that never branched is byte-identical to a
+   * linear log and the previous-line rule fills in the rest.
+   */
+  parentId?: string;
+}
+
+/** One node of the session tree as `getTree()` reports it — never content. */
+export interface SessionTreeEntry {
+  id: string;
+  parentId?: string;
+  role: SerializedMessage["role"];
+  /** First ~80 chars of the text, for the picker. */
+  preview: string;
+  timestamp: number;
+  synthetic?: SerializedMessage["synthetic"];
+  /** Tool names in this entry, for the picker's "no-tools" filter. */
+  tools: string[];
+  label?: string;
+  /** True for every entry on the path from the root to the active leaf. */
+  active: boolean;
+}
+
+export interface NavigateResult {
+  /** The new active path, root → leaf. */
+  path: SerializedMessage[];
+  /** Entries on the OLD path that the new one does not include, oldest first. */
+  abandoned: SerializedMessage[];
 }
 
 export interface CreateSessionOptions {
@@ -136,6 +179,26 @@ export interface SessionStore {
     projectPath?: string,
   ): Promise<void>;
 
+  // --- session tree (spec 2026-09-20-pi-parity-plan, Phase 3) ---------------
+  /** Every entry in the log, all branches, with the active path marked. */
+  getTree(sessionId: string, projectPath?: string): Promise<SessionTreeEntry[]>;
+  /**
+   * Make `entryId` the active leaf. The next append continues from it; the
+   * old leaf's branch stays in the log. Throws if the id is unknown.
+   */
+  navigate(
+    sessionId: string,
+    entryId: string,
+    projectPath?: string,
+  ): Promise<NavigateResult>;
+  /** Bookmark an entry (empty label removes it). */
+  labelEntry(
+    sessionId: string,
+    entryId: string,
+    label: string,
+    projectPath?: string,
+  ): Promise<void>;
+
   getContextCache(
     sessionId: string,
     projectPath?: string,
@@ -192,6 +255,17 @@ async function readJson<T>(path: string): Promise<T | null> {
 
 async function writeJson(path: string, data: unknown): Promise<void> {
   await writeFile(path, JSON.stringify(data, null, 2), "utf-8");
+}
+
+const PREVIEW_CHARS = 80;
+
+function previewOf(m: SerializedMessage): string {
+  const text = m.parts
+    .map((p) => (p.type === "text" ? (p.content ?? "") : p.type === "tool" ? `[${p.tool?.name}]` : ""))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > PREVIEW_CHARS ? text.slice(0, PREVIEW_CHARS - 1) + "…" : text;
 }
 
 // ============================================================================
@@ -361,18 +435,53 @@ class SessionStoreImpl implements SessionStore {
     await this.updateStatus(sessionId, "deleted", projectPath);
   }
 
+  // The active leaf when it is not the last line: meta.leafId, cached so an
+  // append does not read meta.json. `undefined` = not loaded yet, `null` =
+  // loaded and unset. Keyed by session id — one process per session.
+  private pendingLeaf = new Map<string, string | null>();
+
+  private async loadPendingLeaf(
+    sessionId: string,
+    projectPath?: string,
+  ): Promise<string | null> {
+    const cached = this.pendingLeaf.get(sessionId);
+    if (cached !== undefined) return cached;
+    const meta = await this.getMeta(sessionId, projectPath);
+    const leaf = meta?.leafId ?? null;
+    this.pendingLeaf.set(sessionId, leaf);
+    return leaf;
+  }
+
+  private async setPendingLeaf(
+    sessionId: string,
+    leaf: string | null,
+    projectPath?: string,
+  ): Promise<void> {
+    this.pendingLeaf.set(sessionId, leaf);
+    await this.updateMeta(sessionId, { leafId: leaf ?? undefined }, projectPath);
+  }
+
   async appendMessage(
     sessionId: string,
     message: SerializedMessage,
     projectPath?: string,
   ): Promise<void> {
-    const line = JSON.stringify(message) + "\n";
+    // Right after a navigate the new entry continues from the chosen leaf,
+    // not from the last line — say so on the line itself, then the log is
+    // linear again from here and meta.leafId comes off.
+    const leaf = await this.loadPendingLeaf(sessionId, projectPath);
+    const entry =
+      leaf && message.parentId === undefined
+        ? { ...message, parentId: leaf }
+        : message;
+    const line = JSON.stringify(entry) + "\n";
     await writeFile(this.messagesPath(sessionId, projectPath), line, {
       flag: "a",
     });
+    if (leaf) await this.setPendingLeaf(sessionId, null, projectPath);
   }
 
-  async getMessages(
+  private async readEntries(
     sessionId: string,
     projectPath?: string,
   ): Promise<SerializedMessage[]> {
@@ -385,6 +494,43 @@ class SessionStoreImpl implements SessionStore {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as SerializedMessage);
+  }
+
+  /**
+   * Root → leaf walk. An entry's parent is its `parentId` when set, else the
+   * previous line. A parent that is not in the log (compaction dropped it)
+   * ends the walk — what remains is still a valid conversation prefix.
+   */
+  private activePath(
+    entries: SerializedMessage[],
+    leafId: string | null,
+  ): SerializedMessage[] {
+    if (entries.length === 0) return [];
+    if (!leafId && !entries.some((e) => e.parentId !== undefined)) {
+      return entries; // linear log: the common case, no walk
+    }
+    const index = new Map<string, number>();
+    entries.forEach((e, i) => index.set(e.id, i));
+    const path: SerializedMessage[] = [];
+    let i: number | undefined = leafId ? index.get(leafId) : entries.length - 1;
+    const seen = new Set<number>();
+    while (i !== undefined && i >= 0 && !seen.has(i)) {
+      seen.add(i);
+      const cur = entries[i]!;
+      path.push(cur);
+      i = cur.parentId !== undefined ? index.get(cur.parentId) : i - 1;
+    }
+    return path.reverse();
+  }
+
+  async getMessages(
+    sessionId: string,
+    projectPath?: string,
+  ): Promise<SerializedMessage[]> {
+    const entries = await this.readEntries(sessionId, projectPath);
+    if (entries.length === 0) return [];
+    const leaf = await this.loadPendingLeaf(sessionId, projectPath);
+    return this.activePath(entries, leaf);
   }
 
   async replaceMessages(
@@ -401,6 +547,65 @@ class SessionStoreImpl implements SessionStore {
       content,
       "utf-8",
     );
+    // The written log IS the active path now; other branches are gone with
+    // it (compaction trims to the preserved tail — see compact-apply.ts).
+    if (await this.loadPendingLeaf(sessionId, projectPath)) {
+      await this.setPendingLeaf(sessionId, null, projectPath);
+    }
+  }
+
+  async getTree(
+    sessionId: string,
+    projectPath?: string,
+  ): Promise<SessionTreeEntry[]> {
+    const entries = await this.readEntries(sessionId, projectPath);
+    const leaf = await this.loadPendingLeaf(sessionId, projectPath);
+    const active = new Set(this.activePath(entries, leaf).map((e) => e.id));
+    const labels = (await this.getMeta(sessionId, projectPath))?.labels ?? {};
+    return entries.map((e, i) => ({
+      id: e.id,
+      parentId: e.parentId ?? (i > 0 ? entries[i - 1]!.id : undefined),
+      role: e.role,
+      preview: previewOf(e),
+      timestamp: e.timestamp,
+      synthetic: e.synthetic,
+      tools: e.parts.flatMap((p) => (p.type === "tool" && p.tool ? [p.tool.name] : [])),
+      label: labels[e.id],
+      active: active.has(e.id),
+    }));
+  }
+
+  async navigate(
+    sessionId: string,
+    entryId: string,
+    projectPath?: string,
+  ): Promise<NavigateResult> {
+    const entries = await this.readEntries(sessionId, projectPath);
+    if (!entries.some((e) => e.id === entryId)) {
+      throw new Error(`Session entry not found: ${entryId}`);
+    }
+    const before = await this.loadPendingLeaf(sessionId, projectPath);
+    const oldPath = this.activePath(entries, before);
+    const path = this.activePath(entries, entryId);
+    const keep = new Set(path.map((e) => e.id));
+    const abandoned = oldPath.filter((e) => !keep.has(e.id));
+    // Navigating to the last line makes the log linear again — no pointer.
+    const isLast = entries[entries.length - 1]!.id === entryId;
+    await this.setPendingLeaf(sessionId, isLast ? null : entryId, projectPath);
+    return { path, abandoned };
+  }
+
+  async labelEntry(
+    sessionId: string,
+    entryId: string,
+    label: string,
+    projectPath?: string,
+  ): Promise<void> {
+    const meta = await this.getMeta(sessionId, projectPath);
+    const labels = { ...(meta?.labels ?? {}) };
+    if (label.trim()) labels[entryId] = label.trim();
+    else delete labels[entryId];
+    await this.updateMeta(sessionId, { labels }, projectPath);
   }
 
   async markInterrupted(
@@ -408,7 +613,8 @@ class SessionStoreImpl implements SessionStore {
     messageId: string,
     projectPath?: string,
   ): Promise<void> {
-    const messages = await this.getMessages(sessionId, projectPath);
+    // Rewrites the whole log, every branch — the flag is per entry.
+    const messages = await this.readEntries(sessionId, projectPath);
     const idx = messages.findIndex((m) => m.id === messageId);
     if (idx !== -1) {
       messages[idx] = { ...messages[idx], interrupted: true };

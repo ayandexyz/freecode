@@ -122,8 +122,20 @@ export type StreamEvent =
   // so the UI can echo it back. `message_dequeued` fires when the same id is
   // pulled out via session.dequeue (or, implicitly, when the queue finally
   // starts its turn — the UI treats that as a state change to "in-flight").
-  | { type: "message_queued"; sessionId?: string; id: string; content: string }
+  | {
+      type: "message_queued";
+      sessionId?: string;
+      id: string;
+      content: string;
+      // "steer" (spec 2026-09-20-pi-parity-plan Phase 1) is delivered inside
+      // the running turn at the next tool-batch boundary; "followUp" (the
+      // default, spec 2026-08-05) waits for the run to end.
+      kind?: "steer" | "followUp";
+    }
   | { type: "message_dequeued"; sessionId?: string; id: string }
+  // A steer reached the model: it is now a persisted user message with this
+  // id. The UI promotes the queued row to a normal user message.
+  | { type: "message_steered"; sessionId?: string; id: string; content: string }
   // A memory was written about the user WITHOUT them asking (turn-end
   // extraction, spec 2026-08-09-memory-write-path D5). Arrives after the
   // turn's `done` because extraction is fire-and-forget, so frontends must
@@ -277,6 +289,10 @@ export const METHODS = {
       effort?: import("../types.js").EffortLevel;
       agentMode?: string;
       images?: Array<{ data: string; mediaType: string; altText?: string }>;
+      // Only consulted when the session is busy. "steer" hands the prompt to
+      // the running loop for delivery at its next tool-batch boundary;
+      // "followUp" (default) parks it until the run ends.
+      streamingBehavior?: "steer" | "followUp";
     },
     // The completed turn. This said `StreamResponse` for a long time and was
     // simply wrong — the handler returns the loop's result, and the per-token
@@ -592,6 +608,55 @@ export const METHODS = {
     params: { sessionId: "" },
     result: "" as string,
   },
+  // Session tree (spec 2026-09-20-pi-parity-plan, Phase 3). `session.tree`
+  // returns every entry in the log with the active path marked — previews
+  // only, never bodies. `session.navigate` moves the leaf; with `summarize`
+  // the abandoned branch is condensed into a branch_summary message under
+  // the new leaf. Refused while a turn is running (stop it first).
+  // Extensions (spec 2026-09-20-pi-parity-plan, Phase 5): what is loaded,
+  // and a reload that re-imports every file (tools/commands/hooks re-registered).
+  "extensions.list": {
+    params: {},
+    result: [] as Array<{
+      source: string;
+      scope: "user" | "project";
+      tools: string[];
+      commands: string[];
+      hooks: Array<{ event: string; name: string }>;
+      error?: string;
+    }>,
+  },
+  "extensions.reload": {
+    params: {},
+    result: [] as Array<{ source: string; error?: string }>,
+  },
+  "session.tree": {
+    params: { sessionId: "" },
+    result: [] as Array<{
+      id: string;
+      parentId?: string;
+      role: "user" | "assistant";
+      preview: string;
+      timestamp: number;
+      synthetic?: string;
+      tools: string[];
+      label?: string;
+      active: boolean;
+    }>,
+  },
+  "session.navigate": {
+    params: {} as { sessionId: string; entryId: string; summarize?: boolean },
+    result: {} as {
+      /** Messages on the new active path, for the frontend to re-render. */
+      messages: import("../types.js").SerializedMessage[];
+      abandoned: number;
+      summarized: boolean;
+    },
+  },
+  "session.label": {
+    params: {} as { sessionId: string; entryId: string; label: string },
+    result: undefined as void,
+  },
   "session.archive": {
     params: { sessionId: "" },
     result: undefined as void,
@@ -714,6 +779,11 @@ export const REQUIRED_PARAMS: Record<
   "memory.buildPrompt": {},
   "session.switch": { sessionId: "string" },
   "session.fork": { sessionId: "string" },
+  "extensions.list": {},
+  "extensions.reload": {},
+  "session.tree": { sessionId: "string" },
+  "session.navigate": { sessionId: "string", entryId: "string" },
+  "session.label": { sessionId: "string", entryId: "string", label: "string" },
   "session.archive": { sessionId: "string" },
   "session.delete": { sessionId: "string" },
   "session.getInterrupted": {},

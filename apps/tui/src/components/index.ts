@@ -11,7 +11,10 @@ import {
   getMessageByQueueId,
   messageStore,
 } from "../state/message-store.js";
-import { createMessageComponent } from "./message-row.js";
+import {
+  createMessageComponent,
+  createQueuedUserMessageComponent,
+} from "./message-row.js";
 import type { MessageType, MessageInstance } from "./message-types.js";
 import { Transcript } from "./transcript.js";
 import type { ToolProgressMessage } from "./tool-progress-message.js";
@@ -34,8 +37,9 @@ export function createUserMessage(content: string): MessageInstance {
 export function createQueuedUserMessage(
   content: string,
   queueId: string,
+  kind: "steer" | "followUp" = "followUp",
 ): MessageInstance {
-  const component = createMessageComponent("queued_user", content);
+  const component = createQueuedUserMessageComponent(content, kind);
   return addMessage("queued_user", content, component, queueId);
 }
 
@@ -216,6 +220,12 @@ export function loadSessionMessages(messages: SerializedMessage[]): void {
     // same one-liner they saw live.
     if (msg.synthetic === "auto_poke") {
       createSystemMessage("*Auto-poke: the agent stopped with todos open and was sent back.*");
+      continue;
+    }
+    // The condensed abandoned branch. The body is for the model; the user
+    // gets a marker where the rewind happened.
+    if (msg.synthetic === "branch_summary") {
+      createSystemMessage("*Rewound here — the branch that followed was summarized for the agent.*");
       continue;
     }
     let content = "";

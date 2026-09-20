@@ -46,7 +46,10 @@ export type RolloutEvent =
   | RedirectSkippedEvent
   | PokeTriggeredEvent
   | PokeSkippedEvent
-  | TodoSignalEvent;
+  | TodoSignalEvent
+  | MessageSteeredEvent
+  | CacheWarmEvent
+  | SessionNavigateEvent;
 
 export interface TurnStartedEvent extends BaseEvent {
   type: "turn.started";
@@ -310,12 +313,14 @@ export interface PokeTriggeredEvent extends BaseEvent {
   maxPerRun: number;
   /** Open todo items at the moment of the poke. */
   remaining: number;
+  /** A harder re-poke of an unchanged list the model answered with prose alone. */
+  retry?: boolean;
 }
 
 export interface PokeSkippedEvent extends BaseEvent {
   type: "poke.skipped";
   turnId: string;
-  /** PokeSkipReason — "disabled", "nothing_open", "all_blocked", "cap_reached", "no_progress", "no_budget". */
+  /** PokeSkipReason — "disabled", "nothing_open", "read_only_mode", "all_blocked", "cap_reached", "no_progress", "no_budget". */
   reason: string;
   remaining: number;
 }
@@ -330,4 +335,57 @@ export interface TodoSignalEvent extends BaseEvent {
   to: number;
   /** Whether the gate was on and a reminder was queued for the next turn. */
   gated: boolean;
+}
+
+// ============================================================================
+// Steering (spec 2026-09-20-pi-parity-plan, Phase 1): a user message that
+// arrived mid-turn and was delivered between one tool batch and the next
+// model call, without aborting the run. Message id only — never the text.
+// ============================================================================
+
+export interface MessageSteeredEvent extends BaseEvent {
+  type: "message.steered";
+  turnId: string;
+  /** Id of the persisted user message carrying the steer. */
+  messageId: string;
+  /** Steers still waiting after this one was delivered. */
+  remaining: number;
+}
+
+// ============================================================================
+// Cache warm (spec 2026-09-20-pi-parity-plan, Phase 2): a one-token replay
+// of the run's last request, sent to keep the prompt-cache entry alive. It is
+// NOT a model.request/response pair — a trace must not read it as a turn —
+// but it is billed, so usage rides here for the cost fold.
+// ============================================================================
+
+export interface CacheWarmEvent extends BaseEvent {
+  type: "cache.warm";
+  provider: string;
+  model: string;
+  /** "streaming" while the run was active, "idle" after it ended. */
+  phase: "streaming" | "idle";
+  delayMs: number;
+  expectedSavingsUsd: number;
+  warmCostUsd: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  authMode?: "oauth" | "api-key";
+}
+
+// ============================================================================
+// Session tree navigation (spec 2026-09-20-pi-parity-plan, Phase 3). Ids
+// only; the branch summary's text stays in the session store.
+// ============================================================================
+
+export interface SessionNavigateEvent extends BaseEvent {
+  type: "session.navigate";
+  /** Entry id of the leaf before the move (undefined for an empty log). */
+  from?: string;
+  to: string;
+  /** Entries the old path had that the new one does not. */
+  abandoned: number;
+  summarized: boolean;
 }

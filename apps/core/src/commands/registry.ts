@@ -11,6 +11,15 @@ function registerBuiltin(cmd: PromptCommand): void {
   builtinCommands.set(cmd.name, cmd);
 }
 
+/** An extension's prompt command (spec 2026-09-20-pi-parity-plan Phase 5). Same precedence as a built-in. */
+export function registerPromptCommand(cmd: PromptCommand): void {
+  builtinCommands.set(cmd.name, cmd);
+}
+
+export function unregisterPromptCommand(name: string): void {
+  builtinCommands.delete(name);
+}
+
 registerBuiltin({
   name: "init",
   description: "Analyze the repo and generate AGENTS.md / CLAUDE.md",

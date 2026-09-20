@@ -170,7 +170,7 @@ function userPrompts(messages: SerializedMessage[]): Prompt[] {
   const out: Prompt[] = [];
   for (const message of messages) {
     if (message.role !== "user") continue;
-    if (message.synthetic) continue; // an auto-poke is the harness talking, not a task
+    if (message.synthetic) continue; // a poke is the harness talking; a steer is mid-turn, not a task
     const text = message.parts
       .filter((p) => p.type === "text" && p.content)
       .map((p) => p.content!.trim())

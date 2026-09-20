@@ -98,7 +98,12 @@ function readEvents(dir: string): Array<Record<string, unknown>> {
     .map((l) => JSON.parse(l));
 }
 
-async function runLoop(sessionId: string, signals: Record<string, unknown>, runs = 1) {
+async function runLoop(
+  sessionId: string,
+  signals: Record<string, unknown>,
+  runs = 1,
+  agentMode: "build" | "plan" = "build",
+) {
   clearTodos(sessionId);
   tailsSeen.length = 0;
   lastUserSeen.length = 0;
@@ -142,6 +147,7 @@ async function runLoop(sessionId: string, signals: Record<string, unknown>, runs
   let result;
   for (let i = 0; i < runs; i++) {
     result = await loop.run({
+      agentMode,
       prompt: "Make it faster",
       sessionId,
       provider: "poke-fake",
@@ -158,33 +164,41 @@ async function runLoop(sessionId: string, signals: Record<string, unknown>, runs
   return { result, events, turns: tailsSeen.length, notices, stored };
 }
 
-test("a stop with open todos is poked once, and a poke that moves nothing ends the run", async () => {
+test("a stop with open todos is poked, a prose-only reply is re-poked once, then no progress ends the run", async () => {
   const { events, turns } = await runLoop("poke-on", {
     autoPoke: { enabled: true, maxPerRun: 3 },
     hillClimbGate: { enabled: true },
   });
 
+  // The mock answers every poke with "All done." and no tool call: that is a
+  // bounce, so the first poke is followed by exactly one harder re-poke.
   const triggered = events.filter((e) => e.type === "poke.triggered");
-  assert.equal(triggered.length, 1, "poked exactly once");
-  assert.equal(triggered[0]!.pokeIndex, 1);
-  assert.equal(triggered[0]!.remaining, 1);
+  assert.deepEqual(
+    triggered.map((e) => [e.pokeIndex, e.remaining, e.retry]),
+    [
+      [1, 1, false],
+      [2, 1, true],
+    ],
+  );
 
-  // The list was byte-identical after the poke, so the second stop is
+  // The list was byte-identical after the re-poke too, so the third stop is
   // recorded as no progress and the run ends there — not at the cap.
   const skipped = events.filter((e) => e.type === "poke.skipped");
   assert.deepEqual(
     skipped.map((e) => e.reason),
     ["no_progress"],
   );
-  // turn 1 plan, turn 2 stop → poke, turn 3 stop → no progress. Three turns.
-  assert.equal(turns, 3);
+  // turn 1 plan, turn 2 stop → poke, turn 3 stop → re-poke, turn 4 stop → no progress.
+  assert.equal(turns, 4);
 
   // The poke is the next turn's last USER message — a real turn with content,
   // not a reminder-only tail — naming the open item.
   const poked = lastUserSeen.filter((t) => t.includes("still open"));
-  assert.equal(poked.length, 1);
+  assert.equal(poked.length, 2);
   assert.match(poked[0]!, /"make it faster"/);
   assert.match(poked[0]!, /poke 1 of 3/);
+  assert.match(poked[1]!, /poke 2 of 3/);
+  assert.match(poked[1]!, /no tool call/);
   assert.ok(!poked[0]!.includes("<system-reminder>"));
   assert.ok(!tailsSeen.some((t) => t.includes("still open")));
 
@@ -206,6 +220,7 @@ test("the poke and the stop are both surfaced to the frontend as notices", async
   const { notices } = await runLoop("poke-notice", { autoPoke: { enabled: true, maxPerRun: 3 } });
   assert.deepEqual(notices, [
     "1 todo still open — sent the agent back (poke 1 of 3).",
+    "1 todo still open — the agent replied without acting — sent it back again (poke 2 of 3).",
     "1 todo still open, but the last poke changed nothing — not poking again.",
   ]);
 });
@@ -213,25 +228,50 @@ test("the poke and the stop are both surfaced to the frontend as notices", async
 test("the poke is persisted as a synthetic user message, so the transcript alternates on resume", async () => {
   const { stored } = await runLoop("poke-stored", { autoPoke: { enabled: true, maxPerRun: 3 } });
   const roles = stored.map((m) => `${m.role}${m.synthetic ? `:${m.synthetic}` : ""}`);
-  // prompt, plan (tool call), "All done.", poke, "All done." again.
-  assert.deepEqual(roles, ["user", "assistant", "assistant", "user:auto_poke", "assistant"]);
+  // prompt, plan (tool call), "All done.", poke, "All done.", re-poke, "All done."
+  assert.deepEqual(roles, [
+    "user",
+    "assistant",
+    "assistant",
+    "user:auto_poke",
+    "assistant",
+    "user:auto_poke",
+    "assistant",
+  ]);
   const poke = stored.find((m) => m.synthetic === "auto_poke")!;
   assert.match(poke.parts[0]!.content!, /still open/);
 });
 
 test("the fingerprint survives a run: a second prompt on an unchanged list is not re-poked", async () => {
-  // Run 1: plan, stop → poke, stop → no progress. Run 2 is the user's
-  // "continue" on the same open list; the model stops again without moving
-  // it. Before 2026-09-20 the fingerprint was reset per run and every
-  // "continue"/"status?" bought three fresh pokes (session 698c5001).
+  // Run 1: plan, stop → poke, stop → re-poke, stop → no progress. Run 2 is
+  // the user's "continue" on the same open list; the model stops again
+  // without moving it. Before 2026-09-20 the fingerprint was reset per run
+  // and every "continue"/"status?" bought three fresh pokes (session
+  // 698c5001). The bounce retry is spent too — it rides the fingerprint.
   const { events } = await runLoop("poke-two-runs", { autoPoke: { enabled: true, maxPerRun: 3 } }, 2);
   const triggered = events.filter((e) => e.type === "poke.triggered");
-  assert.equal(triggered.length, 1, "the second run is not poked");
+  assert.equal(triggered.length, 2, "the second run is not poked");
   const skipped = events.filter((e) => e.type === "poke.skipped");
   assert.deepEqual(
     skipped.map((e) => e.reason),
     ["no_progress", "no_progress"],
   );
+});
+
+test("a read-only mode is recorded as read_only_mode and never poked", async () => {
+  const { events, turns } = await runLoop(
+    "poke-plan",
+    { autoPoke: { enabled: true, maxPerRun: 3 } },
+    1,
+    "plan",
+  );
+  assert.equal(events.filter((e) => e.type === "poke.triggered").length, 0);
+  assert.deepEqual(
+    events.filter((e) => e.type === "poke.skipped").map((e) => e.reason),
+    ["read_only_mode"],
+  );
+  // plan, then stop. The plan is the deliverable.
+  assert.equal(turns, 2);
 });
 
 test("with the gate off, the stop is recorded as disabled and nothing is poked", async () => {

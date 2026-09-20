@@ -15,6 +15,7 @@ import type {
   SessionMeta,
   SessionFilter,
   SessionResumeResult,
+  SerializedMessage,
   ClaudeSessionMeta,
   ClaudeTranscript,
   ContextBreakdown,
@@ -524,6 +525,7 @@ export async function sessionSendStreaming(
     | undefined,
   onEvent: (event: StreamEvent) => void,
   effort?: EffortLevel,
+  streamingBehavior?: "steer" | "followUp",
 ): Promise<SessionSendResult | SessionQueuedResult> {
   return new Promise((resolve, reject) => {
     if (!cliProcess || !cliProcess.stdin) {
@@ -538,7 +540,15 @@ export async function sessionSendStreaming(
       jsonrpc: "2.0",
       id,
       method: "session.send",
-      params: { sessionId, message, model, agentMode, images, effort },
+      params: {
+        sessionId,
+        message,
+        model,
+        agentMode,
+        images,
+        effort,
+        streamingBehavior,
+      },
     };
     // Idle deadline, not a total one — this promise settles only when the
     // whole turn is done, which is unbounded by design.
@@ -784,6 +794,56 @@ export async function sessionList(
     "session.list",
     filter as Record<string, unknown>,
   )) as SessionMeta[];
+}
+
+// Session tree (spec 2026-09-20-pi-parity-plan, Phase 3).
+export interface SessionTreeEntry {
+  id: string;
+  parentId?: string;
+  role: "user" | "assistant";
+  preview: string;
+  timestamp: number;
+  synthetic?: string;
+  tools: string[];
+  label?: string;
+  active: boolean;
+}
+
+export interface LoadedExtensionInfo {
+  source: string;
+  scope: "user" | "project";
+  tools: string[];
+  commands: string[];
+  hooks: Array<{ event: string; name: string }>;
+  error?: string;
+}
+
+export async function extensionsList(): Promise<LoadedExtensionInfo[]> {
+  return (await sendRequest("extensions.list", {})) as LoadedExtensionInfo[];
+}
+
+export async function extensionsReload(): Promise<LoadedExtensionInfo[]> {
+  return (await sendRequest("extensions.reload", {})) as LoadedExtensionInfo[];
+}
+
+export async function sessionTree(sessionId: string): Promise<SessionTreeEntry[]> {
+  return (await sendRequest("session.tree", { sessionId })) as SessionTreeEntry[];
+}
+
+export async function sessionNavigate(
+  sessionId: string,
+  entryId: string,
+  summarize: boolean,
+): Promise<{ messages: SerializedMessage[]; abandoned: number; summarized: boolean }> {
+  return (await sendRequest("session.navigate", { sessionId, entryId, summarize })) as {
+    messages: SerializedMessage[];
+    abandoned: number;
+    summarized: boolean;
+  };
+}
+
+export async function sessionFork(sessionId: string): Promise<string> {
+  return (await sendRequest("session.fork", { sessionId })) as string;
 }
 
 export async function sessionResume(
