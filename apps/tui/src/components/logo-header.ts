@@ -2,14 +2,21 @@ import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { logoLines } from "../assets/logo.js";
 import { getDisplayDirectory, getVersion } from "../utils/display.js";
+import { omarchyPalette } from "../utils/omarchy-theme.js";
 
-// Two-tone yellow to match the existing info-box logo treatment.
+// Two-tone logo: on Omarchy the bright half uses the theme's `accent` and
+// the dim half its `yellow`; everywhere else the chalk yellows the TUI
+// shipped with, so the look is unchanged off-Omarchy.
+const { accentColor, dimColor } = omarchyPalette
+  ? { accentColor: chalk.hex(omarchyPalette.accent), dimColor: chalk.hex(omarchyPalette.yellow) }
+  : { accentColor: chalk.yellowBright, dimColor: chalk.yellow };
+
 const coloredLogoLines = logoLines.map((line) => {
   const mid = Math.floor(line.length / 2);
-  return chalk.yellowBright(line.slice(0, mid)) + chalk.yellow(line.slice(mid));
+  return accentColor(line.slice(0, mid)) + dimColor(line.slice(mid));
 });
 
-const LOGO_WIDTH = 98;
+const LOGO_WIDTH = 85;
 
 /** "-1" sentinel from the index.ts cache means "not loaded yet". */
 const PENDING = "…";
