@@ -313,12 +313,14 @@ export interface PokeTriggeredEvent extends BaseEvent {
   maxPerRun: number;
   /** Open todo items at the moment of the poke. */
   remaining: number;
+  /** A harder re-poke of an unchanged list the model answered with prose alone. */
+  retry?: boolean;
 }
 
 export interface PokeSkippedEvent extends BaseEvent {
   type: "poke.skipped";
   turnId: string;
-  /** PokeSkipReason — "disabled", "nothing_open", "all_blocked", "cap_reached", "no_progress", "no_budget". */
+  /** PokeSkipReason — "disabled", "nothing_open", "read_only_mode", "all_blocked", "cap_reached", "no_progress", "no_budget". */
   reason: string;
   remaining: number;
 }

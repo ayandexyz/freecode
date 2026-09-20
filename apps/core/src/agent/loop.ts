@@ -446,6 +446,9 @@ export class AgentLoop {
   // settings resolved once per run so a mid-run settings edit cannot flip a
   // gate between two turns of the same trajectory.
   private pokeState: PokeState = initialPokeState();
+  // Whether a tool has run since the last poke — a poke answered with prose
+  // alone is a bounce, not a "cannot finish" (see auto-poke.ts).
+  private actedSincePoke = false;
   private signalSettings?: SignalSettings;
   // How many times this run has given the model another turn after it
   // truncated a tool call. Capped: a model that keeps overflowing the output
@@ -1949,6 +1952,8 @@ export class AgentLoop {
       // yields the real total instead of a multiple of it.
       let pendingUsage: MessageUsage | undefined = providerResult.usage;
 
+      if (toolCalls.length > 0) this.actedSincePoke = true;
+
       // No tools? Return early
       if (toolCalls.length === 0) {
         this.memory.addMessage("assistant", providerResult.content);
@@ -3255,17 +3260,23 @@ export class AgentLoop {
       // The poked turn is iteration+1; run() ends the run when that reaches
       // the cap, so a poke queued there would be recorded and never sent.
       turnsLeft: this.config.maxIterations - (this.state.iterationCount + 1),
+      actedSincePoke: this.actedSincePoke,
+      readOnly: isReadOnlyMode(this.state.agentMode),
     });
     const remaining = todos.filter(isOpenTodo).length;
     const max = settings.autoPoke.maxPerRun;
     if (decision.poke) {
       this.pokeState = notePoke(this.pokeState, decision.fingerprint);
+      this.actedSincePoke = false;
       this.recorder.recordPokeTriggered(turnId, {
         pokeIndex: this.pokeState.pokes,
         maxPerRun: max,
         remaining,
+        retry: decision.retry,
       });
-      const text = pokeMessage(decision.remaining, this.pokeState.pokes, max);
+      const text = pokeMessage(decision.remaining, this.pokeState.pokes, max, {
+        retry: decision.retry,
+      });
       this.history.push({
         id: randomUUID(),
         role: "user",

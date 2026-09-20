@@ -14,14 +14,34 @@ a **user-role message** listing them, and the model gets another go.
 
 ```
 You stopped with 2 todo items still open (poke 1 of 3): "wire the new flag through settings.ts", "add the test".
-Continue working, or update the list with todowrite: mark an item blocked if it is waiting on the user, cancelled if you will not do it. Do not repeat a call that already failed.
+Pick the next open item and do it now. Only if an item genuinely cannot proceed, todowrite it: cancelled if you will not do it (say why), blocked only when it needs something from the user (say what). Do not repeat a call that already failed.
 ```
 
 One line of names (at most six, cut at 80 chars), jcode-style. It used to
 print the full checklist with "pick the next open item, do it": on a list
 whose items were all waiting on the user that read as an order to retry, and
 session `698c5001` (2026-09-19) ran the same 403 `git push` 38 times until
-loop-health killed it.
+loop-health killed it. The second line then led with "Continue working, or
+update the list… mark an item blocked" — and the 2026-09-12→20 rollout fold
+showed that offer being taken: of 51 pokes, 16 ended with every item marked
+`blocked` and 16 with the model replying in prose and stopping again
+(`no_progress`), against 10 that drained the list. Since 2026-09-20 the
+action comes first and `blocked` is the last word, gated on "needs something
+from the user".
+
+A poke the model answers with **no tool call at all** is a bounce, not a
+"cannot finish", and gets one harder re-poke (`retry: true` on the
+`poke.triggered` event, "the agent replied without acting" in the notice):
+
+```
+You stopped with 2 todo items still open (poke 2 of 3): …
+Your last reply had no tool call. Do not reply in prose: this turn must be a tool call — pick the next open item and start it, or todowrite with an honest status for each item. Do not repeat a call that already failed.
+```
+
+The retry is spent per fingerprint and rides it across runs, so an identical
+list after that — bounced or not — is `no_progress`. A poke the model DID
+act on (any tool ran) and still left unchanged is a genuine stop and is never
+retried.
 
 Rules, in the order they are checked (`auto-poke.ts` `decidePoke`):
 
@@ -29,10 +49,11 @@ Rules, in the order they are checked (`auto-poke.ts` `decidePoke`):
 | --- | --- |
 | `disabled` | the gate is off — the list was never looked at |
 | `nothing_open` | every item is `completed` or `cancelled` |
+| `read_only_mode` | the run is in plan/review/explore — the model cannot execute a mutating item, so a poke there only buys a turn of "blocked". Every `all_blocked` in the 2026-09-12→20 fold (16) was a read-only eval case that had been poked first |
 | `all_blocked` | every open item is `blocked` — waiting on the user; a poke could only make the model retry or lie |
 | `cap_reached` | already poked `maxPerRun` times this run (a run = one prompt; the counter resets per `run()`) |
 | `no_budget` | `--max-turns` would land before the poked turn could execute |
-| `no_progress` | the open items' ids and statuses match the last poke's — the model ignored it; poking again would burn tokens. Content is deliberately ignored (re-wording "blocked on 403" to "still blocked on 403" is not progress), and the fingerprint **survives across runs**: a user's "continue" on an unchanged list is one more turn, not three fresh pokes |
+| `no_progress` | the open items' ids and statuses match the last poke's — the model ignored it; poking again would burn tokens. Content is deliberately ignored (re-wording "blocked on 403" to "still blocked on 403" is not progress), and the fingerprint **survives across runs**: a user's "continue" on an unchanged list is one more turn, not three fresh pokes. Exception: if no tool ran since the poke (prose-only reply) and this fingerprint has not been retried, it is a bounce and gets one harder re-poke instead |
 | **poke** | otherwise |
 
 `cancelled` and `blocked` are the two honest exits. `cancelled` is closed: the

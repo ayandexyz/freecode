@@ -152,10 +152,64 @@ test("pokes while items are open, up to the cap", () => {
   assert.deepEqual(third, { poke: false, skip: "cap_reached" });
 });
 
-test("an unchanged list after a poke is no progress, and stops the run", () => {
+test("an unchanged list after a poke the model acted on is no progress, and stops the run", () => {
   const state = notePoke(initialPokeState(), todoFingerprint(open));
-  const d = decidePoke({ enabled: true, maxPerRun: 3, todos: open, state });
+  const d = decidePoke({ enabled: true, maxPerRun: 3, todos: open, state, actedSincePoke: true });
   assert.deepEqual(d, { poke: false, skip: "no_progress" });
+  // A caller that does not track acting is treated as acted — never two pokes.
+  assert.deepEqual(decidePoke({ enabled: true, maxPerRun: 3, todos: open, state }), {
+    poke: false,
+    skip: "no_progress",
+  });
+});
+
+test("a read-only mode is never poked: the model cannot execute a mutating item there", () => {
+  assert.deepEqual(
+    decidePoke({ enabled: true, maxPerRun: 3, todos: open, state: initialPokeState(), readOnly: true }),
+    { poke: false, skip: "read_only_mode" },
+  );
+  // Reads after nothing_open (an empty list in plan mode is just "nothing
+  // open") and before all_blocked (a blocked list in plan mode is the mode).
+  assert.deepEqual(
+    decidePoke({ enabled: true, maxPerRun: 3, todos: [], state: initialPokeState(), readOnly: true }),
+    { poke: false, skip: "nothing_open" },
+  );
+});
+
+test("a poke answered with prose and no tool call is re-poked once, harder, then stops", () => {
+  const fp = todoFingerprint(open);
+  const state = notePoke(initialPokeState(), fp);
+  const again = decidePoke({ enabled: true, maxPerRun: 3, todos: open, state, actedSincePoke: false });
+  assert.equal(again.poke, true);
+  if (!again.poke) return;
+  assert.equal(again.retry, true);
+  const msg = pokeMessage(again.remaining, 2, 3, { retry: true });
+  assert.match(msg, /no tool call/);
+  assert.match(msg, /must be a tool call/);
+  // The retry is spent on that fingerprint: a third identical stop is no
+  // progress even if the model bounced again, and so is the same list after
+  // a new run (nextRunPokeState keeps the flag with the fingerprint).
+  const spent = notePoke(state, fp);
+  assert.equal(spent.retried, true);
+  assert.deepEqual(
+    decidePoke({ enabled: true, maxPerRun: 3, todos: open, state: spent, actedSincePoke: false }),
+    { poke: false, skip: "no_progress" },
+  );
+  assert.deepEqual(
+    decidePoke({ enabled: true, maxPerRun: 3, todos: open, state: nextRunPokeState(spent), actedSincePoke: false }),
+    { poke: false, skip: "no_progress" },
+  );
+  // A list that moved gets a normal poke and a fresh retry.
+  const moved = [item({ id: "1", status: "completed" }), item({ id: "2", status: "in_progress" })];
+  const fresh = decidePoke({ enabled: true, maxPerRun: 3, todos: moved, state: spent, actedSincePoke: false });
+  assert.equal(fresh.poke && fresh.retry, false);
+  assert.equal(notePoke(spent, todoFingerprint(moved)).retried, false);
+  // The cap still wins over a retry.
+  const capped = { ...state, pokes: 3 };
+  assert.deepEqual(
+    decidePoke({ enabled: true, maxPerRun: 3, todos: open, state: capped, actedSincePoke: false }),
+    { poke: false, skip: "cap_reached" },
+  );
 });
 
 test("the fingerprint ignores completed items, so finishing one is progress", () => {
@@ -208,7 +262,9 @@ test("the poke names at most six items, truncated, on one line", () => {
   assert.equal((head!.match(/"item \d/g) ?? []).length, 6);
   assert.match(head!, /\+3 more/);
   assert.ok(!head!.includes("x".repeat(90)), "long content is cut");
-  assert.match(tail!, /mark an item blocked/);
+  // Action first; `blocked` is the last word, not the offered exit.
+  assert.match(tail!, /^Pick the next open item and do it now\./);
+  assert.ok(tail!.indexOf("cancelled") < tail!.indexOf("blocked"));
 });
 
 test("a new run re-arms the cap but keeps the fingerprint", () => {

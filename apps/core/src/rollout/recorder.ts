@@ -475,7 +475,7 @@ export class RolloutRecorder {
 
   recordPokeTriggered(
     turnId: string,
-    fields: { pokeIndex: number; maxPerRun: number; remaining: number },
+    fields: { pokeIndex: number; maxPerRun: number; remaining: number; retry?: boolean },
   ): void {
     this.write(
       this.makeEvent("poke.triggered", { aggregateID: this.sessionId, turnId, fields }),
