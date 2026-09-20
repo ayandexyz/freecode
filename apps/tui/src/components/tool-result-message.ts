@@ -1,5 +1,6 @@
 import { Component, Text, Box, truncateToWidth } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import { renderDiff, looksLikeDiff, getDiffStats, getLanguageFromFilename } from "./diff-view.js";
 import { diffTheme } from "./code-block.js";
 import { highlight, supportsLanguage } from "cli-highlight";
@@ -26,15 +27,15 @@ export const FILE_UPDATE_TOOLS = new Set([
 
 // Color mapping for different tools
 const TOOL_COLORS: Record<string, (text: string) => string> = {
-  Read: (t) => chalk.blueBright(t),
-  Write: (t) => chalk.greenBright(t),
-  Edit: (t) => chalk.yellowBright(t),
-  Bash: (t) => chalk.redBright(t),
-  Glob: (t) => chalk.cyanBright(t),
-  Grep: (t) => chalk.magentaBright(t),
-  Skill: (t) => chalk.whiteBright(t),
-  Agent: (t) => chalk.whiteBright(t),
-  Memory: (t) => chalk.magentaBright(t),
+  Read: (t) => palette.brightBlue(t),
+  Write: (t) => palette.brightGreen(t),
+  Edit: (t) => palette.brightYellow(t),
+  Bash: (t) => palette.brightRed(t),
+  Glob: (t) => palette.brightCyan(t),
+  Grep: (t) => palette.brightMagenta(t),
+  Skill: (t) => palette.fgBright(t),
+  Agent: (t) => palette.fgBright(t),
+  Memory: (t) => palette.brightMagenta(t),
 };
 
 /**
@@ -129,7 +130,7 @@ export class ToolResultMessage implements Component {
 
   render(width: number): string[] {
     const colorFn = TOOL_COLORS[this.toolName] || TOOL_COLORS[this.toolName.toLowerCase()] || TOOL_COLORS[this.toolName.charAt(0).toUpperCase() + this.toolName.slice(1).toLowerCase()] || ((t: string) => t);
-    const statusIcon = this.success ? chalk.green("●") : chalk.red("✖");
+    const statusIcon = this.success ? palette.green("●") : palette.red("✖");
     const argsStr = this.formatArgs();
     const duration = this.duration_ms !== undefined ? `(${formatDuration(this.duration_ms)})` : "";
 
@@ -314,7 +315,7 @@ export class ToolResultMessage implements Component {
           /\s*\n\s*/g,
           " ",
         );
-        return `${k}: ${chalk.green(truncate(vStr))}`;
+        return `${k}: ${palette.green(truncate(vStr))}`;
       })
       .join(", ");
 

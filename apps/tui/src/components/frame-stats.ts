@@ -1,5 +1,5 @@
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
-import chalk from "chalk";
+import { palette } from "../palette.js";
 import type { FrameStats } from "../render-guard.js";
 
 /**
@@ -26,6 +26,6 @@ export class FrameStatsOverlay implements Component {
       `render ${s.lastMs.toFixed(1)}ms · avg ${s.avgMs.toFixed(1)}ms · max ${s.maxMs.toFixed(1)}ms`,
       `frames ${s.frames} · memo ${hitPct}% hit (${s.memoHits}/${asked})`,
     ];
-    return rows.map((r) => chalk.bgBlackBright(chalk.white(truncateToWidth(` ${r} `, width))));
+    return rows.map((r) => palette.bgSurface(palette.fg(truncateToWidth(` ${r} `, width))));
   }
 }

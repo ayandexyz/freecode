@@ -6,13 +6,14 @@ import {
   type TUI,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import type { AgentSummary, StreamEvent } from "@thisisayande/freecode-shared";
 import { MessageStore } from "../state/message-store.js";
 import { Transcript } from "./transcript.js";
 import { VirtualMessageList } from "./virtual-message-list.js";
 
-const ACCENT = "#5FD7FF";
-const DIM = "#666666";
+const accent = palette.accent2;
+const dim = palette.muted;
 /** Header, rule, hint. */
 const CHROME_ROWS = 3;
 const MIN_BODY_ROWS = 3;
@@ -105,8 +106,6 @@ export class AgentViewer implements Component {
   render(width: number): string[] {
     const agent = this.agent;
     if (!agent) return [];
-    const accent = (s: string): string => chalk.hex(ACCENT)(s);
-    const dim = (s: string): string => chalk.hex(DIM)(s);
 
     const status =
       agent.status === "running"

@@ -2,14 +2,11 @@ import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { logoLines } from "../assets/logo.js";
 import { getDisplayDirectory, getVersion } from "../utils/display.js";
-import { omarchyPalette } from "../utils/omarchy-theme.js";
+import { palette } from "../palette.js";
 
-// Two-tone logo: on Omarchy the bright half uses the theme's `accent` and
-// the dim half its `yellow`; everywhere else the chalk yellows the TUI
-// shipped with, so the look is unchanged off-Omarchy.
-const { accentColor, dimColor } = omarchyPalette
-  ? { accentColor: chalk.hex(omarchyPalette.accent), dimColor: chalk.hex(omarchyPalette.yellow) }
-  : { accentColor: chalk.yellowBright, dimColor: chalk.yellow };
+// Two-tone logo: accent for the bright half, accentDim for the other — the
+// active theme on Omarchy, the chalk yellows elsewhere.
+const { accent: accentColor, accentDim: dimColor } = palette;
 
 // Split on the blank column between the A and C glyphs (col 39 of 85) so
 // the seam is OMA | CODE. floor(len/2) = 42 cut through the middle of the C,
@@ -93,7 +90,7 @@ export class LogoHeader implements Component {
     const version = getVersion();
     const subtitlePlain = `>_ OmaCode (v${version})`;
     const subtitleStyled =
-      `>_ ${chalk.bold.yellowBright("OmaCode")} ` +
+      `>_ ${chalk.bold(palette.accent("OmaCode"))} ` +
       chalk.dim(`(v${version})`);
     const subtitleLine = this.centerLine(width, subtitlePlain.length, subtitleStyled);
 

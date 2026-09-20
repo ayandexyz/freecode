@@ -1,5 +1,6 @@
 import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import { logoLines } from "../assets/logo.js";
 import {
   getModelDisplayString,
@@ -10,7 +11,7 @@ import { getRandomTip } from "../utils/tips.js";
 
 const coloredLogoLines = logoLines.map((line) => {
   const mid = Math.floor(line.length / 2);
-  return chalk.yellowBright(line.slice(0, mid)) + chalk.yellow(line.slice(mid));
+  return palette.accent(line.slice(0, mid)) + palette.accentDim(line.slice(mid));
 });
 while (coloredLogoLines.length < 4) {
   coloredLogoLines.push(" ".repeat(34));
@@ -67,7 +68,7 @@ export class ResponsiveInfoBox implements Component {
         `╰${"─".repeat(boxWidth)}╯`,
       ];
       return infoBoxLines.map((line) =>
-        truncateToWidth(chalk.white(line), width),
+        truncateToWidth(palette.fg(line), width),
       );
     }
 
@@ -86,15 +87,15 @@ export class ResponsiveInfoBox implements Component {
       tipDisplay = tipDisplay.slice(0, maxTipLen - 3) + "...";
     }
 
-    const tipsHeader = chalk.bold.yellowBright("Tips and Ticks");
+    const tipsHeader = chalk.bold(palette.accent("Tips and Ticks"));
     const tipsHeaderLen = 14;
 
     const infoBoxLines = [
       `╭${"─".repeat(leftColWidth)}┬${"─".repeat(rightColWidth)}╮`,
       `│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
-      `│${" ".repeat(leftColWidth)}│ >_ ${chalk.bold.yellowBright("FreeCode")} (v${getVersion()})${" ".repeat(Math.max(0, rightColWidth - 16 - getVersion().length))}│`,
-      `│${padL}${coloredLogoLines[0]}${padR}│ /help for help   ${chalk.yellowBright("/model")} to change${" ".repeat(Math.max(0, rightColWidth - 34))}│`,
-      `│${padL}${coloredLogoLines[1]}${padR}│ ${chalk.bold.yellowBright("Directory:")} ${cwdPath}${" ".repeat(Math.max(0, rightColWidth - 12 - cwdPath.length))}│`,
+      `│${" ".repeat(leftColWidth)}│ >_ ${chalk.bold(palette.accent("OmaCode"))} (v${getVersion()})${" ".repeat(Math.max(0, rightColWidth - 16 - getVersion().length))}│`,
+      `│${padL}${coloredLogoLines[0]}${padR}│ /help for help   ${palette.accent("/model")} to change${" ".repeat(Math.max(0, rightColWidth - 34))}│`,
+      `│${padL}${coloredLogoLines[1]}${padR}│ ${chalk.bold(palette.accent("Directory:"))} ${cwdPath}${" ".repeat(Math.max(0, rightColWidth - 12 - cwdPath.length))}│`,
       `│${padL}${coloredLogoLines[2]}${padR}├${"─".repeat(rightColWidth)}┤`,
       `│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
       `│${" ".repeat(leftColWidth)}│ ${tipsHeader}${" ".repeat(Math.max(0, rightColWidth - 15))}│`,
@@ -103,7 +104,7 @@ export class ResponsiveInfoBox implements Component {
       `╰${"─".repeat(leftColWidth)}┴${"─".repeat(rightColWidth)}╯`,
     ];
     return infoBoxLines.map((line) =>
-      truncateToWidth(chalk.white(line), width),
+      truncateToWidth(palette.fg(line), width),
     );
   }
 

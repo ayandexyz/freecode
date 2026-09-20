@@ -1,5 +1,6 @@
 import type { SelectItem, SelectListTheme } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import type {
   ProviderInfo,
   ProviderStatus,
@@ -21,11 +22,11 @@ function statusLabel(provider: ProviderInfo): string {
     provider.status ?? (provider.hasApiKey ? "configured" : "needs-setup");
   switch (status) {
     case "ready":
-      return chalk.green("✓ ready") + chalk.dim(" · anonymous");
+      return palette.green("✓ ready") + chalk.dim(" · anonymous");
     case "signed-in":
-      return chalk.green("✓ signed in");
+      return palette.green("✓ signed in");
     case "configured":
-      return chalk.green("✓ configured");
+      return palette.green("✓ configured");
     case "needs-setup":
       return "not configured";
   }

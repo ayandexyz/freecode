@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { highlight, supportsLanguage } from "cli-highlight";
 import stringWidth from "string-width";
@@ -114,10 +115,10 @@ export function renderDiff(diffText: string, width: number, filename?: string): 
 
     switch (indicator) {
       case "+":
-        formattedLead = chalk.greenBright(lead);
+        formattedLead = palette.brightGreen(lead);
         break;
       case "-":
-        formattedLead = chalk.redBright(lead);
+        formattedLead = palette.brightRed(lead);
         break;
       default:
         formattedLead = chalk.dim(lead);
@@ -134,9 +135,9 @@ export function renderDiff(diffText: string, width: number, filename?: string): 
 
     switch (indicator) {
       case "+":
-        return chalk.bgHex("#143c1a")(paddedRow);
+        return palette.bgDiffAdd(paddedRow);
       case "-":
-        return chalk.bgHex("#4d1419")(paddedRow);
+        return palette.bgDiffDel(paddedRow);
       default:
         return truncatedRow;
     }

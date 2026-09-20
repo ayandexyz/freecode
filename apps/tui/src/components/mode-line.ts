@@ -1,10 +1,11 @@
 import { visibleWidth, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 
-/** Same yellow the /shells card uses for its border, so the two read as one. */
-const SHELLS_CHIP_BG = "#FFD700";
-/** Same cyan the /agents card uses, for the same reason. */
-const AGENTS_CHIP_BG = "#5FD7FF";
+/** Same accent the /shells card uses for its border, so the two read as one. */
+const SHELLS_CHIP_BG = palette.bgAccent;
+/** Same colour the /agents card uses, for the same reason. */
+const AGENTS_CHIP_BG = palette.bgAccent2;
 
 /**
  * ModeLine — the chip row rendered just below the input.
@@ -43,10 +44,10 @@ export class ModeLine implements Component {
     // the agents one.
     let budget = width - 2;
 
-    const chip = (label: string, bg: string, count: number): string => {
+    const chip = (label: string, bg: (text: string) => string, count: number): string => {
       if (count <= 0 || budget < label.length + 2) return "";
       budget -= label.length + 2;
-      return chalk.bgHex(bg)(chalk.bold.black(label)) + "  ";
+      return bg(chalk.bold(palette.onAccent(label))) + "  ";
     };
 
     const shellsText = chip(

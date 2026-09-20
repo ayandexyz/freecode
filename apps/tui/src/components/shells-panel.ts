@@ -6,11 +6,12 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import type { ShellSummary } from "@thisisayande/freecode-shared";
 
 // Card chrome matches ScrollableModal so the two read as one family.
-const ACCENT = "#FFD700";
-const DIM = "#666666";
+const accent = palette.accent;
+const dim = palette.muted;
 const PAD_X = 2;
 /** Top border, blank, separator, blank, hint, bottom border. */
 const CHROME_ROWS = 6;
@@ -39,13 +40,13 @@ function elapsed(shell: ShellSummary): string {
 function statusCell(shell: ShellSummary): string {
   switch (shell.status) {
     case "running":
-      return chalk.green("● running");
+      return palette.green("● running");
     case "completed":
-      return chalk.green(`✔ exit ${shell.exitCode ?? 0}`);
+      return palette.green(`✔ exit ${shell.exitCode ?? 0}`);
     case "killed":
-      return chalk.yellow("■ killed");
+      return palette.yellow("■ killed");
     default:
-      return chalk.red(`✘ exit ${shell.exitCode ?? "?"}`);
+      return palette.red(`✘ exit ${shell.exitCode ?? "?"}`);
   }
 }
 
@@ -137,8 +138,6 @@ export class ShellsPanel implements Component {
   render(width: number): string[] {
     const inner = this.innerWidth(width);
     const bodyWidth = inner - PAD_X * 2;
-    const accent = (s: string): string => chalk.hex(ACCENT)(s);
-    const dim = (s: string): string => chalk.hex(DIM)(s);
     const border = accent("│");
 
     const row = (text: string): string => {

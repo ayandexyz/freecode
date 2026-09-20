@@ -6,6 +6,7 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import { defaultMarkdownTheme } from "../themes.js";
 import type { MessageType } from "./message-types.js";
 import { formatTokenCount } from "../utils/format-tokens.js";
@@ -142,7 +143,7 @@ class InProgressMessage implements Component {
         : (liveUsageTotals?.cacheReadTokens ?? 0);
     const inStr = formatTokenCount(inputTokens);
     const outStr = formatTokenCount(outputTokens);
-    let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${duration})`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
+    let display = `${palette.yellow(this.phrase)}${chalk.dim(` (${duration})`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
     if (cachedTokens > 0) {
       display += ` ${chalk.dim(`cached: ${formatTokenCount(cachedTokens)}`)}`;
     }
@@ -259,7 +260,7 @@ export function createUserMessageComponent(content: string): Component {
         }
         return line;
       })
-      .map((line) => chalk.bgRgb(50, 50, 50)(line))
+      .map((line) => palette.bgSurface(line))
       .join("\n");
   });
   const markdown = new Markdown(displayContent, 2, 0, defaultMarkdownTheme);
@@ -307,7 +308,7 @@ export function createQueuedUserMessageComponent(
         }
         return line;
       })
-      .map((line) => chalk.bgRgb(50, 50, 50)(line))
+      .map((line) => palette.bgSurface(line))
       .join("\n");
   });
   const markdown = new Markdown(displayContent, 2, 0, defaultMarkdownTheme);
@@ -463,7 +464,7 @@ export class ThinkingMessage implements Component {
     if (!this.isDone) {
       const elapsedMs = Date.now() - this.startTime;
       const duration = formatDuration(elapsedMs);
-      header = chalk.yellow(this.isCollapsed ? `▶ Thinking (${duration})...` : `▼ Thinking (${duration})...`);
+      header = palette.yellow(this.isCollapsed ? `▶ Thinking (${duration})...` : `▼ Thinking (${duration})...`);
     } else {
       const elapsedMs = this.endTime ? this.endTime - this.startTime : 0;
       const duration = formatDuration(elapsedMs);
@@ -476,8 +477,8 @@ export class ThinkingMessage implements Component {
       const rawLines = this.content.split("\n");
       for (const line of rawLines) {
         const truncated = truncateToWidth(line, maxContentWidth);
-        const prefix = this.isDone ? chalk.dim("  │") : chalk.dim.yellow("  │");
-        const text = this.isDone ? chalk.dim(truncated) : chalk.dim.yellow(truncated);
+        const prefix = this.isDone ? chalk.dim("  │") : chalk.dim(palette.yellow("  │"));
+        const text = this.isDone ? chalk.dim(truncated) : chalk.dim(palette.yellow(truncated));
         lines.push(`${prefix} ${text}`);
       }
     }

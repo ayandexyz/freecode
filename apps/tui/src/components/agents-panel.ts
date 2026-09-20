@@ -6,12 +6,13 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import type { AgentSummary } from "@thisisayande/freecode-shared";
 
 // Card chrome matches ScrollableModal and the /shells card, a different accent
 // so the two are told apart at a glance.
-const ACCENT = "#5FD7FF";
-const DIM = "#666666";
+const accent = palette.accent2;
+const dim = palette.muted;
 const PAD_X = 2;
 /** Top border, hint, bottom border. */
 const CHROME_ROWS = 3;
@@ -45,8 +46,8 @@ function elapsed(agent: AgentSummary): string {
 function statusCell(agent: AgentSummary): string {
   const text = `${agent.status === "completed" ? "done" : agent.status} ${elapsed(agent)}`;
   return agent.status === "running"
-    ? chalk.hex(ACCENT)(text)
-    : chalk.hex(DIM)(text);
+    ? accent(text)
+    : dim(text);
 }
 
 /**
@@ -121,8 +122,6 @@ export class AgentsPanel implements Component {
   render(width: number): string[] {
     const inner = Math.max(MIN_INNER_WIDTH, width - 2);
     const bodyWidth = inner - PAD_X * 2;
-    const accent = (s: string): string => chalk.hex(ACCENT)(s);
-    const dim = (s: string): string => chalk.hex(DIM)(s);
     const border = accent("│");
 
     const row = (text: string): string => {
@@ -168,7 +167,7 @@ export class AgentsPanel implements Component {
       entry(
         "main",
         running > 0
-          ? chalk.hex(ACCENT)(`${running} running`)
+          ? accent(`${running} running`)
           : dim(this.agents.length > 0 ? "idle" : "no subagents"),
         this.selected === 0,
         0,

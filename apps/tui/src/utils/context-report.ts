@@ -4,6 +4,7 @@
 // =============================================================================
 
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import type {
   ContextBreakdown,
   ContextSegmentId,
@@ -28,21 +29,12 @@ const MIN_LEGEND_WIDTH = 26;
  * Hex rather than the 16-color names: several categories are neighbours in the
  * legend and the basic palette does not have enough distinguishable hues.
  */
-const SEGMENT_COLORS: Record<ContextSegmentId, string> = {
-  "system-prompt": "#d78700",
-  "project-instructions": "#5fafff",
-  skills: "#00afaf",
-  "memory-guidance": "#af87ff",
-  tools: "#ff5f87",
-  "mcp-tools": "#ff875f",
-  "compaction-summary": "#87875f",
-  memories: "#af5fff",
-  todos: "#5fd75f",
-  "project-context": "#00d7af",
-  messages: "#ffd75f",
-};
+const SEGMENT_COLORS: Record<ContextSegmentId, string> = palette.segments as Record<
+  ContextSegmentId,
+  string
+>;
 
-const FREE_COLOR = "#585858";
+const FREE_COLOR = palette.segmentFree;
 
 /**
  * Hand out `totalCells` among the segments in proportion to their tokens.

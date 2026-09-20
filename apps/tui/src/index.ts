@@ -20,6 +20,7 @@ import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Input, type Component } from "@earendil-works/pi-tui";
 import { Loader, Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "./palette.js";
 import { defaultEditorTheme, MODE_COLORS } from "./themes.js";
 import {
   getRandomElapsedPhrase,
@@ -429,10 +430,10 @@ tui.setFocus(editor);
 
 const defaultSelectListTheme: SelectListTheme = {
   selectedPrefix: (text) => `> ${text}`,
-  selectedText: (text) => chalk.cyanBright(text),
+  selectedText: (text) => palette.brightCyan(text),
   description: (text) => chalk.dim(text),
   scrollInfo: (text) => chalk.dim(text),
-  noMatch: (text) => chalk.red(text),
+  noMatch: (text) => palette.red(text),
 };
 
 function updateModelDisplay(): void {
@@ -1841,7 +1842,7 @@ async function submitPrompt(
   // for a queued_user row at the same position (see the result handling
   // below) so the user sees one row, not two.
   const userMsg = createUserMessage(
-    `**${chalk.red("You")}:** ${displayText ?? promptText}`,
+    `**${palette.red("You")}:** ${displayText ?? promptText}`,
   );
   // Seed ↓ with a live input estimate so it isn't 0 while streaming: prior
   // accumulated context plus this prompt (~4 chars/token). Input is fixed at
@@ -2450,7 +2451,7 @@ let compactionLoader: Loader | null = null;
 
 function showCompactionLoader(label: string): void {
   hideCompactionLoader();
-  compactionLoader = new Loader(tui, chalk.cyan, chalk.dim, label);
+  compactionLoader = new Loader(tui, palette.cyan, chalk.dim, label);
   tui.children.splice(tui.children.indexOf(editor), 0, compactionLoader);
   compactionLoader.start();
   tui.requestRender();
@@ -2528,7 +2529,7 @@ function showCopiedIndicator(charCount: number, truncated: boolean): void {
 // away from the bottom. No border, no fill — just the glyph.
 const jumpModal = new NoticeModal("▼", 0, {
   fill: false,
-  color: chalk.yellowBright,
+  color: palette.accent,
   padX: 0,
 });
 const jumpOptions = {

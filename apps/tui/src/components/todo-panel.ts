@@ -4,6 +4,7 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 
 export type TodoPanelStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 
@@ -17,11 +18,11 @@ export interface TodoPanelItem {
 const MAX_ROWS = 14;
 
 const MARKS: Record<TodoPanelStatus, string> = {
-  completed: chalk.green("✔"),
-  cancelled: chalk.gray("✘"),
-  blocked: chalk.red("!"),
-  in_progress: chalk.yellow("▸"),
-  pending: chalk.gray("○"),
+  completed: palette.green("✔"),
+  cancelled: palette.muted("✘"),
+  blocked: palette.red("!"),
+  in_progress: palette.yellow("▸"),
+  pending: palette.muted("○"),
 };
 
 /**
@@ -76,7 +77,7 @@ export class TodoPanel implements Component {
         it.status === "completed" || it.status === "cancelled"
           ? chalk.dim.strikethrough(it.content)
           : it.status === "in_progress"
-            ? chalk.white(it.content)
+            ? palette.fg(it.content)
             : it.content;
       lines.push(this.row(`${MARKS[it.status]} ${label}`, boxWidth));
     }

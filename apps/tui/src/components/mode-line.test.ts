@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import chalk from "chalk";
 import { ModeLine } from "./mode-line.js";
+import { palette } from "../palette.js";
 
 // ModeLine paints through the DEFAULT chalk instance, which auto-detects and
 // lands on level 0 under the test runner — themes.ts forces level 3 for its own
@@ -20,6 +21,17 @@ function line(running: number, width = 100, agents = 0): string {
 
 const strip = (s: string): string => s.replace(ANSI, "");
 
+// The chips paint with whatever the palette resolved (the Omarchy theme on
+// Omarchy, fixed hexes elsewhere), so assert on the palette's own escape
+// rather than a literal colour.
+const bgCode = (paint: (t: string) => string): string => {
+  const code = paint("x").match(/^\u001b\[48;2;\d+;\d+;\d+m/)?.[0];
+  assert.ok(code, "palette background did not produce a truecolor escape");
+  return code;
+};
+const SHELLS_BG = bgCode(palette.bgAccent);
+const AGENTS_BG = bgCode(palette.bgAccent2);
+
 test("shows a /shells chip with the running count, right-aligned", () => {
   const rendered = strip(line(2));
   assert.match(rendered, /\/shells \(2\)/);
@@ -34,7 +46,7 @@ test("no chip when nothing is running", () => {
 test("the chip is painted, not plain text", () => {
   // The point of the chip is that it is visible at a glance; if the background
   // escape ever gets dropped it degrades to unnoticeable dim text.
-  assert.match(line(1), /\u001b\[48;2;255;215;0m/);
+  assert.ok(line(1).includes(SHELLS_BG));
 });
 
 test("the chip is width-neutral: it never lengthens the line", () => {
@@ -65,8 +77,9 @@ test("no /agents chip when nothing is delegating", () => {
   assert.doesNotMatch(strip(line(0, 100, 0)), /\/agents/);
 });
 
-test("the /agents chip is painted in its own colour, not the shells yellow", () => {
-  assert.match(line(0, 100, 1), /\u001b\[48;2;95;215;255m/);
+test("the /agents chip is painted in its own colour, not the shells accent", () => {
+  assert.notEqual(AGENTS_BG, SHELLS_BG);
+  assert.ok(line(0, 100, 1).includes(AGENTS_BG));
 });
 
 test("both chips fit together, agents outside shells", () => {

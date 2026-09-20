@@ -1,5 +1,6 @@
 import { Key, matchesKey, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import type { EffortLevel } from "@thisisayande/freecode-shared";
 
 export const EFFORT_LEVELS: EffortLevel[] = [
@@ -65,7 +66,7 @@ export class EffortPicker implements Component {
     const trackChars = Array<string>(w).fill("─");
     trackChars[Math.min(w - 1, centerOf(this.index))] = "▲";
     const track = trackChars
-      .map((ch, i) => (i === centerOf(this.index) ? chalk.yellow(ch) : chalk.dim(ch)))
+      .map((ch, i) => (i === centerOf(this.index) ? palette.yellow(ch) : chalk.dim(ch)))
       .join("");
 
     const chars = Array<string>(w).fill(" ");
@@ -85,7 +86,7 @@ export class EffortPicker implements Component {
     const flush = () => {
       if (!run) return;
       styledLabelLine += runSelected
-        ? chalk.yellowBright.bold(run)
+        ? chalk.bold(palette.accent(run))
         : chalk.dim(run);
       run = "";
     };

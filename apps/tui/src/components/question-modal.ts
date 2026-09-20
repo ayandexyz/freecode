@@ -6,15 +6,16 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import type { QuestionSpec } from "@thisisayande/freecode-shared";
 
-// Card colors. Yellow accent matches the app theme (MODE_COLORS build/#FFD700).
-const ACCENT = "#FFD700";
-// The card itself is transparent; INPUT_BG is the only fill left, marking the
+// Card colors follow the app accent (same as MODE_COLORS build). The card
+// itself is transparent; the input surface is the only fill left, marking the
 // inline "Other" field as an editable box.
-const INPUT_BG = "#37373E";
-const DIM = "#666666";
-const MARKER = "#FFD700";
+const accent = palette.accent;
+const dim = palette.muted;
+const marker = palette.accent;
+const inputBg = palette.bgSurface;
 
 // Card geometry. Inner width is the space between the two `│` borders; the
 // option content is laid out against this. The card width is hard-capped so
@@ -165,8 +166,6 @@ export class QuestionModal implements Component {
     // Clamp the inner width so a narrow terminal still renders cleanly.
     const inner = Math.max(4, width - 2);
 
-    const accent = (s: string): string => chalk.hex(ACCENT)(s);
-    const dim = (s: string): string => chalk.hex(DIM)(s);
     const left = accent("│");
     const right = accent("│");
 
@@ -180,7 +179,7 @@ export class QuestionModal implements Component {
     const tail = counter
       ? accent("─") +
         dim("[") +
-        chalk.hex(ACCENT)(counter.slice(1, -1)) +
+        accent(counter.slice(1, -1)) +
         dim("]") +
         accent("─╮")
       : accent("╮");
@@ -277,11 +276,11 @@ export class QuestionModal implements Component {
         continue;
       }
 
-      const marker = chalk.hex(MARKER)(active ? "❯" : " ");
+      const markerGlyph = marker(active ? "❯" : " ");
       const number = dim(`${i + 1}.`).padEnd(3);
-      const prefix = `${marker} ${number} `;
+      const prefix = `${markerGlyph} ${number} `;
       const prefixWidth = visibleWidth(prefix);
-      const labelColorFn = active ? chalk.hex("#FFFFFF") : chalk.hex("#888888");
+      const labelColorFn = active ? palette.fgBright : palette.muted;
 
       // Wrap the label to the card width instead of truncating with "…".
       // Continuation lines align under the label, not the marker/number.
@@ -309,7 +308,7 @@ export class QuestionModal implements Component {
   /**
    * Inline "Other" text field. Placeholder ("type your answer…") when empty,
    * the typed text otherwise, with a block cursor at the end. The whole
-   * field sits on the lighter INPUT_BG so it reads as a raised input box.
+   * field sits on the lighter surface so it reads as a raised input box.
    * Emits CURSOR_MARKER at the cursor position so pi-tui can place the
    * hardware cursor for IME use.
    *
@@ -317,9 +316,8 @@ export class QuestionModal implements Component {
    * edge — the card can't grow sideways, so the field grows downwards.
    */
   private renderOtherField(inner: number, left: string, right: string): string[] {
-    const inputBg = (s: string): string => chalk.bgHex(INPUT_BG)(s);
-    const prompt = chalk.hex(MARKER)("›");
-    const cursor = chalk.hex(MARKER)("▏");
+    const prompt = marker("›");
+    const cursor = marker("▏");
 
     // Every row is: left-border + "  " + ("› " | "  ") + text + padding +
     // right-border. The 2-col leading indent matches the tui-rs offset, and
@@ -328,7 +326,7 @@ export class QuestionModal implements Component {
     const textWidth = Math.max(1, inner - 4);
     const empty = this.otherText.length === 0;
     const textLines = empty
-      ? [chalk.hex("#555555")("type your answer…")]
+      ? [palette.muted("type your answer…")]
       : wrapTextWithAnsi(this.otherText, textWidth);
 
     const fieldRows = textLines.map((line, idx) => {
