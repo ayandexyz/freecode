@@ -15,7 +15,7 @@ const chalk = new Chalk({ level: 3 });
 type Paint = (text: string) => string;
 
 /** Mix `amount` of `over` into `base`; both `#rrggbb`. */
-function mix(base: string, over: string, amount: number): string {
+export function mix(base: string, over: string, amount: number): string {
   const ch = (hex: string, i: number): number => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
   const blend = (i: number): string =>
     Math.round(ch(base, i) * (1 - amount) + ch(over, i) * amount)
@@ -80,6 +80,13 @@ export interface Palette {
     attr: Paint;
     default: Paint;
   };
+
+  /**
+   * In-progress phrase shimmer (see `utils/shimmer.ts`): the resting tone
+   * and the highlight that sweeps across it. Hex strings, since the band
+   * is blended per character.
+   */
+  shimmer: { base: string; glow: string };
 
   /** Context-usage report segments, hex strings (the grid needs enough hues). */
   segments: Record<string, string>;
@@ -148,6 +155,7 @@ function defaultPalette(): Palette {
       messages: "#ffd75f",
     },
     segmentFree: "#585858",
+    shimmer: { base: "#8a8a8a", glow: "#ffffff" },
   };
 }
 
@@ -214,6 +222,10 @@ function omarchyThemedPalette(t: NonNullable<typeof omarchyPalette>): Palette {
       messages: t.bright_yellow,
     },
     segmentFree: t.muted,
+    shimmer: {
+      base: mix(t.foreground, t.muted, 0.5),
+      glow: t.bright_foreground,
+    },
   };
 }
 

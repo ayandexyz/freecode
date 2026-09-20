@@ -108,7 +108,9 @@ export class VirtualMessageList implements Component {
   }
 
   /**
-   * Schedule a tick interval if an in-progress message exists
+   * Schedule a tick interval if an in-progress message exists. The row's
+   * phrase shimmers (utils/shimmer.ts), which needs ~10 frames a second to
+   * read as motion; the elapsed timer would have been happy with one.
    */
   private scheduleTick(): void {
     if (!this.inProgressMessage) return;
@@ -123,7 +125,7 @@ export class VirtualMessageList implements Component {
       this.invalidate();
       // Reschedule if in-progress message still exists
       this.scheduleTick();
-    }, 1000);
+    }, 100);
   }
 
   /** Rows available for message content when scrolled (one row is reserved for the indicator). */

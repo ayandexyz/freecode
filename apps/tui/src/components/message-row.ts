@@ -11,6 +11,7 @@ import { defaultMarkdownTheme } from "../themes.js";
 import type { MessageType } from "./message-types.js";
 import { formatTokenCount } from "../utils/format-tokens.js";
 import { formatDuration, formatDurationSeconds } from "../utils/format-duration.js";
+import { shimmer } from "../utils/shimmer.js";
 
 // Live output-token estimate for the streaming turn, fed from the streamed
 // text length in index.ts (see setLiveOutputTokens). Used by the in-progress
@@ -143,7 +144,7 @@ class InProgressMessage implements Component {
         : (liveUsageTotals?.cacheReadTokens ?? 0);
     const inStr = formatTokenCount(inputTokens);
     const outStr = formatTokenCount(outputTokens);
-    let display = `${palette.yellow(this.phrase)}${chalk.dim(` (${duration})`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
+    let display = `${shimmer(this.phrase)}${chalk.dim(` (${duration})`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
     if (cachedTokens > 0) {
       display += ` ${chalk.dim(`cached: ${formatTokenCount(cachedTokens)}`)}`;
     }
