@@ -4,6 +4,7 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import { STATUS_BAR_BG } from "../themes.js";
 
 /** Blank columns between the text and the modal's left/right edges. */
@@ -54,7 +55,7 @@ export class NoticeModal implements Component {
     const inner = Math.max(1, width - padX * 2 - (this.options.border ? 2 : 0));
     const pad = " ".repeat(padX);
     const bare = this.options.border || this.options.fill === false;
-    const color = this.options.color ?? chalk.whiteBright;
+    const color = this.options.color ?? palette.fgBright;
     const content = wrapTextWithAnsi(this.message, inner).map((line) => {
       const fill = " ".repeat(Math.max(0, inner - visibleWidth(line)));
       const styled = color(`${pad}${line}${fill}${pad}`);

@@ -6,6 +6,7 @@ import {
   truncateToWidth,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 
 export interface ToolProgressMessageOptions {
   toolCallId: string;
@@ -16,15 +17,15 @@ export interface ToolProgressMessageOptions {
 
 // Color mapping for different tools
 const TOOL_COLORS: Record<string, (text: string) => string> = {
-  Read: (t) => chalk.blue(t),
-  Write: (t) => chalk.green(t),
-  Edit: (t) => chalk.yellow(t),
-  Bash: (t) => chalk.red(t),
-  Glob: (t) => chalk.cyan(t),
-  Grep: (t) => chalk.magenta(t),
-  Skill: (t) => chalk.white(t),
-  Agent: (t) => chalk.white(t),
-  Memory: (t) => chalk.magenta(t),
+  Read: (t) => palette.blue(t),
+  Write: (t) => palette.green(t),
+  Edit: (t) => palette.yellow(t),
+  Bash: (t) => palette.red(t),
+  Glob: (t) => palette.cyan(t),
+  Grep: (t) => palette.magenta(t),
+  Skill: (t) => palette.fg(t),
+  Agent: (t) => palette.fg(t),
+  Memory: (t) => palette.magenta(t),
 };
 
 // One shared ticker drives every in-flight tool's spinner. Each component
@@ -119,7 +120,7 @@ export class ToolProgressMessage implements Component {
 
     // Header line: [spinner] ToolName (args)
     const headerWidth = Math.max(20, width - 3);
-    let header = `${chalk.dim("[")}${chalk.yellow(spinner)}${chalk.dim("]")} ${colorFn(this.toolName)} ${chalk.dim("(")}${argsStr}${chalk.dim(")")}`;
+    let header = `${chalk.dim("[")}${palette.yellow(spinner)}${chalk.dim("]")} ${colorFn(this.toolName)} ${chalk.dim("(")}${argsStr}${chalk.dim(")")}`;
     header = truncateToWidth(header, headerWidth);
     lines.push(header);
 
@@ -150,7 +151,7 @@ export class ToolProgressMessage implements Component {
           /\s*\n\s*/g,
           " ",
         );
-        return `${k}: ${chalk.green(truncate(vStr))}`;
+        return `${k}: ${palette.green(truncate(vStr))}`;
       })
       .join(", ");
 

@@ -1,6 +1,7 @@
 import { Editor, getKeybindings, matchesKey, type TUI } from "@earendil-works/pi-tui";
 import type { EditorTheme } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 
 /** Image data from clipboard */
 export interface PendingImage {
@@ -111,7 +112,7 @@ export function stripImageTokens(text: string): string {
 function highlightMentions(text: string): string {
   // Match @ followed by word characters, path separators, dots, etc.
   // This captures: @filename, @path/to/file, @file.ts, etc.
-  return text.replace(/(@[^\s]+)/g, (match) => chalk.yellow(match));
+  return text.replace(/(@[^\s]+)/g, (match) => palette.yellow(match));
 }
 
 /** Split a rendered line into alternating escape-sequence and plain-text runs. */
@@ -167,7 +168,7 @@ function styleImageTokens(line: string): string {
       let j = i + 1;
       while (j < part.text.length && inToken[col + j] === inside) j++;
       const run = part.text.slice(i, j);
-      out += inside && !underCursor ? chalk.black.bgYellow(run) : run;
+      out += inside && !underCursor ? palette.bgSelection(palette.fgSelection(run)) : run;
       i = j;
     }
     col += part.text.length;

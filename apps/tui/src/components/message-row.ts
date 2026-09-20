@@ -6,10 +6,12 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import { defaultMarkdownTheme } from "../themes.js";
 import type { MessageType } from "./message-types.js";
 import { formatTokenCount } from "../utils/format-tokens.js";
 import { formatDuration, formatDurationSeconds } from "../utils/format-duration.js";
+import { shimmer } from "../utils/shimmer.js";
 
 // Live output-token estimate for the streaming turn, fed from the streamed
 // text length in index.ts (see setLiveOutputTokens). Used by the in-progress
@@ -84,14 +86,11 @@ export function resetLiveUsageTotals(): void {
 
 /**
  * In-progress message component with live timer and token counts.
- * Renders "phrase (Xs) ↓inputTokens ↑outputTokens [████░░░░░ 50k/200k]"
+ * Renders "phrase (Xs) ↓inputTokens ↑outputTokens (xN)"
  * Output tokens track the live streamed-text estimate until the final usage
  * arrives; input tokens show the real value once known (0 while streaming).
- *
- * ↓/↑ are run totals (billed tokens summed over every turn), while the meter
- * shows context *occupancy* — what the provider saw on the latest request.
- * They are different quantities, so the meter takes `contextTokens` rather
- * than deriving itself from the run totals.
+ * ↓/↑ are run totals (billed tokens summed over every turn); context
+ * occupancy lives in the /context overlay, not on this row.
  */
 class InProgressMessage implements Component {
   private phrase: string;
@@ -142,27 +141,11 @@ class InProgressMessage implements Component {
         : (liveUsageTotals?.cacheReadTokens ?? 0);
     const inStr = formatTokenCount(inputTokens);
     const outStr = formatTokenCount(outputTokens);
-    let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${duration})`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
+    let display = `${shimmer(this.phrase)}${chalk.dim(` (${duration})`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
     if (cachedTokens > 0) {
       display += ` ${chalk.dim(`cached: ${formatTokenCount(cachedTokens)}`)}`;
     }
     display += ` ${chalk.dim(`(x${this.turns})`)}`;
-
-    if (this.contextLimit > 0) {
-      // Generated output is not part of the request that was just sent, so it
-      // never counts toward occupancy; without an explicit value fall back to
-      // the same estimate the final summary line uses (input + cache reads).
-      const contextTokens =
-        this.contextTokens ?? this.baseInputTokens + this.cachedTokens;
-      const pct = Math.min(contextTokens / this.contextLimit, 1);
-      const barWidth = Math.min(10, Math.max(3, Math.floor(width / 12)));
-      const filled = Math.round(pct * barWidth);
-      const empty = barWidth - filled;
-      const bar = "█".repeat(filled) + "░".repeat(empty);
-      const current = formatTokenCount(contextTokens);
-      const limit = formatTokenCount(this.contextLimit);
-      display += ` ${chalk.dim(`[${bar} ${current}/${limit}]`)}`;
-    }
 
     // Always use a reasonable max width to ensure fit on all screens
     // 80 is safe minimum, but use actual width if reasonable
@@ -259,7 +242,7 @@ export function createUserMessageComponent(content: string): Component {
         }
         return line;
       })
-      .map((line) => chalk.bgRgb(50, 50, 50)(line))
+      .map((line) => palette.bgSurface(line))
       .join("\n");
   });
   const markdown = new Markdown(displayContent, 2, 0, defaultMarkdownTheme);
@@ -307,7 +290,7 @@ export function createQueuedUserMessageComponent(
         }
         return line;
       })
-      .map((line) => chalk.bgRgb(50, 50, 50)(line))
+      .map((line) => palette.bgSurface(line))
       .join("\n");
   });
   const markdown = new Markdown(displayContent, 2, 0, defaultMarkdownTheme);
@@ -463,7 +446,7 @@ export class ThinkingMessage implements Component {
     if (!this.isDone) {
       const elapsedMs = Date.now() - this.startTime;
       const duration = formatDuration(elapsedMs);
-      header = chalk.yellow(this.isCollapsed ? `▶ Thinking (${duration})...` : `▼ Thinking (${duration})...`);
+      header = palette.yellow(this.isCollapsed ? `▶ Thinking (${duration})...` : `▼ Thinking (${duration})...`);
     } else {
       const elapsedMs = this.endTime ? this.endTime - this.startTime : 0;
       const duration = formatDuration(elapsedMs);
@@ -476,8 +459,8 @@ export class ThinkingMessage implements Component {
       const rawLines = this.content.split("\n");
       for (const line of rawLines) {
         const truncated = truncateToWidth(line, maxContentWidth);
-        const prefix = this.isDone ? chalk.dim("  │") : chalk.dim.yellow("  │");
-        const text = this.isDone ? chalk.dim(truncated) : chalk.dim.yellow(truncated);
+        const prefix = this.isDone ? chalk.dim("  │") : chalk.dim(palette.yellow("  │"));
+        const text = this.isDone ? chalk.dim(truncated) : chalk.dim(palette.yellow(truncated));
         lines.push(`${prefix} ${text}`);
       }
     }

@@ -1,5 +1,6 @@
 import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import { MODE_BG_COLORS, STATUS_BAR_BG } from "../themes.js";
 import { getModelDisplayString } from "../utils/display.js";
 import { formatTokenCount } from "../utils/format-tokens.js";
@@ -39,10 +40,10 @@ export class StatusHeader implements Component {
     const filled = Math.round(clamped * BAR_WIDTH);
     const color =
       clamped < 0.5
-        ? chalk.greenBright
+        ? palette.brightGreen
         : clamped < 0.8
-          ? chalk.yellowBright
-          : chalk.redBright;
+          ? palette.brightYellow
+          : palette.brightRed;
     const bar = color("█".repeat(filled)) + chalk.dim("░".repeat(BAR_WIDTH - filled));
     return `[${bar}]`;
   }
@@ -51,7 +52,7 @@ export class StatusHeader implements Component {
     if (!this.getVisible()) return [];
 
     const mode = this.getMode();
-    const badge = MODE_BG_COLORS[mode](chalk.bold.black(` ${mode.toUpperCase()} `));
+    const badge = MODE_BG_COLORS[mode](chalk.bold(palette.onAccent(` ${mode.toUpperCase()} `)));
     const badgePlain = mode.length + 2;
 
     const modelStr = getModelDisplayString(this.getProvider(), this.getModel());

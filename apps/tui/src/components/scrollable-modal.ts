@@ -6,11 +6,12 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 
 // Card colors. Accent matches QuestionModal; unlike that card this one is
 // transparent — the border and text sit straight on the transcript.
-const ACCENT = "#FFD700";
-const DIM = "#666666";
+const accent = palette.accent;
+const dim = palette.muted;
 
 /** Blank columns between the content and the card's side borders. */
 const PAD_X = 2;
@@ -101,8 +102,6 @@ export class ScrollableModal implements Component {
     const bodyWidth = inner - PAD_X * 2;
     const content = this.renderContent(bodyWidth);
 
-    const accent = (s: string): string => chalk.hex(ACCENT)(s);
-    const dim = (s: string): string => chalk.hex(DIM)(s);
     const border = accent("│");
 
     const viewport = this.viewportRows();

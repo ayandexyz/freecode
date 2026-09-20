@@ -1,5 +1,6 @@
 import { Component, truncateToWidth } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import { ToolResultMessage, type ToolResultMessageOptions } from "./tool-result-message.js";
 import type { ToolProgressMessage } from "./tool-progress-message.js";
 import { formatDuration } from "../utils/format-duration.js";
@@ -142,11 +143,11 @@ export class ToolGroupMessage implements Component {
     }
 
     const failed = this.entries.filter((e) => !e.success).length;
-    const icon = failed > 0 ? chalk.red("✖") : chalk.green("●");
+    const icon = failed > 0 ? palette.red("✖") : palette.green("●");
     const caret = chalk.dim(expanded ? "▼ " : "▶ ");
     let summary = `${caret}${icon} ${this.summaryText()}`;
     if (failed > 0) {
-      summary += ` ${chalk.red(`(${failed} failed)`)}`;
+      summary += ` ${palette.red(`(${failed} failed)`)}`;
     }
     const total = this.entries.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0);
     if (total > 0) {

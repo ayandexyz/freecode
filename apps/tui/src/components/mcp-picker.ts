@@ -1,13 +1,14 @@
 import type { SelectItem, SelectListTheme } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { palette } from "../palette.js";
 import type { McpServerStatus } from "../ipc/client.js";
 import { SearchableSelectList } from "./searchable-select-list.js";
 
 export function statusLabel(server: McpServerStatus): string {
   if (!server.enabled) return chalk.dim("○ disabled");
   return server.status === "connected"
-    ? chalk.green(`✔ connected · ${server.toolCount} tools`)
-    : chalk.yellow("○ not connected");
+    ? palette.green(`✔ connected · ${server.toolCount} tools`)
+    : palette.yellow("○ not connected");
 }
 
 export function createMcpSelector(

@@ -2,21 +2,32 @@ import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { logoLines } from "../assets/logo.js";
 import { getDisplayDirectory, getVersion } from "../utils/display.js";
+import { palette } from "../palette.js";
 
-// Two-tone yellow to match the existing info-box logo treatment.
+// Two-tone logo: accent for the bright half, accentDim for the other — the
+// active theme on Omarchy, the chalk yellows elsewhere.
+const { accent: accentColor, accentDim: dimColor } = palette;
+
+// Split on the blank column between the A and C glyphs (col 39 of 85) so
+// the seam is OMA | CODE. floor(len/2) = 42 cut through the middle of the C,
+// leaving that one letter two-toned.
+const COLOR_SPLIT = 39;
+
 const coloredLogoLines = logoLines.map((line) => {
-  const mid = Math.floor(line.length / 2);
-  return chalk.yellowBright(line.slice(0, mid)) + chalk.yellow(line.slice(mid));
+  return accentColor(line.slice(0, COLOR_SPLIT)) + dimColor(line.slice(COLOR_SPLIT));
 });
 
-const LOGO_WIDTH = 34;
+const LOGO_WIDTH = 85;
+
+/** Blank rows rendered above the logo. */
+const TOP_PADDING = 4;
 
 /** "-1" sentinel from the index.ts cache means "not loaded yet". */
 const PENDING = "…";
 
 /**
- * Pinned top-of-TUI logo header. Renders the FreeCode logo (centered, two-tone
- * yellow) with the `>_ FreeCode (vX.Y.Z)` subtitle, a compact stats line
+ * Pinned top-of-TUI logo header. Renders the OmaCode logo (centered, two-tone
+ * yellow) with the `>_ OmaCode (vX.Y.Z)` subtitle, a compact stats line
  * (tools + MCP counts) and a directory line — all centered and in yellow.
  *
  * Tool/MCP counts come from accessor functions so the parent can cache them
@@ -77,12 +88,12 @@ export class LogoHeader implements Component {
     const indent = " ".repeat(padLeft);
     const rightPad = " ".repeat(padRight);
 
-    // Subtitle: `>_ FreeCode (vX.Y.Z)` — plain + styled built separately so the
+    // Subtitle: `>_ OmaCode (vX.Y.Z)` — plain + styled built separately so the
     // centered pad math matches the visible width.
     const version = getVersion();
-    const subtitlePlain = `>_ FreeCode (v${version})`;
+    const subtitlePlain = `>_ OmaCode (v${version})`;
     const subtitleStyled =
-      `>_ ${chalk.bold.yellowBright("FreeCode")} ` +
+      `>_ ${chalk.bold(palette.accent("OmaCode"))} ` +
       chalk.dim(`(v${version})`);
     const subtitleLine = this.centerLine(width, subtitlePlain.length, subtitleStyled);
 
@@ -104,10 +115,14 @@ export class LogoHeader implements Component {
     const dirStyled = chalk.dim("Directory:") + ` ${cwd}`;
     const dirLine = this.centerLine(width, dirPlain.length, dirStyled);
 
+    // Breathing room above the logo so it does not sit flush against the
+    // status bar.
+    const topPad = Array.from({ length: TOP_PADDING }, () => "");
+
     const lines = [
-      `${indent}${coloredLogoLines[0]}${rightPad}`,
-      `${indent}${coloredLogoLines[1]}${rightPad}`,
-      `${indent}${coloredLogoLines[2]}${rightPad}`,
+      ...topPad,
+      ...coloredLogoLines.map((logoLine) => `${indent}${logoLine}${rightPad}`),
+      "", // gap between the logo and its subtitle
       subtitleLine,
       statsLine,
       dirLine,

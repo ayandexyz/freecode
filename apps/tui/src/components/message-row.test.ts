@@ -18,7 +18,7 @@ function renderRow(
   return stripAnsi(createInProgressMessageComponent(...args).render(200).at(-1)!);
 }
 
-test("context meter reports occupancy, not the input/output run totals", () => {
+test("in-progress row shows run totals and cache reads, no context meter", () => {
   resetLiveOutputTokens();
   const line = renderRow(
     "Simmering",
@@ -33,35 +33,8 @@ test("context meter reports occupancy, not the input/output run totals", () => {
 
   assert.match(line, /↓1\.4M/);
   assert.match(line, /↑50\.0k/);
-  assert.match(line, /150\.0k\/200\.0k/);
-});
-
-test("streamed output does not inflate the context meter", () => {
-  resetLiveOutputTokens();
-  setLiveOutputTokens(30_000);
-  const line = renderRow(
-    "Simmering",
-    Date.now(),
-    100_000,
-    0,
-    200_000,
-    1,
-    0,
-    100_000,
-  );
-
-  assert.match(line, /↑30\.0k/);
-  assert.match(line, /100\.0k\/200\.0k/);
-  resetLiveOutputTokens();
-});
-
-test("without an explicit occupancy the meter falls back to input + cache reads", () => {
-  resetLiveOutputTokens();
-  setLiveOutputTokens(7_000);
-  const line = renderRow("Simmering", Date.now(), 10_000, 0, 200_000, 1, 5_000);
-
-  assert.match(line, /15\.0k\/200\.0k/);
-  resetLiveOutputTokens();
+  assert.match(line, /cached: 20\.0k/);
+  assert.doesNotMatch(line, /200\.0k/);
 });
 
 // Box calls the Box bgFn once per rendered line, so a formatter that checks
