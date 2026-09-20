@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.36.0
+
+A TUI-only release: the terminal UI follows the Omarchy theme, and the in-progress row gets the Claude Code shimmer. Nothing in `apps/core` changed, so the eval gate was not run; `apps/tui` tests are 262/262.
+
+### Added
+
+- **Omarchy-aware palette** (`f64b2f7`, `db93300`, `8f7168e`, `3ac29c2`). `utils/omarchy-theme.ts` resolves the active Omarchy theme's `colors.toml` in one call and `palette.ts` maps it onto semantic names (`accent`, `muted`, `fg`, the eight ANSI hues, chip/diff backgrounds, syntax colours). Every component paints through the palette — no `chalk.yellow` / `chalk.hex` left in components — so on Omarchy the whole TUI follows the theme and everywhere else the look is the chalk defaults it shipped with.
+- **Shimmer on the working phrase** (`3c90418`, `utils/shimmer.ts`). The in-progress row's phrase ("Pondering", …) is painted in a resting tone with a soft highlight sweeping left to right, Claude Code style. Theme-aware (`palette.shimmer`), band position derived from the clock so it needs no timer of its own; the message list's in-progress tick is 100 ms instead of 1 s while the row is on screen.
+
+### Changed
+
+- **Logo is OmaCode** (`bb7d4e9`, `9daee81`, `56b5770`, `a622df5`), themed off Omarchy's accent, with breathing room above it and between it and the `>_ OmaCode (vX)` line.
+- **In-progress row drops the context meter** (`d0b3a72`). It reads `phrase (Ns) ↓in ↑out cached: N (xN)`; context occupancy lives in the `/context` overlay.
+
 ## v0.35.0
 
 The pi parity release plus two harness fixes found by folding the rollout logs. Six pi features land: mid-turn steering, a prompt-cache warmer, an in-place session tree with `/tree`, fuzzy edit matching, in-process TypeScript extensions, and `!cmd` / Ctrl+G / `SYSTEM.md` ergonomics (spec `docs/specs/2026-09-20-pi-parity-plan.md`). The todo nudge was writing the todo lists — 45% of first lists in 2,553 sessions were made on the exact turn the harness asked — and is now at Claude Code's 10/10 with its wording. Auto-poke no longer sends a read-only turn back to work and gives a prose-only reply one harder re-poke. Release gate: trajectory 24/24 open, coding 12/12 open; judged ran but the Gemini judge was out of quota, so it graded nothing (re-run before the next release).
