@@ -11,12 +11,16 @@ const { accentColor, dimColor } = omarchyPalette
   ? { accentColor: chalk.hex(omarchyPalette.accent), dimColor: chalk.hex(omarchyPalette.yellow) }
   : { accentColor: chalk.yellowBright, dimColor: chalk.yellow };
 
+// All logo lines are 90 cols; the rightmost glyph is the `C` of OMACODE
+// spanning cols 79..87. Cutting at 83 splits the `C` itself, so the seam
+// reads as half-accent / half-dim through that one character.
+const COLOR_SPLIT = 83;
+
 const coloredLogoLines = logoLines.map((line) => {
-  const mid = Math.floor(line.length / 2);
-  return accentColor(line.slice(0, mid)) + dimColor(line.slice(mid));
+  return accentColor(line.slice(0, COLOR_SPLIT)) + dimColor(line.slice(COLOR_SPLIT));
 });
 
-const LOGO_WIDTH = 85;
+const LOGO_WIDTH = 90;
 
 /** "-1" sentinel from the index.ts cache means "not loaded yet". */
 const PENDING = "…";
