@@ -52,6 +52,7 @@ import {
   failActiveStream,
   sessionStop,
   sessionDequeue,
+  callTool,
   sessionTree,
   sessionNavigate,
   sessionFork,
@@ -628,6 +629,54 @@ async function showTreePicker(): Promise<void> {
   tui.children.splice(editorIdx + 1, 0, treeSelector);
   tui.setFocus(treeSelector);
   tui.requestRender();
+}
+
+async function runBangCommand(command: string, send: boolean): Promise<void> {
+  showMessage(`\`$ ${command}\``);
+  let output: string;
+  try {
+    const result = await callTool("bash", { command, description: command });
+    output = result.output;
+  } catch (err) {
+    output = err instanceof Error ? err.message : String(err);
+  }
+  const shown = output.trim() || "(no output)";
+  const body = shown.length > 4000 ? shown.slice(0, 4000) + "\n…" : shown;
+  createSystemMessage("```\n" + body + "\n```");
+  tui.requestRender();
+  if (!send) return;
+  await submitPrompt(
+    `I ran \`${command}\` in the project. Output:\n\n\`\`\`\n${shown}\n\`\`\``,
+    `! ${command}`,
+  );
+}
+
+/**
+ * Ctrl+G: edit the prompt in $VISUAL / $EDITOR (spec 2026-09-20-pi-parity-plan
+ * Phase 6). pi-tui is detached while the editor owns the terminal; the file's
+ * contents replace the prompt buffer on return.
+ */
+async function openExternalEditor(): Promise<void> {
+  const cmd = process.env.VISUAL || process.env.EDITOR || "nano";
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  const dir = mkdtempSync(join(tmpdir(), "freecode-edit-"));
+  const file = join(dir, "prompt.md");
+  writeFileSync(file, editor.getText(), "utf-8");
+  tui.stop();
+  try {
+    spawnSync(cmd, [file], { stdio: "inherit", shell: true });
+    const text = readFileSync(file, "utf-8").replace(/\n$/, "");
+    editor.setText(text);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    process.stdout.write(ENTER_ALT_SCREEN);
+    tui.start();
+    tui.setFocus(editor);
+    tui.requestRender(true);
+  }
 }
 
 async function forkSession(): Promise<void> {
@@ -1967,6 +2016,19 @@ editor.onSubmit = async (value: string) => {
   editor.addToHistory(promptText);
   void appendPromptHistory(promptText);
 
+  // `!cmd` runs a shell command through core's bash tool and sends the output
+  // to the model as the next prompt; `!!cmd` runs it and only shows it (spec
+  // 2026-09-20-pi-parity-plan Phase 6, pi's editor). Thin-client rule holds:
+  // the TUI never spawns anything — core runs it via tools.call.
+  if (promptText.startsWith("!") && images.length === 0) {
+    const send = !promptText.startsWith("!!");
+    const command = promptText.replace(/^!!?/, "").trim();
+    if (!command) return;
+    editor.setText("");
+    await runBangCommand(command, send);
+    return;
+  }
+
   if (promptText.startsWith("/")) {
     const parts = promptText.slice(1).split(/\s+/);
     const commandName = parts[0]?.toLowerCase();
@@ -2620,6 +2682,10 @@ tui.addInputListener((data) => {
       return { consume: true };
     }
     interruptController.handle();
+    return { consume: true };
+  }
+  if (matchesKey(data, "ctrl+g") && editor.focused) {
+    void openExternalEditor();
     return { consume: true };
   }
   if (matchesKey(data, Key.shift("tab"))) {

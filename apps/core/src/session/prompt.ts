@@ -14,6 +14,7 @@
 // =============================================================================
 
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { logger } from "../utils/logger.js";
@@ -28,6 +29,44 @@ const EMBEDDED_FALLBACK =
   "You are FreeCode, an AI coding assistant CLI. Complete the user's task.";
 
 let cached: string | undefined;
+
+// User overrides (spec 2026-09-20-pi-parity-plan, Phase 6; pi's SYSTEM.md /
+// APPEND_SYSTEM.md). `SYSTEM.md` replaces the shipped prompt outright —
+// project (`<project>/.freecode/SYSTEM.md`) over global (`~/.freecode/`).
+// `APPEND_SYSTEM.md` is added after it, global then project, and composes
+// with a replacement. Read every call so an edit lands on the next turn,
+// like CLAUDE.md; the shipped prompt itself stays cached.
+const OVERRIDE_FILE = "SYSTEM.md";
+const APPEND_FILE = "APPEND_SYSTEM.md";
+
+function readTrimmed(file: string): string | undefined {
+  try {
+    const text = fs.readFileSync(file, "utf-8").trim();
+    return text || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The shipped prompt with the user's SYSTEM.md / APPEND_SYSTEM.md applied.
+ * `projectPath` undefined means global overrides only.
+ */
+export async function loadSystemPromptFor(
+  projectPath: string | undefined,
+  globalDir: string = path.join(os.homedir(), ".freecode"),
+): Promise<string> {
+  const projectDir = projectPath ? path.join(projectPath, ".freecode") : undefined;
+  const replacement =
+    (projectDir && readTrimmed(path.join(projectDir, OVERRIDE_FILE))) ??
+    readTrimmed(path.join(globalDir, OVERRIDE_FILE));
+  const base = replacement ?? (await loadSystemPrompt()).trim();
+  const appended = [
+    readTrimmed(path.join(globalDir, APPEND_FILE)),
+    projectDir ? readTrimmed(path.join(projectDir, APPEND_FILE)) : undefined,
+  ].filter((s): s is string => Boolean(s));
+  return [base, ...appended].join("\n\n");
+}
 
 /**
  * Load the canonical FreeCode system prompt. Cached after the first read.
