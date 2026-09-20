@@ -19,6 +19,9 @@ const coloredLogoLines = logoLines.map((line) => {
 
 const LOGO_WIDTH = 85;
 
+/** Blank rows rendered above the logo. */
+const TOP_PADDING = 4;
+
 /** "-1" sentinel from the index.ts cache means "not loaded yet". */
 const PENDING = "…";
 
@@ -112,8 +115,14 @@ export class LogoHeader implements Component {
     const dirStyled = chalk.dim("Directory:") + ` ${cwd}`;
     const dirLine = this.centerLine(width, dirPlain.length, dirStyled);
 
+    // Breathing room above the logo so it does not sit flush against the
+    // status bar.
+    const topPad = Array.from({ length: TOP_PADDING }, () => "");
+
     const lines = [
+      ...topPad,
       ...coloredLogoLines.map((logoLine) => `${indent}${logoLine}${rightPad}`),
+      "", // gap between the logo and its subtitle
       subtitleLine,
       statsLine,
       dirLine,
