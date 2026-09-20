@@ -32,6 +32,10 @@ export interface MessageCreators {
 export interface CommandContext extends MessageCreators {
   showMessage(content: string): void;
   showModelSelector?(): void;
+  /** `/tree` — session tree picker (spec 2026-09-20-pi-parity-plan Phase 3). */
+  showTreePicker?(): Promise<void>;
+  /** `/fork` — new session from the active path. */
+  forkSession?(): Promise<void>;
   /**
    * Pick a web-session provider (the /web command). Separate from
    * `showModelSelector` because the two lists answer different questions: one

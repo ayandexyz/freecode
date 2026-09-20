@@ -107,6 +107,12 @@ import { getSkillsManagerForProject } from "./skills/manager.js";
 import { startGraphExplorer } from "./graph-explorer/server.js";
 import { openBrowser } from "./utils/open-browser.js";
 import { randomUUID } from "crypto";
+import { createRecorder } from "./rollout/recorder.js";
+import {
+  summarizeBranch,
+  branchSummaryMessage,
+  renderEntryForSummary,
+} from "./session/branch-summary.js";
 import { existsSync } from "fs";
 import {
   listClaudeSessions,
@@ -1319,6 +1325,94 @@ export const methodHandlers: Record<
     const { sessionId } = params as { sessionId: string };
     const manager = await getSessionManager();
     return manager.fork(sessionId);
+  },
+
+  // --- session tree (spec 2026-09-20-pi-parity-plan, Phase 3) ---------------
+  "session.tree": async (params: Record<string, unknown>): Promise<unknown> => {
+    const { sessionId } = params as { sessionId: string };
+    const session = getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    const store = await getSessionStore();
+    return store.getTree(sessionId, session.projectPath);
+  },
+
+  "session.navigate": async (params: Record<string, unknown>): Promise<unknown> => {
+    const { sessionId, entryId, summarize } = params as {
+      sessionId: string;
+      entryId: string;
+      summarize?: boolean;
+    };
+    const session = getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    // A running loop appends as it goes; moving the leaf under it would
+    // splice its next message onto the wrong branch. The frontend stops the
+    // turn first (session.stop) and retries.
+    if (activeLoops.has(sessionId)) {
+      throw new Error("A turn is in progress; stop it before navigating the session tree.");
+    }
+    const store = await getSessionStore();
+    const before = await store.getMessages(sessionId, session.projectPath);
+    const nav = await store.navigate(sessionId, entryId, session.projectPath);
+
+    let summarized = false;
+    if (summarize && nav.abandoned.length > 0) {
+      const config = readConfig();
+      const provider = config.current?.provider || session.provider;
+      const model = config.current?.model || session.model;
+      let llm;
+      // FREECODE_BRANCH_SUMMARY=heuristic: no model call (tests, offline).
+      if (process.env.FREECODE_BRANCH_SUMMARY !== "heuristic") {
+        try {
+          llm = createLlmSummarizer(getProvider(provider as ProviderId), model);
+        } catch {
+          // No provider configured — heuristic digest.
+        }
+      }
+      const summary = await summarizeBranch(sessionId, nav.abandoned, llm);
+      const text = branchSummaryMessage(summary.text, nav.abandoned.length);
+      const message = {
+        id: randomUUID(),
+        role: "user" as const,
+        parts: [{ type: "text" as const, content: text }],
+        timestamp: Date.now(),
+        synthetic: "branch_summary" as const,
+      };
+      await store.appendMessage(sessionId, message, session.projectPath);
+      nav.path.push(message);
+      summarized = true;
+    }
+
+    // The compaction transcript must describe the path the model now sees.
+    const memory = new MemoryService(sessionId);
+    memory.resetTranscript(
+      nav.path.map((m) => ({ role: m.role, content: renderEntryForSummary(m) })),
+    );
+
+    createRecorder(sessionId).recordSessionNavigate({
+      from: before[before.length - 1]?.id,
+      to: entryId,
+      abandoned: nav.abandoned.length,
+      summarized,
+    });
+    logger.info("Session navigated", {
+      sessionId,
+      entryId,
+      abandoned: nav.abandoned.length,
+      summarized,
+    });
+    return { messages: nav.path, abandoned: nav.abandoned.length, summarized };
+  },
+
+  "session.label": async (params: Record<string, unknown>): Promise<void> => {
+    const { sessionId, entryId, label } = params as {
+      sessionId: string;
+      entryId: string;
+      label: string;
+    };
+    const session = getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    const store = await getSessionStore();
+    await store.labelEntry(sessionId, entryId, label, session.projectPath);
   },
 
   "session.archive": async (params: Record<string, unknown>): Promise<void> => {

@@ -52,6 +52,9 @@ import {
   failActiveStream,
   sessionStop,
   sessionDequeue,
+  sessionTree,
+  sessionNavigate,
+  sessionFork,
   sessionCompact,
   getContextStats,
   sessionList,
@@ -267,6 +270,7 @@ let providerSelector: SearchableSelectList | null = null;
 let effortPicker: EffortPicker | null = null;
 let resumeSelector: ResumePicker | null = null;
 let mcpSelector: SearchableSelectList | null = null;
+let treeSelector: SearchableSelectList | null = null;
 /**
  * The /shells card. Also kept up to date while CLOSED — shell_* stream events
  * land in it regardless — so opening it shows history rather than only what
@@ -550,6 +554,100 @@ function hideModelSelector(): void {
   // credential prompt) set it immediately after this returns.
   tui.setFocus(focusTarget());
   tui.requestRender();
+}
+
+function hideTreeSelector(): void {
+  removeSelector(treeSelector);
+  treeSelector = null;
+  tui.setFocus(focusTarget());
+  tui.requestRender();
+}
+
+/**
+ * `/tree` (spec 2026-09-20-pi-parity-plan Phase 3): every entry in the
+ * session log, active path marked, newest first. Enter rewinds to that entry;
+ * the abandoned branch is summarized under the new leaf. A running turn is
+ * stopped first — core refuses to move the leaf under an appending loop.
+ */
+async function showTreePicker(): Promise<void> {
+  hideTreeSelector();
+  hideModelSelector();
+  hideMcpSelector();
+  if (!currentSession) {
+    showMessage("**No active session.**");
+    return;
+  }
+  const sessionId = currentSession.sessionId;
+  let entries;
+  try {
+    entries = await sessionTree(sessionId);
+  } catch (err) {
+    showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  if (entries.length === 0) {
+    showMessage("**Nothing to navigate yet.**");
+    return;
+  }
+  const items = [...entries].reverse().map((e, i) => {
+    const who = e.role === "user" ? (e.synthetic ? "harness" : "you") : "agent";
+    const mark = e.active ? "●" : "○";
+    const tools = e.tools.length ? ` [${e.tools.join(", ")}]` : "";
+    const label = e.label ? ` ★ ${e.label}` : "";
+    return {
+      value: e.id,
+      label: `${mark} ${who}: ${e.preview || "(no text)"}${tools}${label}`,
+      description: i === 0 ? "current leaf" : new Date(e.timestamp).toLocaleTimeString(),
+    };
+  });
+  treeSelector = new SearchableSelectList(items, 12, defaultSelectListTheme);
+  treeSelector.onSelect = (item) => {
+    hideTreeSelector();
+    void (async () => {
+      try {
+        if (activeTurnSessionId === sessionId) {
+          await sessionStop(sessionId);
+        }
+        const result = await sessionNavigate(sessionId, item.value, true);
+        clearMessages();
+        loadSessionMessages(result.messages);
+        showMessage(
+          result.abandoned > 0
+            ? `**Rewound.** ${result.abandoned} message(s) set aside${result.summarized ? " and summarized" : ""}; continue from here.`
+            : "**Already at this point.**",
+        );
+      } catch (err) {
+        showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+      }
+      tui.setFocus(editor);
+      tui.requestRender();
+    })();
+  };
+  treeSelector.onCancel = () => hideTreeSelector();
+  const editorIdx = tui.children.indexOf(editor);
+  tui.children.splice(editorIdx + 1, 0, treeSelector);
+  tui.setFocus(treeSelector);
+  tui.requestRender();
+}
+
+async function forkSession(): Promise<void> {
+  if (!currentSession) {
+    showMessage("**No active session.**");
+    return;
+  }
+  try {
+    const newId = await sessionFork(currentSession.sessionId);
+    const result = await sessionResume(newId);
+    currentSession = { sessionId: result.sessionId };
+    resetSessionCacheTotals();
+    resetSessionPanels();
+    hideTodoPanel();
+    clearMessages();
+    if (result.messages && result.messages.length > 0) loadSessionMessages(result.messages);
+    showMessage(`**Forked into a new session** (${result.messages?.length ?? 0} messages carried over).`);
+  } catch (err) {
+    showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 function hideMcpSelector(): void {
@@ -1891,6 +1989,8 @@ editor.onSubmit = async (value: string) => {
           showAgentsPanel: () => showAgentsPanel(),
           showEffortPicker,
           showResumePicker: showResumePicker,
+          showTreePicker,
+          forkSession,
           // Undefined until a run completes, so /cost omits the Session row
           // rather than printing a 0% that looks like a cache failure.
           getSessionUsage: () => (sessionRuns > 0 ? sessionUsage : undefined),
@@ -2513,6 +2613,10 @@ tui.addInputListener((data) => {
     }
     if (mcpSelector) {
       hideMcpSelector();
+      return { consume: true };
+    }
+    if (treeSelector) {
+      hideTreeSelector();
       return { consume: true };
     }
     interruptController.handle();

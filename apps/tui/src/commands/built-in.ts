@@ -122,6 +122,22 @@ const resumeCommand: Command = {
   },
 };
 
+const treeCommand: Command = {
+  name: "tree",
+  description: "Jump to an earlier point in this session and continue from there",
+  execute: (_args, ctx) => {
+    void ctx.showTreePicker?.();
+  },
+};
+
+const forkCommand: Command = {
+  name: "fork",
+  description: "Copy the current conversation into a new session",
+  execute: (_args, ctx) => {
+    void ctx.forkSession?.();
+  },
+};
+
 const compactCommand: Command = {
   name: "compact",
   description: "Summarize older turns to free up context",
@@ -290,6 +306,8 @@ export function registerBuiltInCommands(): void {
   registerCommand(effortCommand);
   registerCommand(resumeCommand);
   registerCommand(compactCommand);
+  registerCommand(treeCommand);
+  registerCommand(forkCommand);
   registerCommand(contextCommand);
   registerCommand(usageCommand);
   registerCommand(costCommand);

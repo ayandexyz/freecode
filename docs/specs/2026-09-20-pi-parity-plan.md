@@ -146,6 +146,15 @@ saving justifies it.
 
 ## Phase 3 — Session tree and branch summarization (`/tree`)
 
+**Built 2026-09-20.** Deviations from the design below, all deliberate:
+- `parentId` is written on a line **only when it differs from the previous line** (the first append after a navigate), so a session that never branches is byte-identical to today's log and needs no migration. The leaf pointer is `meta.leafId`, set only while the leaf is not the last line.
+- `getMessages()` returns the active path, so every existing reader (loop, compaction, harvest, fork, resume) got the tree for free; `getTree()` is the new all-branches view.
+- Compaction (`replaceMessages`) still trims the log to the preserved tail — other branches are dropped with it. Pi keeps everything; we do not, because the compaction summary lives in `MemoryService`, not the log.
+- The branch summary is a `synthetic: "branch_summary"` user message (compaction summarizer, heuristic fallback, `FREECODE_BRANCH_SUMMARY=heuristic` for tests). `MemoryService.resetTranscript()` rebuilds the compaction transcript from the new path.
+- `session.navigate` refuses while a turn is running; the TUI stops the turn first. `/fork` = new session from the active path (`session.fork`); `/clone` was not added — it is the same operation.
+- TUI `/tree` is a `SearchableSelectList` (newest first, ● active / ○ abandoned, tools and ★ labels shown); fold/unfold and the filter modes are not built. Labels have an IPC (`session.label`) but no TUI key yet.
+Tests: `session/store-tree.test.ts`, `session/navigate.test.ts`.
+
 ### Problem
 
 Sessions are linear. `session.fork` copies a session into a new one; there

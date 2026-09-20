@@ -17,6 +17,7 @@ import type {
   ModelResponseEvent,
   RedirectTriggeredEvent,
   RolloutEvent,
+  SessionNavigateEvent,
 } from "./types.js";
 
 // ============================================================================
@@ -488,6 +489,12 @@ export class RolloutRecorder {
     this.write(
       this.makeEvent("message.steered", { aggregateID: this.sessionId, turnId, fields }),
     );
+  }
+
+  recordSessionNavigate(
+    fields: Omit<SessionNavigateEvent, keyof BaseEvent | "type">,
+  ): void {
+    this.write(this.makeEvent("session.navigate", { aggregateID: this.sessionId, fields }));
   }
 
   recordCacheWarm(fields: Omit<CacheWarmEvent, keyof BaseEvent | "type">): void {

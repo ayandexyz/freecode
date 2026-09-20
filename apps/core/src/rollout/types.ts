@@ -48,7 +48,8 @@ export type RolloutEvent =
   | PokeSkippedEvent
   | TodoSignalEvent
   | MessageSteeredEvent
-  | CacheWarmEvent;
+  | CacheWarmEvent
+  | SessionNavigateEvent;
 
 export interface TurnStartedEvent extends BaseEvent {
   type: "turn.started";
@@ -370,4 +371,19 @@ export interface CacheWarmEvent extends BaseEvent {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   authMode?: "oauth" | "api-key";
+}
+
+// ============================================================================
+// Session tree navigation (spec 2026-09-20-pi-parity-plan, Phase 3). Ids
+// only; the branch summary's text stays in the session store.
+// ============================================================================
+
+export interface SessionNavigateEvent extends BaseEvent {
+  type: "session.navigate";
+  /** Entry id of the leaf before the move (undefined for an empty log). */
+  from?: string;
+  to: string;
+  /** Entries the old path had that the new one does not. */
+  abandoned: number;
+  summarized: boolean;
 }

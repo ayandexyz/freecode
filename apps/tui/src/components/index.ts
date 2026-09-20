@@ -222,6 +222,12 @@ export function loadSessionMessages(messages: SerializedMessage[]): void {
       createSystemMessage("*Auto-poke: the agent stopped with todos open and was sent back.*");
       continue;
     }
+    // The condensed abandoned branch. The body is for the model; the user
+    // gets a marker where the rewind happened.
+    if (msg.synthetic === "branch_summary") {
+      createSystemMessage("*Rewound here — the branch that followed was summarized for the agent.*");
+      continue;
+    }
     let content = "";
     if (msg.role === "user") {
       content = msg.parts

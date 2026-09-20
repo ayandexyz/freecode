@@ -608,6 +608,38 @@ export const METHODS = {
     params: { sessionId: "" },
     result: "" as string,
   },
+  // Session tree (spec 2026-09-20-pi-parity-plan, Phase 3). `session.tree`
+  // returns every entry in the log with the active path marked — previews
+  // only, never bodies. `session.navigate` moves the leaf; with `summarize`
+  // the abandoned branch is condensed into a branch_summary message under
+  // the new leaf. Refused while a turn is running (stop it first).
+  "session.tree": {
+    params: { sessionId: "" },
+    result: [] as Array<{
+      id: string;
+      parentId?: string;
+      role: "user" | "assistant";
+      preview: string;
+      timestamp: number;
+      synthetic?: string;
+      tools: string[];
+      label?: string;
+      active: boolean;
+    }>,
+  },
+  "session.navigate": {
+    params: {} as { sessionId: string; entryId: string; summarize?: boolean },
+    result: {} as {
+      /** Messages on the new active path, for the frontend to re-render. */
+      messages: import("../types.js").SerializedMessage[];
+      abandoned: number;
+      summarized: boolean;
+    },
+  },
+  "session.label": {
+    params: {} as { sessionId: string; entryId: string; label: string },
+    result: undefined as void,
+  },
   "session.archive": {
     params: { sessionId: "" },
     result: undefined as void,
@@ -730,6 +762,9 @@ export const REQUIRED_PARAMS: Record<
   "memory.buildPrompt": {},
   "session.switch": { sessionId: "string" },
   "session.fork": { sessionId: "string" },
+  "session.tree": { sessionId: "string" },
+  "session.navigate": { sessionId: "string", entryId: "string" },
+  "session.label": { sessionId: "string", entryId: "string", label: "string" },
   "session.archive": { sessionId: "string" },
   "session.delete": { sessionId: "string" },
   "session.getInterrupted": {},
