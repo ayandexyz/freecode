@@ -9,7 +9,7 @@ const coloredLogoLines = logoLines.map((line) => {
   return chalk.yellowBright(line.slice(0, mid)) + chalk.yellow(line.slice(mid));
 });
 
-const LOGO_WIDTH = 34;
+const LOGO_WIDTH = 98;
 
 /** "-1" sentinel from the index.ts cache means "not loaded yet". */
 const PENDING = "…";
@@ -105,9 +105,7 @@ export class LogoHeader implements Component {
     const dirLine = this.centerLine(width, dirPlain.length, dirStyled);
 
     const lines = [
-      `${indent}${coloredLogoLines[0]}${rightPad}`,
-      `${indent}${coloredLogoLines[1]}${rightPad}`,
-      `${indent}${coloredLogoLines[2]}${rightPad}`,
+      ...coloredLogoLines.map((logoLine) => `${indent}${logoLine}${rightPad}`),
       subtitleLine,
       statsLine,
       dirLine,
