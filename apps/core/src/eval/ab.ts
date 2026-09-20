@@ -38,6 +38,9 @@ export class AbError extends Error {}
  *   FREECODE_BASH_COMPRESS             `maybeCompressOutput`, every tool call
  *   FREECODE_READ_LINE_NUMBERS         read's `execute`, every call
  *   FREECODE_EPHEMERAL_TAIL            `executeTurn`, every iteration
+ *   FREECODE_SYSTEM_FILE               `loadSystemPromptFor`, every turn (the
+ *   FREECODE_APPEND_SYSTEM_FILE        compiler rebuilds the system prompt per
+ *                                      request; only the shipped .md is cached)
  *   FREECODE_AUTO_POKE                 `loadSignalSettings`, once per AgentLoop
  *   FREECODE_CONFIDENCE_GATE           instance — and the runner builds a
  *   FREECODE_HILLCLIMB_GATE            fresh loop per trial
@@ -57,6 +60,8 @@ export const VARIABLE_ENV_KEYS = [
   "FREECODE_BASH_COMPRESS",
   "FREECODE_READ_LINE_NUMBERS",
   "FREECODE_EPHEMERAL_TAIL",
+  "FREECODE_SYSTEM_FILE",
+  "FREECODE_APPEND_SYSTEM_FILE",
   // Read per-call in renderRetrievedMemories (mem-prompt.ts).
   "FREECODE_MEMORY_PROMPT",
   "FREECODE_AUTO_POKE",

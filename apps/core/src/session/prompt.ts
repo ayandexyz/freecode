@@ -38,6 +38,14 @@ let cached: string | undefined;
 // like CLAUDE.md; the shipped prompt itself stays cached.
 const OVERRIDE_FILE = "SYSTEM.md";
 const APPEND_FILE = "APPEND_SYSTEM.md";
+// The same two, by path, for `eval ab`: a prompt experiment has to be
+// switchable per side through the environment (ab.ts VARIABLE_ENV_KEYS), and
+// the files above are keyed by directory, not by variant. Both are read per
+// call. The replacement stands in for the shipped prompt (a user's SYSTEM.md
+// still wins — the experiment measures the shipped prompt, not theirs); the
+// append goes after both APPEND_SYSTEM.md files.
+const SYSTEM_ENV = "FREECODE_SYSTEM_FILE";
+const APPEND_ENV = "FREECODE_APPEND_SYSTEM_FILE";
 
 function readTrimmed(file: string): string | undefined {
   try {
@@ -55,15 +63,20 @@ function readTrimmed(file: string): string | undefined {
 export async function loadSystemPromptFor(
   projectPath: string | undefined,
   globalDir: string = path.join(os.homedir(), ".freecode"),
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
   const projectDir = projectPath ? path.join(projectPath, ".freecode") : undefined;
   const replacement =
     (projectDir && readTrimmed(path.join(projectDir, OVERRIDE_FILE))) ??
     readTrimmed(path.join(globalDir, OVERRIDE_FILE));
-  const base = replacement ?? (await loadSystemPrompt()).trim();
+  const base =
+    replacement ??
+    (env[SYSTEM_ENV] ? readTrimmed(env[SYSTEM_ENV]) : undefined) ??
+    (await loadSystemPrompt()).trim();
   const appended = [
     readTrimmed(path.join(globalDir, APPEND_FILE)),
     projectDir ? readTrimmed(path.join(projectDir, APPEND_FILE)) : undefined,
+    env[APPEND_ENV] ? readTrimmed(env[APPEND_ENV]) : undefined,
   ].filter((s): s is string => Boolean(s));
   return [base, ...appended].join("\n\n");
 }

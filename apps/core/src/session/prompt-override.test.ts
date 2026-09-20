@@ -30,6 +30,32 @@ test("SYSTEM.md replaces and APPEND_SYSTEM.md composes, project over global", as
     assert.doesNotMatch(await loadSystemPromptFor(project, global), /GLOBAL/);
     // Global-only lookup ignores the project files.
     assert.match(await loadSystemPromptFor(undefined, global), /^You are GLOBAL\./);
+
+    // FREECODE_APPEND_SYSTEM_FILE (eval ab's per-side prompt experiment) is
+    // appended last; a missing or empty file is ignored.
+    const variant = join(global, "variant.md");
+    writeFileSync(variant, "Variant rule.\n");
+    assert.match(
+      await loadSystemPromptFor(project, global, { FREECODE_APPEND_SYSTEM_FILE: variant }),
+      /Project rule\.\n\nVariant rule\.$/,
+    );
+    assert.doesNotMatch(
+      await loadSystemPromptFor(project, global, {
+        FREECODE_APPEND_SYSTEM_FILE: join(global, "missing.md"),
+      }),
+      /Variant rule/,
+    );
+    // FREECODE_SYSTEM_FILE replaces the shipped prompt but not a user's
+    // SYSTEM.md, and the appends still compose onto it.
+    const system = join(global, "system-variant.md");
+    writeFileSync(system, "You are VARIANT.\n");
+    assert.match(await loadSystemPromptFor(project, global, { FREECODE_SYSTEM_FILE: system }), /^You are PROJECT\./);
+    rmSync(join(project, ".freecode", "SYSTEM.md"));
+    rmSync(join(global, "SYSTEM.md"));
+    assert.equal(
+      await loadSystemPromptFor(project, global, { FREECODE_SYSTEM_FILE: system }),
+      "You are VARIANT.\n\nAlways answer in haiku.\n\nProject rule.",
+    );
   } finally {
     rmSync(global, { recursive: true, force: true });
     rmSync(project, { recursive: true, force: true });
