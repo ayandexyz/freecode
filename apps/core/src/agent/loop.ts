@@ -960,7 +960,9 @@ export class AgentLoop {
         if (
           shouldNudgeTodo(this.turnsSinceTodoWrite, this.turnsSinceLastNudge)
         ) {
-          this.pendingReminders.push(todoNudgeReminder());
+          const hasList =
+            getTodos(this.state.sessionId, this.state.projectPath).length > 0;
+          this.pendingReminders.push(todoNudgeReminder(hasList));
           this.turnsSinceLastNudge = 0;
         }
 
