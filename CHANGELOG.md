@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.35.0
+
+The pi parity release plus two harness fixes found by folding the rollout logs. Six pi features land: mid-turn steering, a prompt-cache warmer, an in-place session tree with `/tree`, fuzzy edit matching, in-process TypeScript extensions, and `!cmd` / Ctrl+G / `SYSTEM.md` ergonomics (spec `docs/specs/2026-09-20-pi-parity-plan.md`). The todo nudge was writing the todo lists — 45% of first lists in 2,553 sessions were made on the exact turn the harness asked — and is now at Claude Code's 10/10 with its wording. Auto-poke no longer sends a read-only turn back to work and gives a prose-only reply one harder re-poke. Release gate: trajectory 24/24 open, coding 12/12 open; judged ran but the Gemini judge was out of quota, so it graded nothing (re-run before the next release).
+
+### Added
+
+- **Mid-turn steering** (`7cfa934`). `session.send` with `streamingBehavior: "steer"` while a turn is busy hands the prompt to `AgentLoop.steer()`; it is delivered as a persisted `synthetic: "steer"` user message between one tool batch and the next model call. TUI: Enter steers, Alt+Enter queues a follow-up. `FREECODE_STEERING_MODE=all` delivers every pending steer at once.
+- **Prompt-cache warmer** (`00e63dd`, `providers/cache-warmer.ts`). Replays the run's last request with `maxTokens: 1` at 90% of the Anthropic TTL when the expected saving is ≥ $0.05; recorded as `cache.warm`, never as a model turn. **Off by default** (`cache.warming` / `FREECODE_CACHE_WARMING=idle`); Anthropic only — MiniMax's implicit cache has no TTL to reset.
+- **Session tree** (`85fbad6`). `messages.jsonl` is a tree with zero migration: `parentId` is written only on the first append after `navigate()`, so a session that never branches is byte-identical. `getMessages()` returns the active path, so every reader got the tree for free. `/tree` in the TUI, `session.tree|navigate|label` IPC, an abandoned branch becomes a `synthetic: "branch_summary"` message. `/fork` = new session from the active path.
+- **Fuzzy edit matching** (`fa730d4`). `edit` matches typographic quotes and dashes against ASCII and back (`unicodeNormalizedReplacer`), so a model that pastes `"` for `"` no longer fails the edit.
+- **Extensions** (`6ac1824`, `extensions/`). `~/.freecode/extensions/*.ts` exporting `(api) => …` with `registerTool` / `registerCommand` / `on(event)`; project extensions need `extensions.trustedProjects`. `/extensions`, `/reload`; `FREECODE_DISABLE_EXTENSIONS=1`. Example in `docs/examples/extensions/hello.ts`.
+- **`!cmd` / `!!cmd`, Ctrl+G, `SYSTEM.md`** (`055d350`). `!cmd` runs a shell command through core's bash tool and submits the output as the next prompt, `!!cmd` only shows it; Ctrl+G opens `$VISUAL`/`$EDITOR` on the prompt buffer; `SYSTEM.md` replaces the shipped system prompt and `APPEND_SYSTEM.md` composes onto it, project `.freecode/` over `~/.freecode/`, re-read every turn.
+- **Prompt variants for `eval ab`** (`0718c2c`). `FREECODE_SYSTEM_FILE` (replacement) and `FREECODE_APPEND_SYSTEM_FILE` (append) are read every turn and allowlisted, so a prompt edit is A/B'd per side without touching `system.md`. Candidates and their verdicts live in `evals/prompt-variants/`.
+
+### Changed
+
+- **Todo nudge at Claude Code's thresholds** (`3be0357`, `agent/reminders.ts`). The "you have not used todowrite recently" reminder fired after 3 turns and every 5 after — the most aggressive of any harness compared (opencode, codex and pi have none). Reconstructing the counters over 10,377 turns: a turn with no list wrote one 1.8% of the time unprompted and 36.7% of the time when nudged. Now 10 turns since the last write, at most every 10, in CC's "gentle reminder — ignore if not applicable" wording; with a list present it asks for cleanup rather than a plan. `FREECODE_TODO_NUDGE=legacy` restores 3/5 for `eval ab`. A/B vs legacy on MiniMax-M3: coding 12/12 unchanged-pass, turns 186→178, tokens −5.5%; 8-case trajectory subset 0 regressed, 1 improved.
+- **Poke text leads with the action** (`ba4d529`). The second line led with "Continue working, or update the list… mark an item blocked", which was the exit being taken. `cancelled`/`blocked` are now the last clause, `blocked` gated on "needs something from the user".
+
+### Fixed
+
+- **Read-only modes are never poked** (`ba4d529`, `read_only_mode`). Every `all_blocked` outcome in the 09-12→20 fold was a plan/review/explore eval case that had been poked into "continuing" and answered with a forbidden `read` or `question`. `todowrite-for-multistep` is back to 3/3 at 2 turns (it had been 4–16 turns since `signals` started being honoured in 0.34.1).
+- **A prose-only reply to a poke gets one harder re-poke** (`ba4d529`). 16 of 51 pokes ended with the model replying in prose and stopping again; that bounce now earns one "this turn must be a tool call" re-poke (`retry: true` on `poke.triggered`), spent per fingerprint and carried across runs. A poke the model acted on and still left unchanged is still `no_progress`.
+- **Blocked todos are not poked; poke narration and retry loops cut** (`177159e`).
+- **Eval gate hygiene** (`9642e5d`, `eae1868`, `ab1e91f`). Infra trials are excluded from the majority vote, the quarantine report decides on the last 10 trials rather than all-time, and two recovered cases left quarantine.
+
 ## v0.34.1
 
 A settings fix. `apps/core/src/settings/known-keys.ts` did not list `signals`, so a valid `settings.json` with a `signals` block warned `[freecode] WARN: [Settings] Unknown setting "signals"` on every start, even though `agent/signals/settings.ts` was reading it fine.
