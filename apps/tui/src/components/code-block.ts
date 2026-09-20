@@ -1,24 +1,26 @@
-import chalk from "chalk";
+import { palette } from "../palette.js";
 import { highlight, supportsLanguage } from "cli-highlight";
 
-// Dracula palette used by both `renderCodeBlock` (this file) and `renderDiff`
-// (in `diff-view.ts`). Centralized so the two stay visually consistent.
+// Syntax palette used by both `renderCodeBlock` (this file) and `renderDiff`
+// (in `diff-view.ts`). Centralized so the two stay visually consistent;
+// the colours themselves come from `palette.syntax` (Dracula by default,
+// the active theme on Omarchy).
 export const diffTheme = {
-  keyword: chalk.hex("#ff79c6"),      // Dracula pink/magenta
-  built_in: chalk.hex("#8be9fd"),     // Dracula cyan
-  type: chalk.hex("#8be9fd"),         // Dracula cyan
-  literal: chalk.hex("#bd93f9"),      // Dracula purple
-  number: chalk.hex("#bd93f9"),       // Dracula purple
-  regexp: chalk.hex("#f1fa8c"),       // Dracula yellow
-  string: chalk.hex("#f1fa8c"),       // Dracula yellow
-  comment: chalk.hex("#6272a4"),      // Dracula gray/blue comment
-  function: chalk.hex("#50fa7b"),     // Dracula green
-  class: chalk.hex("#8be9fd"),        // Dracula cyan
-  attr: chalk.hex("#ffb86c"),         // Dracula orange
-  tag: chalk.hex("#ff79c6"),          // Dracula pink
-  name: chalk.hex("#ff79c6"),         // Dracula pink
-  meta: chalk.hex("#ffb86c"),         // Dracula orange
-  default: chalk.hex("#f8f8f2")       // Dracula white
+  keyword: palette.syntax.keyword,
+  built_in: palette.syntax.builtin,
+  type: palette.syntax.builtin,
+  literal: palette.syntax.literal,
+  number: palette.syntax.literal,
+  regexp: palette.syntax.string,
+  string: palette.syntax.string,
+  comment: palette.syntax.comment,
+  function: palette.syntax.function,
+  class: palette.syntax.builtin,
+  attr: palette.syntax.attr,
+  tag: palette.syntax.keyword,
+  name: palette.syntax.keyword,
+  meta: palette.syntax.attr,
+  default: palette.syntax.default,
 };
 
 /**
