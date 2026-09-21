@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.38.0
+
+The TUI grows jcode's KV cache widget and jcode's composer. The top-right corner now says whether the harness is reusing its own prompt cache and which turn lost what; the input loses its box and gains the branch name.
+
+### Added
+
+- **Cache yield and miss attribution** (`f303172`). The top-right widget shows `yield · last · session` — yield is cache reads over what the *previous* request made cacheable (harness health, unaffected by what you type), last/session are reads over prompt (cost) — plus a `miss attribution` list labelling every shortfall ≥1,024 tokens as `run.call>`, tokens re-sent, and why: a journal entry (`compaction: …`), `provider switch`, `model switch`, `expired`, `provider blip`, or the two red `harness:` reasons that are real bugs. Core computes everything (`providers/cache-miss.ts` → `cache_status.stats`); the widget is 46 columns and hides under 90. Documented in the Usage & cost guide and `docs/caching-architecture.md` §1.5a.
+- **Branch in the prompt** (`64b1efd`). The composer prefix is the git branch (`main> `), falling back to the turn number outside a repo.
+
+### Changed
+
+- **Borderless composer** (`3b641a8`, `f9afb81`). The boxed input is replaced with jcode's: a labelled prompt whose colour says what Enter will do, and a dim status row underneath. Returns four columns and two rows to the transcript. Shell and command modes keep the plain `>`.
+- **User messages get their own background** (`246f33f`, `40af6e8`), with a blank row below so the borderless composer does not touch the last message.
+
+### Fixed
+
+- **A mid-session model switch is no longer a false prompt-cache miss alarm** (`f303172`). The D2 detector attributes it as `model switch` instead of holding it and then reporting an unexplained rewrite. `FREECODE_CACHE_MISS_NOTICES=0` now mutes only the alarm; the accounting keeps running.
+
 ## v0.37.0
 
 A bare `hi` from the home directory made MiniMax-M3 read `dev.sh`, follow it into an unrelated project and invent a task. The project context is now framed as background, not a request, and the eval harness that measured the fix grew durable reports and stricter no-tool scoring.
