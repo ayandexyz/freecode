@@ -81,6 +81,29 @@ export type PermissionPromptDecision =
 // driving multiple concurrent sessions) need it to route each line; the TUI
 // and per-session SSE channel don't, since they're already scoped to one
 // session and can ignore the field.
+/**
+ * Prompt-cache accounting for one session. Every ratio is a 0–100 integer.
+ * `yield` is the harness-health number (read ÷ what the previous request made
+ * cacheable); `last`/`session` are cost numbers (read ÷ prompt).
+ */
+export interface CacheStats {
+  yieldPct?: number;
+  lastYieldPct?: number;
+  lastPct?: number;
+  sessionPct: number;
+  misses: CacheMissSample[];
+}
+
+export interface CacheMissSample {
+  /** 1-based user prompt ordinal and model call within it. */
+  turn?: { run: number; call: number };
+  missedTokens: number;
+  /** e.g. "model switch", "expired", "compaction: …", "harness: prefix rewritten". */
+  reason: string;
+  /** An undocumented rewrite — the bug class the "miss" state alarms on. */
+  harnessBug: boolean;
+}
+
 export type StreamEvent =
   | {
       type: "tool_start";
@@ -170,6 +193,10 @@ export type StreamEvent =
       message?: string; // human-readable, set on "cold" and "miss"
       cacheReadTokens?: number; // served from cache (cheap), set on "warm"/"miss"
       cacheWriteTokens?: number; // written to cache this turn, set on "warm"/"miss"
+      // Session cache accounting (spec 2026-08-09 D2, jcode's KV cache widget),
+      // set on "warm"/"miss" once a provider has reported cache fields. Core
+      // computes every ratio; frontends only draw them.
+      stats?: CacheStats;
     }
   // Turn-level advisory the user needs to see (e.g. an attachment dropped
   // because the model can't accept it). Does not fail the turn.

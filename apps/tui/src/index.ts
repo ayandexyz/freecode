@@ -158,6 +158,7 @@ import type {
   ProviderInfo,
   SerializedMessage,
   StreamEvent,
+  CacheStats,
   EffortLevel,
 } from "@thisisayande/freecode-shared";
 
@@ -191,6 +192,10 @@ let hasFirstMessage = false;
 let contextTokens = 0;
 let contextLimitTokens = 0;
 let contextCacheRate: number | undefined;
+// Core's session cache accounting (yield · last · session + miss attribution),
+// refreshed on every `cache_status` event. Undefined until a provider reports
+// cache fields, when the plain rate above stands in.
+let contextCacheStats: CacheStats | undefined;
 // Cached once at TUI startup so the pinned logo header can show tool/MCP
 // counts without each render making an async IPC call. `-1` until the loader
 // resolves; the header renders `…` while the values are still pending.
@@ -244,6 +249,7 @@ async function clearSession(): Promise<void> {
   resetLiveUsageTotals();
   contextTokens = 0;
   contextCacheRate = undefined;
+  contextCacheStats = undefined;
   hasFirstMessage = false;
   messageCount = 0;
   idleNudgeShownAt = null;
@@ -336,6 +342,7 @@ const contextBox = new ContextBox(
   () => contextTokens,
   () => contextLimitTokens,
   () => contextCacheRate,
+  () => contextCacheStats,
 );
 const contextBoxOverlay = tui.showOverlay(contextBox, {
   anchor: "top-right",
@@ -343,7 +350,8 @@ const contextBoxOverlay = tui.showOverlay(contextBox, {
   offsetX: 0,
   offsetY: 0,
   nonCapturing: true,
-  visible: (termWidth) => termWidth >= 60,
+  // The widget is 46 columns wide; below 90 it would cover half the chat.
+  visible: (termWidth) => termWidth >= 90,
 });
 
 // tui.addChild(new Text("\nType your messages below. Press Ctrl+C to exit."));
@@ -1719,6 +1727,10 @@ function handleToolEvent(event: StreamEvent) {
     // Prompt-cache awareness (jcode #9). Warn on a cold-cache send; on warm
     // turns show read/write tokens only when there's cache activity worth noting.
     case "cache_status": {
+      if (event.stats) {
+        contextCacheStats = event.stats;
+        tui.requestRender();
+      }
       if (event.state === "cold" && event.message) {
         showMessage(`⚠ *${event.message}*`);
       } else if (event.state === "miss" && event.message) {
@@ -2599,7 +2611,7 @@ function jumpButtonHit(cx: number, cy: number): boolean {
  * the overlay's own visibility: hidden on narrow terminals and rendered empty
  * until a limit is known. */
 function contextBoxHit(cx: number, cy: number): number {
-  if (terminal.columns < 60) return 0;
+  if (terminal.columns < 90) return 0;
   const width = contextBox.width();
   const height = contextBox.render(width).length;
   const left = terminal.columns - width + 1; // 1-based, flush right

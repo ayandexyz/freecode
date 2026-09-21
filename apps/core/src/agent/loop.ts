@@ -143,8 +143,10 @@ import {
 import {
   checkCacheUsage,
   describeCacheProblem,
+  getCacheStats,
   isCacheMissNoticesEnabled,
   bumpCacheGeneration,
+  type CacheProblem,
 } from "../providers/cache-miss.js";
 import {
   noteSendAndCheckCold,
@@ -454,6 +456,10 @@ export class AgentLoop {
   // truncated a tool call. Capped: a model that keeps overflowing the output
   // limit must end the run, not retry forever at full prompt cost.
   private truncatedRetries = 0;
+  // 1-based user-prompt ordinal, labelling cache-miss samples ("3.2>" is
+  // run 3, model call 2) — per instance, never reset, because the cache
+  // accounting it labels is per session.
+  private runIndex = 0;
   private lastVerifierReport: string | undefined;
   // Last rendered memory block, so a run reset clears stale injected memory.
   private lastMemoryBlock: string | undefined = undefined;
@@ -729,6 +735,7 @@ export class AgentLoop {
     // each one a retry of the same 403 push).
     this.pokeState = nextRunPokeState(this.pokeState);
     this.truncatedRetries = 0;
+    this.runIndex += 1;
     this.lastVerifierReport = undefined;
     this.lastMemoryBlock = undefined;
     this.lastMemoryEmittedFor = undefined;
@@ -2382,7 +2389,7 @@ export class AgentLoop {
           });
         }
 
-        this.emitCacheWarm(usage);
+        this.emitCacheWarm(usage, provider, resolvedModel);
         this.armCacheWarmer(provider, model, requestOptions, usage);
         this.recorder.recordModelResponse(turnId, {
           provider,
@@ -2426,7 +2433,7 @@ export class AgentLoop {
       };
       const result = await aiProvider.execute(requestOptions);
 
-      this.emitCacheWarm(result.usage);
+      this.emitCacheWarm(result.usage, provider, resolvedModel);
       this.armCacheWarmer(provider, model, requestOptions, result.usage);
       this.recorder.recordModelResponse(turnId, {
         provider,
@@ -2529,12 +2536,18 @@ export class AgentLoop {
     warmer.start(request);
   }
 
-  private emitCacheWarm(usage?: {
-    inputTokens?: number;
-    cacheReadInputTokens?: number;
-    cacheCreationInputTokens?: number;
-    cacheWriteInputTokens?: number;
-  }): void {
+  private emitCacheWarm(
+    usage:
+      | {
+          inputTokens?: number;
+          cacheReadInputTokens?: number;
+          cacheCreationInputTokens?: number;
+          cacheWriteInputTokens?: number;
+        }
+      | undefined,
+    provider: string,
+    model: string,
+  ): void {
     // The new shape names the cache write counter `cacheWriteInputTokens`;
     // the `cacheCreationInputTokens` alias is honored for any caller still
     // handing in the legacy field. Same fallback pattern as the recorder.
@@ -2546,47 +2559,68 @@ export class AgentLoop {
       cacheCreationInputTokens: cacheWrite,
     });
     if (readTokens === 0 && writeTokens === 0) return;
+    const problem = this.checkCacheHealth(
+      usage,
+      readTokens,
+      writeTokens,
+      provider,
+      model,
+    );
+    const stats = getCacheStats(this.state.sessionId);
+    if (problem) {
+      logger.warn(`[cache] ${describeCacheProblem(problem)}`);
+      BusEvents.stream(this.state.sessionId, {
+        type: "cache_status",
+        state: "miss",
+        cacheReadTokens: readTokens,
+        cacheWriteTokens: writeTokens,
+        message: describeCacheProblem(problem),
+        stats,
+      });
+      return;
+    }
     BusEvents.stream(this.state.sessionId, {
       type: "cache_status",
       state: "warm",
       cacheReadTokens: readTokens,
       cacheWriteTokens: writeTokens,
+      stats,
     });
-    this.checkCacheHealth(usage, readTokens, writeTokens);
   }
 
   // Spec 2026-08-09 D2: a hit rate says money was lost; this says which turn
   // lost it. A miss the invalidation journal explains is normal and stays at
   // debug — an unexplained one means something mutated an already-sent message,
   // which is the bug RC3/RC4 were and which nothing currently catches.
+  // Returns the problem to alarm on, if any. The accounting behind
+  // getCacheStats runs regardless; FREECODE_CACHE_MISS_NOTICES=0 only mutes
+  // the alarm.
   private checkCacheHealth(
     usage: { inputTokens?: number } | undefined,
     readTokens: number,
     writeTokens: number,
-  ): void {
-    if (!isCacheMissNoticesEnabled()) return;
+    provider: string,
+    model: string,
+  ): CacheProblem | undefined {
     const problem = checkCacheUsage(this.state.sessionId, {
       cacheReadTokens: readTokens,
       cacheWriteTokens: writeTokens,
       inputTokens: usage?.inputTokens ?? 0,
+      provider,
+      model,
+      // turnCount is bumped after the call returns, so +1 is this call.
+      turn: { run: this.runIndex, call: this.state.turnCount + 1 },
     });
-    if (!problem) return;
+    if (!problem) return undefined;
 
     if (problem.documentedCause) {
       logger.debug(
         `[cache] miss attributed to ${problem.documentedCause} ` +
           `(${problem.affectedTokens} tokens)`,
       );
-      return;
+      return undefined;
     }
-    logger.warn(`[cache] ${describeCacheProblem(problem)}`);
-    BusEvents.stream(this.state.sessionId, {
-      type: "cache_status",
-      state: "miss",
-      cacheReadTokens: readTokens,
-      cacheWriteTokens: writeTokens,
-      message: describeCacheProblem(problem),
-    });
+    return isCacheMissNoticesEnabled() ? problem : undefined;
   }
 
   // ===========================================================================

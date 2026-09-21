@@ -55,6 +55,8 @@ export type {
   JsonRpcResponse,
   StreamResponse,
   StreamEvent,
+  CacheStats,
+  CacheMissSample,
   QuestionSpec,
   PermissionPromptDecision,
   MethodName,

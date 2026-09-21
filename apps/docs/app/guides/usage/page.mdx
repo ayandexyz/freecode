@@ -8,10 +8,59 @@ description: "Track tokens, cache hit rate, and spend."
 FreeCode accumulates usage per turn and records it daily, including prompt-cache
 reads and writes — the single biggest lever on cost for a long session.
 
-## On this page (coming soon)
+## The cache widget (top-right)
+
+Once a provider has reported cache fields, the top-right corner of the TUI
+shows the session's prompt-cache health. It is the same shape as jcode's KV
+cache widget, and it is hidden on terminals narrower than 90 columns.
+
+```
+                        12.3K / 200.0K
+    yield 99% · last 97% · session 91%
+                      miss attribution
+        3.2> 40.1k miss (model switch)
+```
+
+**Line 1 — `tokens / limit`.** The context window in use after the last
+model call, against the model's limit. Click it to open `/context`.
+
+**Line 2 — three ratios.** All three are `cache reads ÷ something`; what
+changes is the denominator, and that is the whole point of showing three.
+
+| Label | Reads ÷ … | What it tells you |
+|---|---|---|
+| `yield` | the **previous** request's full prompt — everything that had just become cacheable | Whether the harness is reusing its own prefix. Near 100% is healthy *whatever you type*, because a new user message is never part of the previous prompt. A drop here is either a legitimate event (see the list below) or a bug where an already-sent message changed. Summed over the session. |
+| `last` | the latest request's own prompt | What share of the last call was billed at the cache-read rate. A long new message or a big tool result legitimately lowers this. |
+| `session` | every prompt so far | The same for the session as a whole — the number `/cost` prices. |
+
+Before the second model call there is nothing to yield against, so the line
+reads `priming` instead. The colour follows the freshest health signal (red
+below 25%, yellow below 60%, blue below 85%, green above).
+
+**Lines 3+ — miss attribution.** Every time a request reads at least 1,024
+fewer cached tokens than the previous request left cached, that shortfall is
+listed with which call it was (`3.2>` is your third prompt, the model's second
+call within it; `3>` is the first call), how many tokens were re-sent at full
+price, and why:
+
+| Reason | Meaning | Avoidable? |
+|---|---|---|
+| `compaction: …`, `system prompt changed: …` | The harness knowingly rebuilt the prompt and said so — compaction, or an edited `CLAUDE.md` / added skill mid-session. | Expected. |
+| `provider switch`, `model switch` | You changed model; the new one has no cache of this conversation. | Expected. |
+| `expired` | More than the cache TTL (5 min, or 1 h under `FREECODE_CACHE_TTL=1h`) passed since the previous call, on Anthropic. | Keep turns closer, or raise the TTL. |
+| `provider blip` | The read collapsed for one call and then recovered to exactly the old boundary — so the prefix never changed and the miss was on the provider's side (a write not yet committed, eviction, routing). | No. |
+| `harness: zero read`, `harness: prefix rewritten` | **A bug.** Nothing above explains it and the next call did not recover, so something changed a message that had already been sent. These are in red and also raise the in-chat *Prompt-cache miss* warning. | Report it — `FREECODE_DEBUG_CACHE=1` prints per-segment hashes that show which segment moved. |
+
+`none` means every call since the first reused its prefix. The list keeps the
+last 12 misses and shows the newest 5; click any cache line to open `/cost`.
+
+Related settings: `FREECODE_CACHE_MISS_NOTICES=0` mutes the in-chat warning
+(the widget keeps counting); `FREECODE_CACHE_TTL=1h` lengthens the Anthropic
+cache and with it the `expired` threshold.
+
+## Still to write
 
 - `/cost` — spend and cache hit rate for the current session
 - `/usage` — the daily heatmap
-- Reading cache hits: why a high hit rate matters more than model choice
 - What invalidates the prompt cache
 - Querying usage over IPC

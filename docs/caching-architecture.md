@@ -139,6 +139,110 @@ fires at 60 minutes rather than 5; at `5m` the message names the knob.
   is either automatic-without-TTL-signal or absent here, so no warning
   is surfaced.
 
+### 1.5a Session cache accounting — `providers/cache-miss.ts`
+
+What the TUI's top-right widget shows (`apps/tui/src/components/context-box.ts`),
+and how each number is produced. Spec: `2026-08-09-cache-observability.md`
+§D2 / §D2.2; jcode's original is `crates/jcode-tui/src/tui/info_widget.rs`
+(`CacheHitInfo`) + `app.rs` (`record_completed_stream_cache_usage`).
+
+**Inputs.** After every model call `loop.ts emitCacheWarm` feeds
+`checkCacheUsage(sessionId, sample)` one sample:
+
+| Field | Source | Note |
+|---|---|---|
+| `inputTokens` | `usage.inputTokens` | The AI SDK's **inclusive** prompt total: non-cached + cache read + cache write. (jcode has to reconstruct this per provider — `effective_prompt_tokens` — because Anthropic's raw `input_tokens` is the uncached remainder; the SDK already normalises it for us.) |
+| `cacheReadTokens` | `usage.cacheReadInputTokens` | Served from the provider cache. |
+| `cacheWriteTokens` | `usage.cacheWriteInputTokens` ?? `cacheCreationInputTokens` | Written to the cache this call. |
+| `provider`, `model` | the call | For switch detection. |
+| `turn` | `{ run: loop.runIndex, call: state.turnCount + 1 }` | `run` is the 1-based user-prompt ordinal (never reset — the accounting is per session), `call` the model call within it. Rendered `run.call>` (`3>` when `call` is 1). |
+
+A sample with `read == 0 && write == 0` is a provider that is not caching
+(Gemini, most OpenAI-compatible endpoints): it clears the baseline and
+contributes to nothing, so absent data never looks like a miss and the widget
+falls back to the plain `cache N%` line the TUI derives from `result.usage`.
+
+**Per-call derived values.**
+
+```
+promptTokens  = max(inputTokens, read + write)   # a provider omitting inputTokens still said what it cached
+cachedPrefix  = read + write                     # what is provably in the cache after this call
+optimal       = previous.promptTokens            # what the PREVIOUS call made cacheable
+                                                 # (undefined on the first call, and after a
+                                                 #  compaction generation bump — see below)
+```
+
+`cachedPrefix` is the tighter number and drives miss *detection*;
+`promptTokens` is jcode's denominator and drives *yield*. They differ on
+Anthropic only by whatever sits after the last breakpoint, which
+`applyMessageCaching` (1.1) keeps to the final user message.
+
+**Session totals** (`Totals`, keyed by session id) accumulate
+`promptTokens`, `readTokens`, `optimalTokens`, plus the last call's three.
+`getCacheStats()` turns them into the wire shape (`CacheStats` in
+`packages/shared/src/ipc/protocol.ts`, every ratio a rounded 0–100 integer,
+clamped):
+
+| Field | Formula | Widget label |
+|---|---|---|
+| `yieldPct` | Σ read ÷ Σ optimal | `yield` — undefined (renders `priming`) until a same-generation previous call exists |
+| `lastYieldPct` | last read ÷ last optimal | not shown; picks the colour |
+| `lastPct` | last read ÷ last promptTokens | `last` |
+| `sessionPct` | Σ read ÷ Σ promptTokens | `session` |
+| `misses` | bounded list, oldest first | `miss attribution` |
+
+Why the denominator matters: a new user message is *never* in the previous
+prompt, so it lowers `last`/`session` (the cost view) without touching `yield`
+(the health view). That is why `yield` sits at ~100% in a healthy session while
+`session` drifts with how much the user types, and why one bad `yield` sample
+is worth looking at when `session` alone would hide it.
+
+**Colour** (`healthPaint`): the freshest signal available —
+`lastYieldPct ?? lastPct ?? yieldPct ?? sessionPct` — at jcode's thresholds:
+red < 25, yellow < 60, blue < 85, green otherwise.
+
+**Miss attribution.** With a same-generation baseline present:
+
+```
+missedTokens = previous.cachedPrefix − read
+if missedTokens < 1_024: not a miss           # MIN_MISSED_TOKENS, jcode's threshold
+```
+
+Otherwise the shortfall is classified in this order and the first match wins:
+
+| Reason | Test | `harnessBug` | Alarm |
+|---|---|---|---|
+| `<journal source>: <detail>` | `findRecentInvalidation()` has an entry ≤ 60 s old (`compaction`, `system prompt changed`) | no | no |
+| `provider switch` | `sample.provider !== previous.provider` | no | no |
+| `model switch` | `sample.model !== previous.model` | no | no |
+| `expired` | provider is `anthropic` and `now − previous.completedAt > TTL` (`getCacheTtl()`: 5 m / 1 h) | no | no |
+| *(held)* | none of the above — parked as a `PendingMiss` for one sample (§D2.1) | | |
+| `provider blip` | the **next** call's read ≥ the pre-miss `cachedPrefix`: the prefix bytes cannot have changed | no | no |
+| `harness: zero read` | held, not recovered, and the miss call read 0 | **yes** | `cache_status: miss` |
+| `harness: prefix rewritten` | held, not recovered, read > 0 | **yes** | `cache_status: miss` |
+
+A held sample is listed only when its verdict lands, i.e. one call late; a
+pending miss with no follow-up (session end, generation bump, provider
+stopped reporting) is dropped as unverifiable. `MAX_MISS_SAMPLES` is 12; the
+widget draws the newest 5 and folds the rest into `… N more`.
+
+**Compaction.** `bumpCacheGeneration()` (called from `loop.ts` when the
+provider-facing history is rebuilt) increments the session's generation and
+deletes the baseline. The rebuild turn therefore has no `optimal` (excluded
+from yield) and no miss judgement — the drop compaction *must* cause is never
+reported as one. The next call re-establishes the baseline.
+
+**Transport.** `getCacheStats()` rides `cache_status.stats` on every `warm`
+and `miss` event; the TUI stores the latest and re-renders. Core computes
+every ratio, the frontend only draws. `FREECODE_CACHE_MISS_NOTICES=0` gates
+only the `miss` alarm — the accounting runs regardless. `resetCacheTracking()`
+in `session/end-session.ts` drops all of it when the session ends.
+
+**Not ported from jcode.** Per-request signature hashing (system/tools/messages
+hashes → *which* message index changed), so `harness: prefix rewritten` says
+*that* the prefix moved, not where; `FREECODE_DEBUG_CACHE=1` (1.6) is the
+manual route to that answer.
+
 ### 1.6 Per-segment debug hashing — `utils.ts:93 debugSegment`
 
 `FREECODE_DEBUG_CACHE=1` writes a per-segment length + 32-bit content
@@ -380,6 +484,8 @@ apps/core/src/
 ├── providers/
 │   ├── utils.ts                    # 1.1, 1.2, 1.3, 1.4, 1.6
 │   ├── cache-awareness.ts          # 1.5
+│   ├── cache-miss.ts               # 1.5a yield / miss attribution
+│   ├── cache-invalidation.ts       # 1.5a documented-invalidation journal
 │   └── streaming.ts                # usage → cache_status event
 ├── context/
 │   ├── tree-cache.ts               # 2.1

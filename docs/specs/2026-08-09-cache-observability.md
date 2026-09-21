@@ -193,6 +193,45 @@ indistinguishable from a real rewrite and will alarm. The message wording
 because after D2.1 the recovered blips — the common benign case — no longer
 reach it.
 
+#### D2.2 — Yield metric and miss attribution (added 2026-09-22)
+
+The alarm says *a* harness bug happened; jcode's KV cache widget
+(`crates/jcode-tui/src/tui/info_widget.rs`) also answers "how well is the
+cache working, and which turns lost what". Ported as `getCacheStats()` in
+`cache-miss.ts`, shipped on every `cache_status` (`warm`/`miss`) event as
+`stats`, drawn by the TUI's top-right `ContextBox`:
+
+```
+yield 99% · last 97% · session 91%
+miss attribution
+3.2> 40.1k miss (model switch)
+```
+
+- **yield** = read ÷ the *previous* request's full prompt (everything it made
+  cacheable), summed over the session. The harness-health number: ~100% means
+  the prefix is being reused whatever the user typed. `priming` before the
+  second call. **last** = read ÷ prompt for the latest call, **session** = the
+  same over the session — the cost numbers, which a new user message
+  legitimately lowers. A compaction bump excludes the rebuild turn from yield,
+  as it already excludes it from the alarm.
+- **miss attribution** is a bounded list (12) of every shortfall ≥1,024 tokens
+  against the previous cached prefix, labelled `run.call>` and classified in
+  order: a journal entry (`compaction: …`, `system prompt changed: …`) →
+  `provider switch` → `model switch` → `expired` (Anthropic only, past the
+  configured TTL) → held one sample per D2.1 and then either `provider blip`
+  (recovered) or `harness: zero read` / `harness: prefix rewritten`
+  (confirmed). Only the two `harness:` reasons carry `harnessBug: true` and
+  raise the D2 alarm; the rest are informational rows. Before this a model
+  switch mid-session was a false D2 alarm.
+- Accounting runs regardless of `FREECODE_CACHE_MISS_NOTICES`; the flag only
+  mutes the alarm.
+
+Not ported: jcode's per-request signature (system/tools/messages hashes, first
+changed message index), so a confirmed harness miss says *that* the prefix
+changed, not *where*. The rollout log does not carry these stats — the trace
+fold already sums `cacheReadTokens` per model span from `model.response`, and
+the attribution list is derivable from the same events.
+
 ## Out of scope
 
 - Changing breakpoint placement. Four are in use, which is Anthropic's maximum; the
