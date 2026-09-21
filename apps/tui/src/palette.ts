@@ -55,6 +55,8 @@ export interface Palette {
   onAccent: Paint;
   /** Raised surface: status bar, frame stats, inline input box. */
   bgSurface: Paint;
+  /** Background of a submitted prompt in the transcript. */
+  bgUserMessage: Paint;
   /** Selected text in the editor. */
   bgSelection: Paint;
   /** Selected text foreground, paired with `bgSelection`. */
@@ -118,6 +120,7 @@ function defaultPalette(): Palette {
 
     onAccent: chalk.black,
     bgSurface: chalk.bgHex("#262626"),
+    bgUserMessage: chalk.bgHex("#262626"),
     bgSelection: chalk.bgYellow,
     fgSelection: chalk.black,
     bgDiffAdd: chalk.bgHex("#143c1a"),
@@ -184,6 +187,10 @@ function omarchyThemedPalette(t: NonNullable<typeof omarchyPalette>): Palette {
 
     onAccent: chalk.hex(t.background),
     bgSurface: chalk.bgHex(t.lighter_background),
+    // lighter_background is often within a few steps of background (Ristretto,
+    // Osaka Jade), so a prompt painted with it barely reads as a block. Tint
+    // toward the accent instead — visible on every theme, still the theme's.
+    bgUserMessage: chalk.bgHex(mix(t.background, t.accent, 0.2)),
     bgSelection: chalk.bgHex(t.selection),
     fgSelection: chalk.hex(t.bright_foreground),
     // No diff colours in colors.toml; tint the background toward the theme's

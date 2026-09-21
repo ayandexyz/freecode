@@ -242,7 +242,7 @@ export function createUserMessageComponent(content: string): Component {
         }
         return line;
       })
-      .map((line) => palette.bgSurface(line))
+      .map((line) => palette.bgUserMessage(line))
       .join("\n");
   });
   const markdown = new Markdown(displayContent, 2, 0, defaultMarkdownTheme);
@@ -290,7 +290,7 @@ export function createQueuedUserMessageComponent(
         }
         return line;
       })
-      .map((line) => palette.bgSurface(line))
+      .map((line) => palette.bgUserMessage(line))
       .join("\n");
   });
   const markdown = new Markdown(displayContent, 2, 0, defaultMarkdownTheme);
