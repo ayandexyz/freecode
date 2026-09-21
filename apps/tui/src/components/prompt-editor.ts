@@ -27,62 +27,75 @@ export function formatHistoryIndicator(
 }
 
 /**
- * Build a bottom-border strip with the history indicator spliced just after
- * the leading dashes and the status label (model, effort, mode) set in from
- * the right, grok-build style. Dashes and indicator are emitted through
- * `borderColor` in whole runs so the ANSI seams stay consistent; the label
- * is dim so it reads as chrome, not input. A label that does not fit beside
- * the indicator is dropped rather than wrapping the line.
+ * What the composer is about to do with what has been typed. Drives the
+ * prompt glyph and its colour, the way jcode's `composer_mode` does: the
+ * input line itself says whether Enter sends a prompt, runs a shell command
+ * or opens a slash command, so no separate mode indicator is needed.
  */
-export function buildBottomBorder(
-  width: number,
-  borderColor: (s: string) => string,
-  indicator: string | null,
-  label: string | null,
-  sideDashes = 2,
-): string {
-  const left = indicator ? ` ${indicator} ` : "";
-  const leftCount = Math.min(sideDashes, Math.max(0, width - left.length));
-  let right = label ? ` ${label} ` : "";
-  // Two trailing dashes: one stays, one becomes the corner.
-  if (right && leftCount + left.length + right.length + 2 > width) right = "";
-  const midCount = Math.max(0, width - leftCount - left.length - right.length - (right ? 2 : 0));
-  return (
-    borderColor("─".repeat(leftCount) + left + "─".repeat(midCount)) +
-    (right ? chalk.dim(right) + borderColor("──") : "")
-  );
-}
-
-/** `buildBottomBorder` with only the history indicator. */
-export function buildHistoryBorder(
-  indicator: string,
-  width: number,
-  borderColor: (s: string) => string,
-  sideDashes = 2,
-): string {
-  return buildBottomBorder(width, borderColor, indicator, null, sideDashes);
-}
-
-/** pi-tui's left padding for `paddingX: 4` — what a content row starts with. */
-const PAD = "    ";
+export type ComposerMode = "chat" | "command" | "shell" | "processing";
 
 /**
- * Turn a flat `────` border into a box edge by swapping its first and last
- * dash for corners. Works on the plain and scroll-indicator variants alike:
- * both begin with a dash, and only a truncated indicator fails to end with
- * one, in which case the right corner is simply left off.
+ * Classify composer state from the text and whether a turn is running.
+ *
+ * Shell wins over slash: `!` is a prefix on the raw text, checked before the
+ * leading-`/` test, matching how `index.ts` dispatches a submitted prompt
+ * (bang first, then slash). "processing" only applies to an empty composer —
+ * once the user starts typing, what Enter will do matters more than what the
+ * agent is currently doing.
  */
-export function withCorners(line: string, left: string, right: string): string {
-  const first = line.indexOf("─");
-  if (first === -1) return line;
-  let out = line.slice(0, first) + left + line.slice(first + 1);
-  // The closing dash is the last visible char: only an ANSI reset may follow.
-  const last = out.lastIndexOf("─");
-  const tail = out.slice(last + 1);
-  if (last > first && /^(?:\x1b\[[0-9;]*m)*$/.test(tail)) {
-    out = out.slice(0, last) + right + tail;
-  }
-  return out;
+export function composerMode(text: string, isProcessing: boolean): ComposerMode {
+  if (text.startsWith("!")) return "shell";
+  if (text.trimStart().startsWith("/")) return "command";
+  if (isProcessing && text.length === 0) return "processing";
+  return "chat";
+}
+
+/**
+ * The glyph for a composer mode. One visible column plus a trailing space, so
+ * every mode keeps the typed text on the same column and a mode switch never
+ * reflows the line.
+ *
+ * Shell and command deliberately keep the plain `>`: the user has already
+ * typed the `!` or `/` one column to the right, and `1$ !ls` / `1/ /model`
+ * says the same thing twice. Those two modes are marked by the prompt's
+ * colour instead, which costs no columns and never reads as a typo. Only
+ * `processing` gets its own glyph, because an empty composer has no typed
+ * text to carry the signal.
+ */
+export function promptGlyph(mode: ComposerMode): string {
+  return mode === "processing" ? "… " : "> ";
+}
+
+/**
+ * The full prompt prefix: the 1-based turn number then the mode glyph, e.g.
+ * `3> `. The number is what makes a scrolled-back transcript navigable — it
+ * tells you which exchange you are about to add without any chrome around
+ * the input.
+ */
+export function promptPrefix(turn: number, mode: ComposerMode): string {
+  return `${turn}${promptGlyph(mode)}`;
+}
+
+/**
+ * The dim chrome line under the composer: the history indicator on the left,
+ * the status label (model, effort, mode) set against the right edge. Returns
+ * null when there is nothing to say, so an idle composer costs zero rows.
+ *
+ * A label that would collide with the indicator is dropped rather than
+ * wrapped — the indicator is transient and is what the user is looking at.
+ */
+export function buildStatusLine(
+  width: number,
+  indicator: string | null,
+  label: string | null,
+  indent = 0,
+): string | null {
+  const left = indicator ?? "";
+  let right = label ?? "";
+  if (right && indent + left.length + 1 + right.length > width) right = "";
+  if (!left && !right) return null;
+  const gap = Math.max(1, width - indent - left.length - right.length);
+  return chalk.dim(" ".repeat(indent) + left + " ".repeat(gap) + right);
 }
 
 /**
@@ -104,6 +117,42 @@ const ANSI_SEQUENCE = /\x1b(?:\[[0-9;?]*[a-zA-Z]|[_\]][^\x07]*\x07)/g;
 export function stripImageTokens(text: string): string {
   return text.replace(IMAGE_TOKEN, "");
 }
+
+/**
+ * Whether a base-editor row is one of its horizontal rules. Content and
+ * autocomplete rows start with padding spaces, so a row whose first visible
+ * character is a box-drawing dash can only be a border (pi-tui draws the
+ * `── ↓ N more` scroll indicators the same way).
+ */
+function isBorderRow(line: string): boolean {
+  return line.replace(ANSI_SEQUENCE, "").startsWith("─");
+}
+
+/**
+ * The `↑ N more` / `↓ N more` text pi-tui writes into a border when the
+ * composer has scrolled, or null for a plain border.
+ *
+ * Dropping the borders would otherwise drop this with them, leaving a tall
+ * pasted prompt silently truncated — the one piece of information those
+ * rows carried that the prompt glyph does not replace. It is re-emitted on
+ * the status row instead.
+ */
+export function scrollNotice(border: string): string | null {
+  return /([↑↓] \d+ more)/.exec(border.replace(ANSI_SEQUENCE, ""))?.[1] ?? null;
+}
+
+/**
+ * Prompt colour per composer mode. Shell is green because `$` meaning "this
+ * runs on your machine" is worth a distinct colour rather than the accent
+ * everything else uses; processing is dim so a composer the user is not
+ * typing into recedes. `chat` is absent on purpose — it falls back to the
+ * editor's `borderColor`, which the agent-mode cycle already repaints.
+ */
+const MODE_PAINT: Partial<Record<ComposerMode, (s: string) => string>> = {
+  shell: palette.brightGreen,
+  command: palette.brightCyan,
+  processing: chalk.dim,
+};
 
 /**
  * Highlight @mentions in the editor content with yellow color.
@@ -177,17 +226,27 @@ function styleImageTokens(line: string): string {
 }
 
 /**
- * PromptEditor — pi-tui Editor with a `❯` prompt prefix on the input line,
- * like Claude Code. Highlights @filename mentions in yellow.
+ * PromptEditor — pi-tui Editor rendered as a borderless composer, in the
+ * shape jcode uses: no box, just a turn-numbered prompt (`3> `) whose glyph
+ * and colour say what Enter will do, and a dim status line underneath.
+ *
+ * The box was carrying two jobs — framing the input and hosting the status
+ * label on its bottom border. Neither needs a frame: the prompt glyph marks
+ * where input begins, and the status reads fine as a plain dim row. Dropping
+ * it removes four columns of chrome and two drawn borders per frame, which
+ * suits an Omarchy-targeted agent where the terminal is already framed by
+ * the window manager.
+ *
+ * Highlights @filename mentions in yellow.
  *
  * Pasted images are inserted inline as `[Image #N]` tokens at the cursor, so
  * they sit between the words the user typed and can be repositioned or removed
  * by editing. One backspace deletes a whole chip.
  *
- * Padding reserves two columns on every content line; the prefix is painted
- * into the reserved space of the first line, so cursor column math and line
- * widths are unchanged. The prefix uses the editor's border color, so it
- * follows the agent-mode color automatically.
+ * Padding reserves exactly the prompt's width on every content line; the
+ * prefix is painted into that reserved space on the first line and later
+ * lines are left blank, so wrapped text stays aligned under the first
+ * character the user typed and cursor column math is unchanged.
  */
 export class PromptEditor extends Editor {
   /** Image ID → bytes. Entries are dropped when their token leaves the text. */
@@ -200,11 +259,19 @@ export class PromptEditor extends Editor {
    * render time, so a mode cycle or model change needs only a re-render.
    */
   statusLabel?: () => string;
+  /**
+   * 1-based number of the prompt being composed, shown before the glyph.
+   * A getter so a completed turn renumbers the composer without the editor
+   * needing to be told.
+   */
+  turnNumber: () => number = () => 1;
+  /** Whether a turn is currently running — selects the `…` prompt glyph. */
+  isProcessing: () => boolean = () => false;
 
   constructor(tui: TUI, theme: EditorTheme) {
-    // Four columns: the left side border, a space, the `❯` prompt glyph and a
-    // space — `render()` overwrites the padding with that chrome.
-    super(tui, theme, { paddingX: 4 });
+    // Padding is re-derived per render from the prompt width; this is just
+    // the width of the initial `1> `.
+    super(tui, theme, { paddingX: 3 });
   }
 
   /** Insert an image at the cursor as a `[Image #N]` chip. Returns its ID. */
@@ -305,51 +372,54 @@ export class PromptEditor extends Editor {
   }
 
   render(width: number): string[] {
+    // The prompt is the left padding, so its width has to be set before the
+    // base class lays text out — otherwise the first render after the turn
+    // counter rolls to 10 wraps one column short.
+    const mode = composerMode(this.getText(), this.isProcessing());
+    const prefix = promptPrefix(this.turnNumber(), mode);
+    this.setPaddingX(prefix.length);
+
     const editorLines = super.render(width);
 
-    // Content lines carry the padding columns; borders and scroll indicators
-    // don't. Mentions are highlighted first so the chip pass sees their
-    // escape codes as sequences rather than swallowing them.
-    for (let i = 1; i < editorLines.length; i++) {
-      const line = editorLines[i] ?? "";
-      if (!line.startsWith("  ")) continue;
-      editorLines[i] = styleImageTokens(highlightMentions(line));
+    // Base output is: top border, content rows, bottom border, then any
+    // autocomplete rows. Both borders are dropped. Content and autocomplete
+    // rows are padded identically, so the split is found by locating the
+    // bottom border — the first `─` row after index 0 — rather than assuming
+    // a position.
+    const bottomIdx = editorLines.findIndex((l, i) => i > 0 && isBorderRow(l));
+    const end = bottomIdx === -1 ? editorLines.length : bottomIdx;
+    const pad = " ".repeat(prefix.length);
+    const paint = MODE_PAINT[mode] ?? this.borderColor;
+
+    const out: string[] = [];
+    for (let i = 1; i < end; i++) {
+      // Mentions are highlighted first so the chip pass sees their escape
+      // codes as sequences rather than swallowing them.
+      const body = (editorLines[i] ?? "").slice(prefix.length);
+      out.push((i === 1 ? paint(prefix) : pad) + styleImageTokens(highlightMentions(body)));
     }
 
-    // Box the input: lines[0] is the top border, then the content rows up to
-    // the bottom border; anything after that is the autocomplete list, which
-    // hangs below the box unframed. The side borders overwrite the outermost
-    // padding column on each side, and the `❯` glyph the first row's third.
-    const side = this.borderColor("│");
-    let bottomIdx = editorLines.length - 1;
-    for (let i = 1; i < editorLines.length; i++) {
-      const line = editorLines[i] ?? "";
-      if (!line.startsWith(PAD)) {
-        bottomIdx = i;
-        break;
-      }
-      const prefix = i === 1 ? `${side} ${this.borderColor("❯")} ` : `${side}   `;
-      editorLines[i] = prefix + line.slice(PAD.length, -1) + side;
-    }
-    editorLines[0] = withCorners(editorLines[0] ?? "", "╭", "╮");
-    editorLines[bottomIdx] = withCorners(editorLines[bottomIdx] ?? "", "╰", "╯");
+    // Status chrome sits on its own dim row under the input: on the left the
+    // scroll notice rescued from the dropped borders, else the history
+    // position while paging with up/down; on the right the model · mode
+    // label. pi-tui keeps historyIndex private, so `historyIndicator`
+    // reaches for the runtime field TypeScript hides.
+    const scrolled = [editorLines[0] ?? "", bottomIdx === -1 ? "" : editorLines[bottomIdx] ?? ""]
+      .map(scrollNotice)
+      .filter((n): n is string => n !== null)
+      .join(" · ");
+    const status = buildStatusLine(
+      width,
+      scrolled || this.historyIndicator(),
+      this.statusLabel?.() || null,
+      prefix.length,
+    );
+    if (status !== null) out.push(status);
 
-    // The bottom border carries the status label (model · mode) at its right
-    // end and, while paging through history with up/down, `[N/total]` at its
-    // left so the user knows how far they've gone. pi-tui keeps historyIndex
-    // private, so reach for the runtime field TypeScript hides. The border
-    // is rebuilt from scratch (rather than editing the existing colored line
-    // in place) to keep ANSI consistent at the seams.
-    const indicator = this.historyIndicator();
-    const label = this.statusLabel?.() || null;
-    if (indicator !== null || label !== null) {
-      editorLines[bottomIdx] = withCorners(
-        buildBottomBorder(width, this.borderColor, indicator, label),
-        "╰",
-        "╯",
-      );
-    }
-    return editorLines;
+    // Autocomplete rows follow the bottom border and hang below the status
+    // line, unframed and unstyled.
+    if (bottomIdx !== -1) out.push(...editorLines.slice(bottomIdx + 1));
+    return out;
   }
 
   /**

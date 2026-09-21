@@ -1,8 +1,9 @@
 // =============================================================================
-// Tests for the prompt-editor history indicator helpers (pure functions).
+// Tests for the borderless composer's pure helpers: the turn-numbered prompt
+// prefix, its mode classification, and the dim status row under the input.
 // The full PromptEditor needs a pi-tui TUI + Terminal which is heavy to set
-// up in node:test, so the render math lives in two exported functions and
-// is covered here directly.
+// up in node:test, so the render math lives in exported functions and is
+// covered here directly.
 // =============================================================================
 
 import test from "node:test";
@@ -10,14 +11,15 @@ import assert from "node:assert/strict";
 import stripAnsi from "strip-ansi";
 
 import {
-  buildBottomBorder,
-  buildHistoryBorder,
-  withCorners,
+  buildStatusLine,
+  composerMode,
   formatHistoryIndicator,
+  promptGlyph,
+  promptPrefix,
+  scrollNotice,
 } from "./prompt-editor.js";
 
 const IDENTITY = (s: string) => s;
-const TAG = (s: string) => `<${s}>`;
 
 test("formatHistoryIndicator: returns null when not browsing history", () => {
   assert.equal(formatHistoryIndicator(-1, 12), null);
@@ -36,62 +38,80 @@ test("formatHistoryIndicator: 1-based from the most recent entry", () => {
   assert.equal(formatHistoryIndicator(7, 100), "[8/100]");
 });
 
-test("buildHistoryBorder: total visible width matches the requested width", () => {
-  const line = buildHistoryBorder("[3/12]", 40, IDENTITY);
-  assert.equal(stripAnsi(line).length, 40);
+test("composerMode: a leading ! is shell, even with a slash after it", () => {
+  assert.equal(composerMode("!ls -la", false), "shell");
+  // `!` is matched on the raw text before the slash test, mirroring how
+  // index.ts dispatches a submitted prompt: bang first, then slash.
+  assert.equal(composerMode("!/usr/bin/env", false), "shell");
+  assert.equal(composerMode("!!git status", false), "shell");
 });
 
-test("buildHistoryBorder: indicator sits just after the leading dashes", () => {
-  const line = stripAnsi(buildHistoryBorder("[3/12]", 30, IDENTITY));
-  // Two leading dashes per the default, then the indicator with its padding.
-  assert.equal(line.startsWith("── [3/12] "), true);
+test("composerMode: a leading slash is a command, leading space allowed", () => {
+  assert.equal(composerMode("/model", false), "command");
+  assert.equal(composerMode("  /help", false), "command");
+  // Mid-text, a slash is just a path.
+  assert.equal(composerMode("read src/index.ts", false), "chat");
 });
 
-test("buildHistoryBorder: indicator is preserved even on a too-narrow border", () => {
-  const line = stripAnsi(buildHistoryBorder("[3/12]", 4, IDENTITY));
-  // Width 4 leaves no room for the leading dashes, but the indicator is
-  // what the user is looking for, so it stays visible — same trade-off
-  // pi-tui's `↓ N more` indicator makes on the base border.
-  assert.equal(line.includes("[3/12]"), true);
+test("composerMode: processing only shows on an empty composer", () => {
+  assert.equal(composerMode("", true), "processing");
+  // Once typing starts, what Enter will do outranks what the agent is doing.
+  assert.equal(composerMode("next question", true), "chat");
+  assert.equal(composerMode("/model", true), "command");
+  assert.equal(composerMode("", false), "chat");
 });
 
-test("buildHistoryBorder: routes through borderColor so ANSI is consistent", () => {
-  const line = buildHistoryBorder("[3/12]", 30, TAG);
-  // The whole line is wrapped in a single <…> pair — never split across
-  // the indicator, since section-level coloring would leak the reset code
-  // into the middle of the dashes.
-  const expectedDashes = 30 - 2 /*leading*/ - 8 /*' [3/12] '*/;
-  assert.equal(line, `<── [3/12] ${"─".repeat(expectedDashes)}>`);
-});
-
-test("withCorners: swaps the outer dashes for corners, width unchanged", () => {
-  assert.equal(withCorners("─────", "╭", "╮"), "╭───╮");
-  assert.equal(withCorners("\x1b[33m─── ↑ 2 more ───\x1b[39m", "╰", "╯"), "\x1b[33m╰── ↑ 2 more ──╯\x1b[39m");
-});
-
-test("withCorners: a truncated indicator only gets the left corner", () => {
-  assert.equal(withCorners("─── ↑ 2", "╰", "╯"), "╰── ↑ 2");
-  assert.equal(withCorners("no dashes", "╰", "╯"), "no dashes");
-});
-
-test("buildBottomBorder: the status label is set in from the right corner", () => {
-  const line = stripAnsi(
-    withCorners(buildBottomBorder(40, IDENTITY, null, "anthropic/opus (high) · build"), "╰", "╯"),
+test("promptGlyph: every mode is the same visible width", () => {
+  const widths = new Set(
+    (["chat", "command", "shell", "processing"] as const).map((m) => promptGlyph(m).length),
   );
-  assert.equal(line.length, 40);
-  assert.ok(line.endsWith(" anthropic/opus (high) · build ─╯"), line);
-  assert.ok(line.startsWith("╰──"));
+  // A mode switch must not reflow the line the user is typing on.
+  assert.equal(widths.size, 1);
 });
 
-test("buildBottomBorder: history indicator and label share the border", () => {
-  const line = stripAnsi(buildBottomBorder(40, IDENTITY, "[3/12]", "model · plan"));
-  assert.equal(line.length, 40);
-  assert.ok(line.startsWith("── [3/12] ─"));
-  assert.ok(line.endsWith(" model · plan ──"));
+test("promptPrefix: the turn number precedes the glyph", () => {
+  assert.equal(promptPrefix(1, "chat"), "1> ");
+  // Shell and command keep `>`; the typed `!`/`/` already says the mode, so
+  // it is carried by colour instead of a second symbol.
+  assert.equal(promptPrefix(12, "shell"), "12> ");
+  assert.equal(promptPrefix(3, "command"), "3> ");
+  assert.equal(promptPrefix(7, "processing"), "7… ");
 });
 
-test("buildBottomBorder: a label that does not fit is dropped, not wrapped", () => {
-  const line = stripAnsi(buildBottomBorder(12, IDENTITY, "[3/12]", "a-very-long-model-name · build"));
-  assert.equal(line.length, 12);
+test("buildStatusLine: returns null when there is nothing to show", () => {
+  assert.equal(buildStatusLine(40, null, null), null);
+  assert.equal(buildStatusLine(40, null, ""), null);
+});
+
+test("buildStatusLine: the label sits against the right edge", () => {
+  const line = stripAnsi(buildStatusLine(40, null, "anthropic/opus · build") ?? "");
+  assert.equal(line.length, 40);
+  assert.ok(line.endsWith("anthropic/opus · build"));
+});
+
+test("buildStatusLine: the indicator is indented to the prompt column", () => {
+  const line = stripAnsi(buildStatusLine(40, "[3/12]", "model · plan", 3) ?? "");
+  assert.equal(line.length, 40);
+  assert.ok(line.startsWith("   [3/12]"), line);
+  assert.ok(line.endsWith("model · plan"));
+});
+
+test("buildStatusLine: a label that would collide with the indicator is dropped", () => {
+  const line = stripAnsi(buildStatusLine(14, "[3/12]", "a-very-long-model · build", 3) ?? "");
+  // The indicator is transient and is what the user is looking at, so it is
+  // the label that goes rather than the line wrapping.
   assert.doesNotMatch(line, /model/);
+  assert.ok(line.includes("[3/12]"));
+});
+
+test("scrollNotice: a plain border carries nothing", () => {
+  assert.equal(scrollNotice("─".repeat(40)), null);
+  assert.equal(scrollNotice(""), null);
+});
+
+test("scrollNotice: the indicator survives being dropped with the border", () => {
+  // Without this the borderless composer would silently truncate a tall
+  // pasted prompt — the one thing the borders said that the prompt does not.
+  assert.equal(scrollNotice("─── \u2191 6 more " + "─".repeat(20)), "\u2191 6 more");
+  assert.equal(scrollNotice("\x1b[33m─── \u2193 12 more ───\x1b[39m"), "\u2193 12 more");
 });

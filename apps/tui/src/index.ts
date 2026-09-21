@@ -398,13 +398,18 @@ process.stdout.on("resize", () => {
 
 editor = new PromptEditor(tui, defaultEditorTheme);
 editor.setText("");
-// `provider/model (effort) · mode` on the input's bottom border, so the box
-// itself says what a prompt will run against.
+// `provider/model (effort) · mode` on the dim status row under the input, so
+// the composer itself says what a prompt will run against.
 editor.statusLabel = () => {
   const model = getModelDisplayString(currentProvider, currentModel);
   const effort = currentEffort ? ` (${currentEffort})` : "";
   return `${model}${effort} · ${currentAgentMode}`;
 };
+// The prompt is numbered with the turn it will produce, so a scrolled-back
+// transcript stays navigable. `messageCount` counts sent prompts and resets
+// with the session, so the next one is always +1.
+editor.turnNumber = () => messageCount + 1;
+editor.isProcessing = () => activeTurnSessionId !== null;
 
 // `@` file mentions run on fd when it is installed and on a JS tree walk when
 // it is not, so completion works the same on a machine without fd (Windows,
