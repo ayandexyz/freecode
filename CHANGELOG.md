@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.37.0
+
+A bare `hi` from the home directory made MiniMax-M3 read `dev.sh`, follow it into an unrelated project and invent a task. The project context is now framed as background, not a request, and the eval harness that measured the fix grew durable reports and stricter no-tool scoring.
+
+### Changed
+
+- **Project context is framed as background, not a task** (`0c1124e`). The position-0 context message is wrapped in a `<system-reminder>` stating it is supplied by FreeCode and not a user request; `system.md` drops "maximally proactive" and says a greeting gets a conversational reply. `FREECODE_CONTEXT_FRAMING=legacy` restores the old framing for `eval ab`. Measured four times on the full trajectory suite (ledger `2026-09-21-trajectory-1…5`): greeting-over-home-tree 1/3 → 3/3 on every run, no exploration case regressed; `frustrated-user-wants-one-line`, a registered known gap, dipped in two runs.
+
+### Fixed
+
+- **Eval A/B reports are durable** (`c30f394`). Every run saves a full report to `~/.freecode/eval-ab/<uuid>.json` (per-trial results, session ids, resolved models, commit, dirty flag, tree hash); the ledger links to it. `expectTool: null` now fails on attempted and denied calls, and the CLI lists every raw pass-count decline, including ones the majority label calls unchanged.
+- **`find-symbol-uses-grep` uses an isolated fixture** (`c30f394`). Its old symbol was named in `CLAUDE.md`, so "called nothing" was the model reading the instructions, not skipping the search.
+
 ## v0.36.0
 
 A TUI-only release: the terminal UI follows the Omarchy theme, and the in-progress row gets the Claude Code shimmer. Nothing in `apps/core` changed, so the eval gate was not run; `apps/tui` tests are 262/262.
