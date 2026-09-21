@@ -1,0 +1,242 @@
+# FreeCode Roadmap
+
+Features and redesigns that are **not built and not debt** — each needs a spec
+(or at least a decision) before code. Grows over time; that is fine. Bugs and
+dead code live in `TODO.md`; recorded design decisions live in
+`docs/DECISIONS.md`. Things ship from here as minors after 1.0.
+
+
+## Extensibility
+
+What a user can extend without editing FreeCode's source. Covered today: MCP servers,
+skills (incl. `~/.claude/plugins` scope), permission rules via `.freecode/settings.json`,
+and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
+
+
+- [ ] **3. User-defined subagents** — `SubagentType` (`apps/core/src/agent/types.ts:38-43`)
+      is a closed union of five, with descriptions in `SUBAGENT_DEFINITIONS`. No
+      `.freecode/agents/*.md` loader. Bind loaded agents to the existing capability
+      profiles in `permission/profiles.ts`. Reuse the frontmatter-markdown loader
+      already in `commands/loader.ts` (which shipped item 2, user-defined slash
+      commands).
+
+- [ ] **4. Rules hierarchy** — `context/instructions.ts` reads `CLAUDE.md`/`AGENTS.md` from
+      exactly two dirs (global `~/.freecode/`, project root), first match wins.
+      Missing: walk-up for monorepos, `@imports` (both deferred in the comment at line 6),
+      and glob-scoped rules (the Cursor `.mdc` model — "apply only for `**/*.tsx`").
+      Nested-directory rules would also give scoped skills somewhere to live.
+
+- [ ] **5. Multimodal input** — `MessagePart` (`packages/shared/src/types.ts:12-19`) is
+      text/code/tool only, and `read` cannot return an image. Blocks screenshots, design
+      mocks, and diagram debugging. Touches the shared protocol + every provider adapter.
+
+- [ ] **7. MCP server (expose)** — serve FreeCode's tools *as* an MCP server. The client
+      side is done. Already listed as deferred in `CLAUDE.md`.
+
+- [ ] **8. Checkpoints / rewind** — `rollout/` has full event sourcing and `replay.ts`, but
+      there's no user-facing way to undo a turn's file changes. Mostly a command + a
+      file-state diff on top of machinery we already paid for.
+
+
+**Suggested order:** 3, then 4. Items 5 and 8 are larger, self-contained
+projects. (Item 2, user-defined slash commands, shipped as `commands/loader.ts`.
+Item 6, background bash, shipped as `tools/shells/` + `bashoutput`/`killbash`
+and the TUI's `/shells` panel.)
+
+## Background shell completion notifications (added 2026-09-08)
+
+**Status:** designed, not built. Follow-up to the background-bash work (ex-item 6).
+
+Today a background shell is **pull-only**: the model learns a command finished
+only by calling `bashoutput`, and it has no reason to call it once the turn has
+ended. So "run the eval, tell me when it's done" works if the user asks again
+30 minutes later, and never volunteers the result. Claude Code does volunteer
+it, and the mechanism is worth copying rather than inventing:
+`tasks/LocalShellTask` calls `enqueuePendingNotification({ mode:
+'task-notification' })` on exit, which pushes a synthetic user message
+(`<task-notification><status>completed</status><summary>Background command "X"
+completed (exit code 0)</summary>`) onto the message queue; the REPL drains
+that queue between turns **including when idle**, so the model is re-invoked
+and reports back on its own. `utils/collapseBackgroundBashNotifications.ts`
+exists only to squash a burst of those into one line.
+
+What FreeCode already has:
+
+- exit detection with a callback — `ShellRegistry.start({ onExit })`
+  (`tools/shells/registry.ts:31`), already fired on natural exit and on
+  `kill`/`killAll` (`:190`).
+- a follow-up message queue — `queue-store.ts`, `server.ts:476`.
+- per-turn reminder injection — `AgentLoop.pendingReminders`.
+
+The two gaps:
+
+- [ ] **Nothing tells the model.** `shell_exit` is a `StreamEvent` consumed by
+      the TUI only. `pendingReminders` cannot carry it as-is: `loop.ts:648`
+      resets the array at the start of every `run()`, so anything pushed after
+      a turn ends is discarded. Needs a cross-turn queue (or an enqueue into
+      the existing message queue, which is closer to Claude Code's shape).
+- [ ] **The queue never drains while idle.** `server.ts:267` drains it in the
+      `finally` of a *running* turn, and `:284` deletes the session from
+      `activeLoops` when there is nothing queued. With no turn in flight
+      nothing ever looks at the queue again, so an enqueued notification would
+      sit there until the user typed. **This is the actual work**: an idle
+      watcher that starts a turn when the queue gains an item and
+      `!activeLoops.has(sessionId)`.
+
+Also needed once those land: collapse a burst (five shells finishing at once is
+one notification, not five turns), and suppress the notification when the model
+already drained that shell to completion via `bashoutput` — otherwise the
+notification buys a redundant paid turn.
+
+**Why it is not built yet:** gap 2 means the agent starts *billable turns with
+no user input*. A misfiring watcher burns tokens while nobody is watching, and
+it overlaps the deliberately-Phase-0-only `autonomous/` work, whose whole point
+is that unattended execution gets signed off per phase. Ship it default-**off**
+behind a setting (`shells.notifyOnExit`, plus the usual
+`FREECODE_DISABLE_*` escape hatch), and decide explicitly whether a completion
+may interrupt a turn already in progress or must wait for it.
+
+## Subagent permission profiles (added 2026-09-08)
+
+Blocked on user-defined subagents (Extensibility item 3). The dead-code half of this (`PROFILES`, `PermissionChecker`, duplicate `PermissionProfile` interface) is also tracked under Tool system in `TODO.md`.
+
+
+**Status:** partly mitigated, the real fix is item 3 above.
+
+`createToolOrchestrator()` is called with `{}` at all three production sites
+(`effect/layers.ts:63`, `:179`, `agent/loop.ts:429`). `OrchestratorOptions.permissionProfile`
+is real and checked (`tools/orchestrator.ts:150`, `:329`), but nothing outside
+`permission/` ever constructs a profile, so `PROFILES`, `PermissionChecker`,
+`TOOL_PERMISSIONS`, `getProfile`, `createProfile` and `validateProfile` are all
+dead — plus there is a duplicate `PermissionProfile` interface in
+`tools/types.ts:39`.
+
+Subagents are **not** unsandboxed, which is the part that is easy to overstate:
+`executeSubagent` maps `defaultReadOnly` to `agentMode: "explore"`
+(`agent/subagent.ts`), and explore hard-denies mutating tools
+(`modeEnforcement`), filters them out of the tool list entirely
+(`tools/defs-cache.ts:59-71`), and never prompts (`modeAllowsAsk`). So
+explorer/reviewer/summarizer/verifier are genuinely confined.
+
+The real gap is that **mode is binary**. There is nothing between explore and
+build, so a subagent that is allowed to write at all runs with the exact
+authority of its parent: no path scoping, no network restriction, no allowlist.
+Two guard rails now stand in for the missing sandbox — `MAX_AGENT_DEPTH`
+(`agent/registry/`) bounds the spawn tree, and `agent(readOnly)` defaults true
+so the common case (analysis, search, review) is confined to `explore` and
+cannot mutate anything. Neither is a substitute for per-agent capabilities: a
+`readOnly: false` subagent under a `danger` parent has the whole toolbox and
+nothing scopes it to the files it was asked about.
+
+Wiring `permissionProfile` in **as it stands would break subagents
+immediately**: the profile axes (`fileRead`/`fileWrite`/`network`/`shell`/
+`subprocess`) are a second, coarser permission model bolted beside
+`permission/rules.ts` + `mode-policy.ts`, and `isToolAllowed` fails closed on
+any tool missing from the hand-maintained `TOOL_PERMISSIONS` map — which today
+lacks `ls`, `grep`, `glob`, `webfetch`, `todowrite`, `lsp`, `bashoutput`,
+`killbash`, and every MCP tool. So before item 3 binds user-defined agents to
+profiles, either complete that map or replace it with a per-subagent tool
+allowlist that rides the existing rules evaluation rather than sitting beside
+it.
+
+## Effect/Layer DI
+
+**Status:** Skipped - requires significant architectural change using Effect framework
+
+**Reference:** opencode's `packages/opencode/src/effect/` directory for `makeRuntime<I, S, E>()` pattern
+
+## Memory: knowledge-graph roadmap (docs audit 2026-08-23)
+
+- [ ] **Consolidation / episodic → semantic promotion.** `rollout/` has every past
+      turn on disk; nothing mines it. Extraction only ever sees the live transcript,
+      so a fact that only becomes clear on the fifth repetition is never learned.
+- [ ] **Bi-temporal validity** — valid-time vs transaction-time, so "the host ran
+      Apache until March" is expressible instead of only replaceable. Entries carry
+      `createdAt`/`updatedAt` (transaction time) only.
+- [ ] **Learned procedural memory** — skills and `.freecode/commands/` are real
+      procedural memory, but hand-authored. Nothing distills a successful sequence
+      into a reusable procedure with preconditions.
+- [ ] **ANN index for vectors** — `cosineTopK` scans every vector
+      (`vector-store.ts:199`). Exact and correct for hundreds; this is the ceiling.
+- [ ] **Tuning values are guesses** — cap 3, interval 8, 200-char minimum, seed
+      threshold 0.4, decay 0.7. Chosen to bound cost, not derived from data.
+
+## Memory: consolidation roadmap (prior-art review 2026-08-23)
+
+From reviewing `codex`, `jcode`, `mem0`, and `agentmemory` against
+`docs/specs/2026-08-23-memory-consolidation.md` (amended same day,
+D12–D14). These are actionable independently of that spec's phases.
+
+- **Progressive disclosure instead of a byte cap.** codex's always-loaded
+  artifact is a navigational index (`memory_summary.md`) with bodies fetched on
+  demand through a read-only memory-fs MCP server (`codex-rs/memories/mcp/`), so
+  a long memory is never truncated, only not-yet-read. Strictly better than the
+  spec's D2 byte cap, but it is a read-path redesign touching the MCP surface
+  and prompt caching.
+- **Backfill the rollout archive.** ~390 session directories under
+  `~/.freecode/rollout/sessions/` have never been mined; extraction only ever
+  reads the live transcript, and the spec's end-of-session flush (D4) does not
+  go back for them. codex's answer is a bounded, leased, parallel Phase 1 at
+  startup.
+- **An LLM retrieval judge, deferred not rejected.** The spec declines waku's
+  gate on cost, which is right for waku's shape but not for jcode's: a listwise
+  rerank on the existing one-turn-behind prefetch adds no loop latency, and
+  jcode's "cadence carry" (re-surface the last judged set without re-running)
+  bounds the call rate. jcode treats the *absence* of the judge as a measured
+  degradation (`memory_judge_metrics.rs`). Revisit once D14 reports a baseline.
+
+## Long-running sessions (OpenHands comparison — 2026-09-01)
+
+Found while reading the `OpenHands/OpenHands` Agent Canvas frontend (`ca4024e3a`)
+for what makes its long-running sessions survivable.
+
+### Unattended mode (blocks `autonomous/` Phase 1)
+
+- [ ] **No configuration in which a stuck loop stops itself.**
+      `effect/loop-health.ts` declares `LoopAction { continue | warn | stop }`
+      and returns `warn` from all four detectors (`:38`, `:44`, `:53`, `:62`);
+      `stop` is never produced. The only hard stop is `maxIterations`, which is
+      `?? Infinity` outside headless (`agent/loop.ts:403`). Correct for attended
+      use — see `specs/2026-08-26-trajectory-redirection.md` §1 for why eager
+      `stop` was the wrong answer — but an unattended run needs a finite ceiling
+      and a `stuck` terminal state distinct from `error`, so a report can say
+      "stopped making progress" rather than "crashed". Do **not** copy Canvas's
+      own `use-agent-state.ts:31`, which maps `STUCK → ERROR` and loses exactly
+      that distinction.
+
+- [ ] **Permission prompts cannot park.** In-band and synchronous, so an
+      unattended run that hits one fails rather than waiting. OpenHands models
+      this as a durable `waiting_for_confirmation` conversation status plus a
+      REST endpoint to answer it later.
+
+### Reconnect hygiene (wanted once replay is rollout-backed)
+
+- [ ] **Replay dedupe must also suppress non-idempotent side effects**, not just
+      duplicate rendering. OpenHands issue #1656 was replayed events re-firing
+      error banners and cache invalidations
+      (`conversation-websocket-context.tsx:553`). FreeCode inherits this hazard
+      the moment replay can return events the client already processed.
+
+- [ ] **SSE client needs capped-exponential backoff and a handshake watchdog.**
+      Theirs is 1s → 2s → 4s capped at 30s with an abort for sockets stuck in
+      `CONNECTING` (`use-websocket.ts:19`, `:61`). The TUI's
+      `[250, 1_000, 3_000]`-then-give-up budget (`apps/tui/src/ipc/client.ts:87`)
+      is right for a local child process but wrong for a network client.
+
+## Open design questions
+
+### `/agents (N)` counts running agents, which is almost always 1 (added 2026-09-08)
+
+**Status:** open design question, not a bug.
+
+`AgentTool` declares `isConcurrencySafe: false`, so `planToolBatches` puts every
+`agent` call in its own batch and subagents run strictly one at a time. The
+ModeLine chip counts RUNNING agents, so it reads `(1)` whenever anything is
+delegated and nothing otherwise — the roster accumulates rows, the chip does
+not. Three options, none obviously right:
+
+- leave it (honest about what is running, matches the `/shells` chip);
+- count agents spawned this session, so the chip matches the roster's length;
+- make `agent` concurrency-safe so they genuinely run in parallel. That is the
+  Claude Code behaviour, but the tool is marked `isDestructive` deliberately,
+  and parallel subagents mutating one tree is what that flag guards against.

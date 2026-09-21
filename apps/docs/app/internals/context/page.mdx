@@ -308,7 +308,7 @@ there is what the tools are for.
 7. **Instruction resolution is root-only.** No walk-up for monorepos, no
    `@imports`, no glob-scoped rules — so a package inside a monorepo cannot ship
    instructions that apply only to it. Deferred deliberately; tracked in
-   `TODO.md` as extensibility item 4.
+   `ROADMAP.md` as extensibility item 4.
 8. **`invalidateSymbolCache` has no callers.** The repo-map's whole-project cache
    relies entirely on git HEAD plus a 5-minute TTL, so uncommitted edits inside
    that window return stale `workspaceSymbol` results. The tree-watcher already

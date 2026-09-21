@@ -1,136 +1,16 @@
-# FreeCode Implementation TODOs
+# FreeCode TODOs
 
-## Pending
+Debt only: bugs, dead code, stale docs, uncalibrated numbers. **This file is
+meant to shrink** — the "Real fixes" here are what must reach zero before
+1.0.0. Verify each entry against the code before fixing (several audit
+sections predate the provider refactor); delete an entry, and its twin in the
+docs page's *Known gaps*, in the same PR that fixes it.
 
-### Extensibility gaps (audit 2026-07-31)
-
-What a user can extend without editing FreeCode's source. Covered today: MCP servers,
-skills (incl. `~/.claude/plugins` scope), permission rules via `.freecode/settings.json`,
-and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
-
-
-- [ ] **3. User-defined subagents** — `SubagentType` (`apps/core/src/agent/types.ts:38-43`)
-      is a closed union of five, with descriptions in `SUBAGENT_DEFINITIONS`. No
-      `.freecode/agents/*.md` loader. Bind loaded agents to the existing capability
-      profiles in `permission/profiles.ts`. Reuse the frontmatter-markdown loader
-      already in `commands/loader.ts` (which shipped item 2, user-defined slash
-      commands).
-
-- [ ] **4. Rules hierarchy** — `context/instructions.ts` reads `CLAUDE.md`/`AGENTS.md` from
-      exactly two dirs (global `~/.freecode/`, project root), first match wins.
-      Missing: walk-up for monorepos, `@imports` (both deferred in the comment at line 6),
-      and glob-scoped rules (the Cursor `.mdc` model — "apply only for `**/*.tsx`").
-      Nested-directory rules would also give scoped skills somewhere to live.
-
-- [ ] **5. Multimodal input** — `MessagePart` (`packages/shared/src/types.ts:12-19`) is
-      text/code/tool only, and `read` cannot return an image. Blocks screenshots, design
-      mocks, and diagram debugging. Touches the shared protocol + every provider adapter.
-
-- [ ] **7. MCP server (expose)** — serve FreeCode's tools *as* an MCP server. The client
-      side is done. Already listed as deferred in `CLAUDE.md`.
-
-- [ ] **8. Checkpoints / rewind** — `rollout/` has full event sourcing and `replay.ts`, but
-      there's no user-facing way to undo a turn's file changes. Mostly a command + a
-      file-state diff on top of machinery we already paid for.
+Not here: unbuilt features → `ROADMAP.md`; deliberate behaviour that must not
+be "fixed" → `docs/DECISIONS.md`.
 
 
-**Suggested order:** 3, then 4. Items 5 and 8 are larger, self-contained
-projects. (Item 2, user-defined slash commands, shipped as `commands/loader.ts`.
-Item 6, background bash, shipped as `tools/shells/` + `bashoutput`/`killbash`
-and the TUI's `/shells` panel.)
-
-### Background shell completion notifications (added 2026-09-08)
-
-**Status:** designed, not built. Follow-up to the background-bash work (ex-item 6).
-
-Today a background shell is **pull-only**: the model learns a command finished
-only by calling `bashoutput`, and it has no reason to call it once the turn has
-ended. So "run the eval, tell me when it's done" works if the user asks again
-30 minutes later, and never volunteers the result. Claude Code does volunteer
-it, and the mechanism is worth copying rather than inventing:
-`tasks/LocalShellTask` calls `enqueuePendingNotification({ mode:
-'task-notification' })` on exit, which pushes a synthetic user message
-(`<task-notification><status>completed</status><summary>Background command "X"
-completed (exit code 0)</summary>`) onto the message queue; the REPL drains
-that queue between turns **including when idle**, so the model is re-invoked
-and reports back on its own. `utils/collapseBackgroundBashNotifications.ts`
-exists only to squash a burst of those into one line.
-
-What FreeCode already has:
-
-- exit detection with a callback — `ShellRegistry.start({ onExit })`
-  (`tools/shells/registry.ts:31`), already fired on natural exit and on
-  `kill`/`killAll` (`:190`).
-- a follow-up message queue — `queue-store.ts`, `server.ts:476`.
-- per-turn reminder injection — `AgentLoop.pendingReminders`.
-
-The two gaps:
-
-- [ ] **Nothing tells the model.** `shell_exit` is a `StreamEvent` consumed by
-      the TUI only. `pendingReminders` cannot carry it as-is: `loop.ts:648`
-      resets the array at the start of every `run()`, so anything pushed after
-      a turn ends is discarded. Needs a cross-turn queue (or an enqueue into
-      the existing message queue, which is closer to Claude Code's shape).
-- [ ] **The queue never drains while idle.** `server.ts:267` drains it in the
-      `finally` of a *running* turn, and `:284` deletes the session from
-      `activeLoops` when there is nothing queued. With no turn in flight
-      nothing ever looks at the queue again, so an enqueued notification would
-      sit there until the user typed. **This is the actual work**: an idle
-      watcher that starts a turn when the queue gains an item and
-      `!activeLoops.has(sessionId)`.
-
-Also needed once those land: collapse a burst (five shells finishing at once is
-one notification, not five turns), and suppress the notification when the model
-already drained that shell to completion via `bashoutput` — otherwise the
-notification buys a redundant paid turn.
-
-**Why it is not built yet:** gap 2 means the agent starts *billable turns with
-no user input*. A misfiring watcher burns tokens while nobody is watching, and
-it overlaps the deliberately-Phase-0-only `autonomous/` work, whose whole point
-is that unattended execution gets signed off per phase. Ship it default-**off**
-behind a setting (`shells.notifyOnExit`, plus the usual
-`FREECODE_DISABLE_*` escape hatch), and decide explicitly whether a completion
-may interrupt a turn already in progress or must wait for it.
-
-### Subagent permission profiles still never attach (added 2026-09-08)
-
-**Status:** partly mitigated, the real fix is item 3 above.
-
-`createToolOrchestrator()` is called with `{}` at all three production sites
-(`effect/layers.ts:63`, `:179`, `agent/loop.ts:429`). `OrchestratorOptions.permissionProfile`
-is real and checked (`tools/orchestrator.ts:150`, `:329`), but nothing outside
-`permission/` ever constructs a profile, so `PROFILES`, `PermissionChecker`,
-`TOOL_PERMISSIONS`, `getProfile`, `createProfile` and `validateProfile` are all
-dead — plus there is a duplicate `PermissionProfile` interface in
-`tools/types.ts:39`.
-
-Subagents are **not** unsandboxed, which is the part that is easy to overstate:
-`executeSubagent` maps `defaultReadOnly` to `agentMode: "explore"`
-(`agent/subagent.ts`), and explore hard-denies mutating tools
-(`modeEnforcement`), filters them out of the tool list entirely
-(`tools/defs-cache.ts:59-71`), and never prompts (`modeAllowsAsk`). So
-explorer/reviewer/summarizer/verifier are genuinely confined.
-
-The real gap is that **mode is binary**. There is nothing between explore and
-build, so a subagent that is allowed to write at all runs with the exact
-authority of its parent: no path scoping, no network restriction, no allowlist.
-Two guard rails now stand in for the missing sandbox — `MAX_AGENT_DEPTH`
-(`agent/registry/`) bounds the spawn tree, and `agent(readOnly)` defaults true
-so the common case (analysis, search, review) is confined to `explore` and
-cannot mutate anything. Neither is a substitute for per-agent capabilities: a
-`readOnly: false` subagent under a `danger` parent has the whole toolbox and
-nothing scopes it to the files it was asked about.
-
-Wiring `permissionProfile` in **as it stands would break subagents
-immediately**: the profile axes (`fileRead`/`fileWrite`/`network`/`shell`/
-`subprocess`) are a second, coarser permission model bolted beside
-`permission/rules.ts` + `mode-policy.ts`, and `isToolAllowed` fails closed on
-any tool missing from the hand-maintained `TOOL_PERMISSIONS` map — which today
-lacks `ls`, `grep`, `glob`, `webfetch`, `todowrite`, `lsp`, `bashoutput`,
-`killbash`, and every MCP tool. So before item 3 binds user-defined agents to
-profiles, either complete that map or replace it with a per-subagent tool
-allowlist that rides the existing rules evaluation rather than sitting beside
-it.
+## Small known limitations
 
 ### The compaction eval case is a 20KB JSONL line (added 2026-09-08)
 
@@ -149,22 +29,6 @@ request measured ~12.5k WITH the padding — so shrinking them means either a
 smaller threshold or fewer modules, and either way one more calibration run
 (~$0.025) to confirm it still compacts 3/3. Not worth doing on its own; worth
 folding into the next change that touches the case.
-
-### `/agents (N)` counts running agents, which is almost always 1 (added 2026-09-08)
-
-**Status:** open design question, not a bug.
-
-`AgentTool` declares `isConcurrencySafe: false`, so `planToolBatches` puts every
-`agent` call in its own batch and subagents run strictly one at a time. The
-ModeLine chip counts RUNNING agents, so it reads `(1)` whenever anything is
-delegated and nothing otherwise — the roster accumulates rows, the chip does
-not. Three options, none obviously right:
-
-- leave it (honest about what is running, matches the `/shells` chip);
-- count agents spawned this session, so the chip matches the roster's length;
-- make `agent` concurrency-safe so they genuinely run in parallel. That is the
-  Claude Code behaviour, but the tool is marked `isDestructive` deliberately,
-  and parallel subagents mutating one tree is what that flag guards against.
 
 ### Settled background shells are retained until dismissed (added 2026-09-08)
 
@@ -197,19 +61,12 @@ drops alpha — a screenshot is fine, a copied transparent PNG comes back matted
 Chrome and the Snipping Tool also publish a `PNG` clipboard format; preferring
 `GetDataObject().GetData('PNG')` when present would preserve the original bytes.
 
-### Effect/Layer DI (Complex - Skipped for now)
-
-**Status:** Skipped - requires significant architectural change using Effect framework
-
-**Reference:** opencode's `packages/opencode/src/effect/` directory for `makeRuntime<I, S, E>()` pattern
-
 ## Docs-audit findings (memory, sessions, knowledge graph — 2026-08-23)
 
 Found while writing `apps/docs/app/internals/{memory,sessions,knowledge-graph}`.
-Each is also listed in that page's **Known gaps** section. Sorted by kind: the
-second group must NOT be "fixed" — they are deliberate and load-bearing.
+Each is also listed in that page's **Known gaps** section. Deliberate behaviour from this audit is in `docs/DECISIONS.md`.
 
-### A. Real fixes
+### Real fixes
 
 - [ ] **`Contradicts` edges are never produced** — the kind, its zero weight, and
       the cascade skip are implemented and tested (`graph-types.ts:17`,
@@ -268,54 +125,6 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
         One thing I checked and didn't report as a bug: manual /compact builds its own MemoryService separate from the loop's. That would be a divergence risk,
   except a fresh loop (and service) is constructed per turn at server.ts:199 and reloads state from disk, so they stay consistent.
 
-### B. Deliberate — do NOT "fix"
-
-- **`MEMORY.md` is never injected.** Injecting it makes the cached system prefix
-  depend on the store, so every save busts the session's prompt cache. Locked by a
-  test in `mem-prompt.test.ts` (guidance block must be byte-identical).
-- **`memory` is blocked in plan/review/explore.** Fail-closed was chosen knowingly;
-  the cost is that a preference stated while planning isn't captured.
-- **`MAX_SAVES_PER_RUN = 3` and the extraction gates.** The cap stands in for a
-  consolidation pass that doesn't exist. Raise it only after consolidation ships.
-- **Two logs — `messages.jsonl` mutable, `events.jsonl` append-only.** Looks like
-  duplication; it is the reason compaction can trim history without destroying the
-  record of what happened.
-- **Cascade skips `Contradicts`; tag/cluster nodes relay but never score.**
-- **Compaction fires on a cost target (120K), not on window fit.** Fit-only left a
-  1M-window session re-sending 270K every turn — 48.1M input tokens in one
-  7-message session. Raising `FREECODE_COMPACT_TARGET_TOKENS` reverts that.
-- **Tool-result pruning freezes anything already sent whole.** It looks wasteful;
-  it is what keeps the prompt-cache prefix byte-stable. Do not replace it with a
-  sliding window.
-- **`MAX_OVERFLOW_COMPACTIONS = 3`, and the retry is not re-wrapped.** A second
-  overflow in one turn means compaction isn't converging; looping burns quota.
-- **Stream events are bare `{type,…}` objects, not JSON-RPC notifications.** The
-  envelope-free shape is intentional; changing it breaks all four clients at once.
-  (Standardising on notifications is still worth considering — listed under fixes.)
-- **`-32002` is a distinct code, not a generic internal error.** Two frontends
-  answering one prompt is a race, not a failure; the loser renders "already
-  answered" as state.
-- **Web auth gates `/api` and `/events` but not the static SPA.** Gating the page
-  would block the page that delivers the token.
-- **k-means determinism (`SEED = 42`, id-sorted points).** Non-deterministic
-  clustering means the same store retrieving different memories on different days.
-
-### C. Roadmap (needs a spec first, not a fix)
-
-- [ ] **Consolidation / episodic → semantic promotion.** `rollout/` has every past
-      turn on disk; nothing mines it. Extraction only ever sees the live transcript,
-      so a fact that only becomes clear on the fifth repetition is never learned.
-- [ ] **Bi-temporal validity** — valid-time vs transaction-time, so "the host ran
-      Apache until March" is expressible instead of only replaceable. Entries carry
-      `createdAt`/`updatedAt` (transaction time) only.
-- [ ] **Learned procedural memory** — skills and `.freecode/commands/` are real
-      procedural memory, but hand-authored. Nothing distills a successful sequence
-      into a reusable procedure with preconditions.
-- [ ] **ANN index for vectors** — `cosineTopK` scans every vector
-      (`vector-store.ts:199`). Exact and correct for hundreds; this is the ceiling.
-- [ ] **Tuning values are guesses** — cap 3, interval 8, 200-char minimum, seed
-      threshold 0.4, decay 0.7. Chosen to bound cost, not derived from data.
-
 ## Docs-audit findings (reference: CLI, settings, env, IPC, hooks — 2026-08-23)
 
 Found while writing `apps/docs/app/reference/{cli,settings,env,ipc-methods,hook-events}`.
@@ -351,21 +160,6 @@ earlier audit are not repeated here.
       so early" means reading source. A `freecode config env` dumping
       name / default / effective / source would pay for itself.
 
-### Deliberate — do NOT "fix"
-
-- **Hook exit codes fail closed, timeouts fail open.** A hook that answered is
-  trusted; a hook that never answered is skipped. Both directions are intentional.
-- **`permissions` merges rather than overrides across scopes.** Deny is checked
-  first, so a project can neutralize a user-scope allow by adding a deny — it just
-  cannot delete it. That is the safe direction for a file that travels with a repo.
-- **Bash prefix rules refuse compound commands.** `Bash(npm:*)` never matches
-  `npm test && rm -rf /`; the word-boundary and shell-separator checks are the
-  security property, not an oversight.
-- **MCP argument patterns never match.** `mcp__linear(x)` fails closed by design;
-  server-level rules are the supported granularity in v1.
-- **Hook payloads are env vars, not stdin JSON.** A three-line bash script is a
-  complete hook implementation in any language, with nothing to parse.
-
 ## Docs-audit findings (agent loop — 2026-08-23)
 
 Found while writing `apps/docs/app/internals/agent-loop`. Each is also listed in
@@ -385,29 +179,6 @@ that page's **Known gaps**.
       loop-health only *warns* on the stuck patterns most likely to burn quota
       (stagnation never stops at all). Consider a default ceiling for headless
       runs.
-
-### Deliberate — do NOT "fix"
-
-- **Dynamic context is a user message at position 0, not a system block.** The
-  static system block stays a stable cacheable prefix only because the tree, git
-  HEAD and clock live below it, with a fixed id and `timestamp: 0`.
-- **The project snapshot and the clock are frozen per session.** A fresher tree
-  costs the entire conversation prefix; an hour-rounded clock exists so position 0
-  doesn't rewrite itself on the hour boundary.
-- **A frozen tool result is never shrunk.** Saving ~250 tokens by replacing a
-  result already in the cached prefix costs a partial invalidation worth far more.
-- **Oscillation scores inverse edits, not repeated edits.** Editing one file many
-  times is what real work on a large file looks like.
-- **Loop-health braking is two-tier (warn at 1×, stop at 2×).** Long legitimate
-  tasks routinely breach the first threshold.
-- **Memory extraction is fired without `await`.** The user's result must not wait
-  on it, and a memory failure must never surface as a task failure.
-- **`compactAndRetry` does not re-wrap its retry.** A second overflow in one turn
-  means compaction isn't converging; looping burns quota.
-- **A quota-exhausted 429 is never retried.** Waiting cannot help, and each retry
-  re-sends the whole conversation for a guaranteed rejection.
-- **Provider errors are stringified before they reach logs or the bus.** The SDK
-  error carries the entire request on `requestBodyValues`.
 
 ## Docs-audit findings (provider layer — 2026-08-23)
 
@@ -474,36 +245,6 @@ that page's **Known gaps**.
       file outside the directory imports it, and `chatgpt` is not registered.
       Decide: delete it, or wire it behind a flag and say so.
 
-### Deliberate — do NOT "fix"
-
-- **`PROVIDER_MAX_RETRIES = 0`.** The SDK's own retries multiply with
-  `RecoveryManager`'s (3 × 5 = up to 15 full-conversation round trips per turn)
-  and it treats an unpayable quota 429 as retryable.
-- **Cache markers are set for every provider flavour at once.** The SDK routes
-  `providerOptions` by key and ignores the rest, so a model reached through a
-  gateway caches as well as a direct one, for free.
-- **`ttl` is omitted at 5m rather than sent explicitly.** 5m is the server-side
-  default, so omitting it keeps request bytes identical to the pre-knob build —
-  the default path cannot regress.
-- **The read anchor is the message *before* the newest assistant message, not
-  `.slice(-2)`.** `convertToCoreMessages` expands one turn into two messages, so
-  the two-back rule lands on two messages that are both new (measured: reads
-  pinned at ~7K while input grew to 81K).
-- **The last tool carries a cache breakpoint.** Anthropic caches up to and
-  including a marked block, so one marker caches the whole tools array; the
-  name-sorted tool list is what keeps "last" stable.
-- **Malformed tool arguments fail the turn instead of being cast.** The AI SDK
-  emits the raw JSON string as `input`; storing it poisons the session
-  permanently, because it is re-sent every turn and rejected before reaching the
-  model.
-- **Timeouts sit at the fetch layer, never around `ProviderChunk`s.**
-  `normalizeAiSdkStream` drops `tool-input-delta`, so a large tool call looks
-  like a dead stream from above it.
-- **`mapUsage` returns `undefined` rather than `0` for unknown counts**, so "no
-  usage data" stays distinguishable from a real zero.
-- **`modelSupportsImages` fails closed on an unknown model.** An image part sent
-  to a text-only model is a hard 400.
-
 ## Docs-audit findings (tool system — 2026-08-23)
 
 Found while writing `apps/docs/app/internals/tools`. Each is also listed in that
@@ -546,36 +287,6 @@ page's **Known gaps**.
       the loop (`loop.ts:1525`). A text-only model pays the full read and gets a
       "not sent" notice. Push `modelSupportsImages` into the tool, or pass the
       capability through `ToolContext`.
-
-### Deliberate — do NOT "fix"
-
-- **Coercion is narrow: only an unambiguous numeric literal or exactly
-  `"true"`/`"false"`.** `Number()`/truthiness turns `""` into `0` and `"false"`
-  into `true`, hiding a malformed call instead of letting the validator surface
-  it.
-- **Coercion lives at the orchestrator boundary, not in each `execute()`.** The
-  declared schema `type` is already the single source of truth, and MCP schemas
-  can't be patched per tool.
-- **Truncation keeps a head *and* a tail.** Build errors, stack traces and
-  summaries live at the end; head-only threw away exactly what was needed.
-- **Both truncation cuts snap to line boundaries.** A raw character index lands
-  mid-token and the model reads a half-identifier as whole.
-- **An `OutputStore` miss returns a message, never an error.** Degrading to
-  "re-run the tool" is always recoverable.
-- **`edit`/`write` record read-state but are excluded from dedup.** They record
-  content the model has never been shown; deduping against it would claim "you
-  already have this" while the transcript holds the pre-edit text.
-- **Read dedup has a kill switch (`FREECODE_READ_DEDUP=0`).** It is the only
-  token-efficiency measure that changes what the model *sees*.
-- **An unannotated MCP tool is treated as mutating.** An absent `readOnlyHint`
-  says nothing about the tool; guessing "harmless" is how `create_issue` gets
-  re-run.
-- **Tool defs are sorted by name.** `buildToolsParam` marks the last tool with a
-  cache breakpoint, so a stable order is what keeps the tools block cacheable.
-- **A `bash` timeout resolves as a failure, not a slow success**, with partial
-  output attached — otherwise the loop concludes the command worked.
-- **Tools return data, never markup.** Four frontends render the same
-  `StreamEvent`s their own way.
 
 ## Docs-audit findings (getting started — 2026-08-23)
 
@@ -641,30 +352,6 @@ that page's **Known gaps**.
       project root** (`tree-cache.ts:29`). That is a defensible floor, but the word
       "tree" in `CLAUDE.md`, in the compiler's own output header, and in the docs
       oversells it. Rename it, or make the depth a knob.
-
-### Deliberate — do NOT "fix"
-
-- **The project snapshot is one level deep.** The model has `ls`/`glob`/`grep`; a
-  recursive monorepo listing would cost thousands of tokens *every turn* to say
-  what one tool call can answer.
-- **The snapshot and clock are frozen per session.** A fresher tree rewrites
-  position 0 and invalidates the entire conversation prefix.
-- **Dynamic context is `messages[0]`, not a system block.** The static system
-  block stays cacheable only because everything that moves lives below it.
-- **`memoryContext` is never rendered into position 0.** It rendered
-  `recentMessages`, which grow every turn and are already in the history verbatim.
-- **Skills are advertised as name + description only, sorted.** Full bodies load
-  on demand via the `skill` tool; the sort keeps identical skill sets producing
-  identical bytes.
-- **Nothing from `repo-map/` is injected into the prompt.** The pull model means
-  symbols cost tokens only when the model asks for them.
-- **`getFileSymbols` parses fresh rather than reading the project cache.**
-  Single-file results must never be stale.
-- **The tree-watcher runs `persistent: false`.** A watcher that keeps the process
-  alive hangs every short-lived CLI invocation that ran one turn.
-- **The system-prompt loader tries disk before the embedded copy.** Dev picks up
-  `system.md` edits without a rebuild; the compiled binary has no disk copy to
-  find.
 
 ## Eval quarantine hygiene (2026-09-20)
 
@@ -824,77 +511,9 @@ harness can block a release". Remaining:
       does not cover it — `CATEGORIES_WITHOUT_CASES` cannot see the difference,
       because it folds every suite together.
 
-### Deliberate — do NOT "fix"
+## Memory consolidation — open items (shipped 2026-08-23)
 
-- **Unit tests stay `*.test.ts` under `src/`.** The 98 existing tests are unit
-  tests and must not migrate into `evals/`. A file under `evals/` runs a real
-  agent turn; anything that doesn't belongs next to the code it tests. Conflating
-  the two is exactly what dilutes the eval signal in the prior art.
-- **OTLP export stays off the hot path.** Live streaming is deferred in
-  `2026-08-10-agent-observability.md` §7 for a stated reason; shipping from the
-  durable log costs only immediacy.
-
-## Spec findings (memory consolidation — prior-art review 2026-08-23)
-
-From reviewing `codex`, `jcode`, `mem0`, and `agentmemory` against
-`docs/specs/2026-08-23-memory-consolidation.md` (amended same day,
-D12–D14). These are actionable independently of that spec's phases.
-
-### Roadmap (needs its own spec, not a fix)
-
-- **Progressive disclosure instead of a byte cap.** codex's always-loaded
-  artifact is a navigational index (`memory_summary.md`) with bodies fetched on
-  demand through a read-only memory-fs MCP server (`codex-rs/memories/mcp/`), so
-  a long memory is never truncated, only not-yet-read. Strictly better than the
-  spec's D2 byte cap, but it is a read-path redesign touching the MCP surface
-  and prompt caching.
-- **Backfill the rollout archive.** ~390 session directories under
-  `~/.freecode/rollout/sessions/` have never been mined; extraction only ever
-  reads the live transcript, and the spec's end-of-session flush (D4) does not
-  go back for them. codex's answer is a bounded, leased, parallel Phase 1 at
-  startup.
-- **An LLM retrieval judge, deferred not rejected.** The spec declines waku's
-  gate on cost, which is right for waku's shape but not for jcode's: a listwise
-  rerank on the existing one-turn-behind prefetch adds no loop latency, and
-  jcode's "cadence carry" (re-surface the last judged set without re-running)
-  bounds the call rate. jcode treats the *absence* of the judge as a measured
-  degradation (`memory_judge_metrics.rs`). Revisit once D14 reports a baseline.
-
-### Deliberate — do NOT "fix"
-
-- **No bare `delete` verb for the consolidator.** A memory can only be removed
-  as the `supersedes:` list of a merge. mem0 is evidence for this, not against:
-  its v2 manager offers ADD/UPDATE/DELETE/NONE (`configs/prompts.py:176`) and
-  its v3 extraction prompt is ADD-only with `linked_memory_ids`.
-- **No SQLite job queue for consolidation.** codex needs leases and ownership
-  tokens because Phase 1 runs ×8 in parallel across many rollouts. We
-  consolidate one project, serially, at most daily. Take the outcome taxonomy
-  (`succeeded` / `succeeded_no_output` / `failed`) and the retry backoff; leave
-  the queue.
-- **Semantic memories do not decay with age.** jcode decays confidence for
-  everything; we decay episodes only. Demoting "user prefers tables" for being
-  old is how a system forgets a standing instruction. Use is recorded for all
-  types, but only episodes' scores are multiplied.
-
-
-## Memory consolidation — shipped 2026-08-23
-
-Spec `specs/2026-08-23-memory-consolidation.md`, plan
-`plans/2026-08-23-memory-consolidation.md`, results
-`apps/core/src/memory/bench/README.md`. Six phases, 725 tests passing.
-
-Three findings worth keeping, because each contradicts something the spec said:
-
-- **The free abstention gate does not exist.** Top cosine for on-topic queries
-  (0.674–0.932) overlaps irrelevant ones (0.588–0.719); a within-query z-score
-  overlaps too. Bi-encoder similarity between short texts has a high,
-  corpus-dependent floor. Abstention needs a reader (D15). `bench/probe.ts`
-  reproduces the table — run it before proposing any new local floor.
-- **BM25 + RRF trades ordering for coverage.** recall@5 and precision@5 up, MRR
-  and nDCG down. Right for a block the model reads whole; wrong if retrieval is
-  ever used somewhere that only reads the first result.
-- **A log-scaled use boost cannot overcome exponential decay.** `1 + 0.1·ln(u+1)`
-  tops out near 1.5× against a 4× decay span. Use raises the decay floor instead.
+Spec `specs/2026-08-23-memory-consolidation.md`; benchmark findings that contradicted the spec are in `docs/DECISIONS.md`.
 
 ### Found by the smoke test (2026-08-23, real MiniMax turns)
 
@@ -961,21 +580,6 @@ Ranked by value. Full context in §8 of that spec.
 - [ ] **`ProviderCredentials.model` is declared and read by nothing** —
       pre-existing dead field, noticed while designing the `web` block.
 
-### Deliberate — do NOT "fix"
-
-- **`supportsTools: false`.** Measured, not unfinished: the session emitted a
-  tool call ~56% of the time and fabricated on the rest. Shrinking the prompt
-  55× and cutting 16 tools to 1 did not move it; removing the *need* for a tool
-  call did. See spec §4 E1/E2 before touching this.
-- **`allowsAuxiliaryCalls` fails open** (`!== false`, not `=== true`). A wrong
-  `false` would switch memory off for every provider — far worse than one extra
-  request against a quota.
-- **The pinned build label rots by design.** It is a fallback; the live scrape
-  is the source of truth, and a 4xx force-refreshes it.
-- **Every request is a fresh chat** (empty ids in payload slot 2). Using the
-  server-side thread would put conversation state somewhere `session/` cannot
-  inspect, resume, fork or export.
-
 ## Findings (OpenHands comparison — 2026-09-01)
 
 Found while reading the `OpenHands/OpenHands` Agent Canvas frontend (`ca4024e3a`)
@@ -1009,59 +613,7 @@ for what makes its long-running sessions survivable.
       StreamEvent` projection (necessarily lossy: the log stores no message
       bodies, by design).
 
-### Unattended mode (blocks `autonomous/` Phase 1)
-
-- [ ] **No configuration in which a stuck loop stops itself.**
-      `effect/loop-health.ts` declares `LoopAction { continue | warn | stop }`
-      and returns `warn` from all four detectors (`:38`, `:44`, `:53`, `:62`);
-      `stop` is never produced. The only hard stop is `maxIterations`, which is
-      `?? Infinity` outside headless (`agent/loop.ts:403`). Correct for attended
-      use — see `specs/2026-08-26-trajectory-redirection.md` §1 for why eager
-      `stop` was the wrong answer — but an unattended run needs a finite ceiling
-      and a `stuck` terminal state distinct from `error`, so a report can say
-      "stopped making progress" rather than "crashed". Do **not** copy Canvas's
-      own `use-agent-state.ts:31`, which maps `STUCK → ERROR` and loses exactly
-      that distinction.
-
-- [ ] **Permission prompts cannot park.** In-band and synchronous, so an
-      unattended run that hits one fails rather than waiting. OpenHands models
-      this as a durable `waiting_for_confirmation` conversation status plus a
-      REST endpoint to answer it later.
-
-### Reconnect hygiene (wanted once replay is rollout-backed)
-
-- [ ] **Replay dedupe must also suppress non-idempotent side effects**, not just
-      duplicate rendering. OpenHands issue #1656 was replayed events re-firing
-      error banners and cache invalidations
-      (`conversation-websocket-context.tsx:553`). FreeCode inherits this hazard
-      the moment replay can return events the client already processed.
-
-- [ ] **SSE client needs capped-exponential backoff and a handshake watchdog.**
-      Theirs is 1s → 2s → 4s capped at 30s with an abort for sockets stuck in
-      `CONNECTING` (`use-websocket.ts:19`, `:61`). The TUI's
-      `[250, 1_000, 3_000]`-then-give-up budget (`apps/tui/src/ipc/client.ts:87`)
-      is right for a local child process but wrong for a network client.
-
-### Deliberate — do NOT "fix"
-
-- **`session.compact`'s synchronous result is better than theirs.**
-  `protocol.ts:244` returns `{compacted, tokensBefore, tokensAfter, reason}`
-  directly. OpenHands' `/condense` acks only that work started, forcing a
-  150-line frontend hook (`use-await-context-compaction.ts`) with a 2.5s settle
-  window and 90s timeout to reconstruct the same numbers. Keep ours.
-- **Do not adopt ACP or the multi-backend registry.** Canvas's product is being
-  a universal frontend for other people's agents; FreeCode's frontends and
-  backend ship together.
-
-## Spec-writing findings (harness cost efficiency — 2026-09-04)
-
-Found while writing `specs/2026-09-04-harness-cost-efficiency.md`.
-
-### Deliberate — do NOT "fix"
-
-- **Eval efficiency stays warn-only** (`scorers/efficiency.ts`). Cost moves when
-  the suite changes as readily as when the agent changes; A/B (`eval ab`) is the
-  instrument for harness experiments, never the gate.
+## Harness cost efficiency (2026-09-04)
 
 ### Found writing the docs page (2026-09-04)
 
@@ -1080,12 +632,6 @@ page's Known gaps.
       tools to the ones Claude Code ships; freecode does not. Spec §9 Q1 — a
       tool-use-*quality* question, not an access or billing one, and it waits on
       a real turn.
-- [ ] **No multi-account support.** One Anthropic login per machine
-      (`auth.json` is keyed by provider, not by account). Deliberate YAGNI in the
-      spec's §2 non-goals; listed here so the docs claim has a home.
-- [ ] **`anthropic` is the only provider with an OAuth mode.** `freecode auth
-      login` rejects any other provider by name. Fine today — no other catalogue
-      entry has a subscription surface freecode can reach.
 
 ## Findings (ephemeral-tail cache fix — 2026-09-06)
 

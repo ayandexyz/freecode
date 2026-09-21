@@ -282,11 +282,11 @@ a deterministically-assembled input instead.**
 - Contradiction *detection* (`Contradicts` edges). Consolidation produces
   `Supersedes`, which is the case where the writer already knows. Detecting that
   two independently-written memories disagree stays open (TODO.md).
-- Bi-temporal validity (TODO.md). Episodes carry one date, not a validity range.
+- Bi-temporal validity (ROADMAP.md). Episodes carry one date, not a validity range.
 - Cross-project or global memory. Per-project, as today.
 - An LLM reranker over retrieval results.
 - Learned procedural memory — distilling a successful tool sequence into a skill
-  (TODO.md). Different subsystem, different spec.
+  (ROADMAP.md). Different subsystem, different spec.
 
 ## 4. Key design decisions
 
@@ -1078,7 +1078,7 @@ Recorded so they are easy to overturn:
    ever grows a tool allowlist.
 4. **Consolidation and extraction are mutually exclusive per completion** (D7).
    Conservative; the alternative is two provider calls in one turn-end.
-5. **New tuning guesses,** joining the existing set (TODO.md: cap 3, interval 8,
+5. **New tuning guesses,** joining the existing set (ROADMAP.md: cap 3, interval 8,
    200-char minimum, seed threshold 0.4, decay 0.7): `minHours 24`,
    `minSessions 5`, `MAX_EPISODES 50`, `EPISODE_HALF_LIFE_DAYS 30`,
    `MAX_CANDIDATES 20`, `MAX_MEMORY_BLOCK_BYTES 2048`, `MAX_DIFF_BYTES 64 KB`,
