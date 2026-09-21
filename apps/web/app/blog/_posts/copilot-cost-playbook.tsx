@@ -1,7 +1,7 @@
 /**
  * Blog post: what FreeCode did with GitHub's Copilot cost-efficiency write-up.
  * Every number here is recorded in docs/specs/2026-09-04-harness-cost-efficiency.md
- * and queue.md; change them there first.
+ * and docs/notes/queue.md; change them there first.
  */
 
 type Cell = string | { v: string; delta?: "good" | "bad" | "flat" };

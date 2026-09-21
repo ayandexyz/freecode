@@ -13,7 +13,6 @@ bench
 docs
 evals
 graft
-graphify-out
 schemas
 **/node_modules
 **/.next

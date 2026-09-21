@@ -12,7 +12,7 @@
 // turns 145→160, repeatedCalls 3→4. The model pages back elided output faster
 // than the compression saves — the exact recovery detour predicted above. Keep
 // off. Retry only with a different model, tuned thresholds, or noisier
-// workloads; the deciding command is in queue.md / EVAL.md.
+// workloads; the deciding command is in docs/notes/queue.md / EVAL.md.
 //
 // Conservative by design (Copilot's finding: aggressive compression makes the
 // agent re-run commands, which costs more end-to-end than it saves):
