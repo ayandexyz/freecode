@@ -64,11 +64,11 @@ test("render: typed text begins immediately after the prompt", () => {
   assert.ok(rowsOf(editor)[0]?.startsWith("1> fix the parser"));
 });
 
-test("render: the prompt carries the turn number", () => {
+test("render: the prompt carries the label", () => {
   const editor = makeEditor();
-  editor.turnNumber = () => 12;
+  editor.promptLabel = () => "feat/x";
   editor.setText("hi");
-  assert.ok(rowsOf(editor)[0]?.startsWith("12> hi"), rowsOf(editor)[0]);
+  assert.ok(rowsOf(editor)[0]?.startsWith("feat/x> hi"), rowsOf(editor)[0]);
 });
 
 test("render: a wider turn number keeps text aligned, not clipped", () => {
@@ -77,7 +77,7 @@ test("render: a wider turn number keeps text aligned, not clipped", () => {
   // and drops a character.
   const text = "b".repeat(100);
   const wide = makeEditor();
-  wide.turnNumber = () => 12;
+  wide.promptLabel = () => 12;
   wide.setText(text);
   const rows = rowsOf(wide).slice(0, -1);
   assert.equal(rows.join("").replace(/[^b]/g, "").length, text.length);

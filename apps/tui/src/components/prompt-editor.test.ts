@@ -69,7 +69,8 @@ test("promptGlyph: every mode is the same visible width", () => {
   assert.equal(widths.size, 1);
 });
 
-test("promptPrefix: the turn number precedes the glyph", () => {
+test("promptPrefix: the label precedes the glyph", () => {
+  assert.equal(promptPrefix("main", "chat"), "main> ");
   assert.equal(promptPrefix(1, "chat"), "1> ");
   // Shell and command keep `>`; the typed `!`/`/` already says the mode, so
   // it is carried by colour instead of a second symbol.

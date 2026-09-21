@@ -15,6 +15,7 @@ import { NoticeModal } from "./components/notice-modal.js";
 import { ScrollableModal } from "./components/scrollable-modal.js";
 import { renderContextReport } from "./utils/context-report.js";
 import { renderCostReportLines } from "./utils/cost-report.js";
+import { readGitBranch } from "./utils/git-branch.js";
 import { commandRegistry, registerCommand } from "./commands/index.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Input, type Component } from "@earendil-works/pi-tui";
@@ -405,10 +406,11 @@ editor.statusLabel = () => {
   const effort = currentEffort ? ` (${currentEffort})` : "";
   return `${model}${effort} · ${currentAgentMode}`;
 };
-// The prompt is numbered with the turn it will produce, so a scrolled-back
-// transcript stays navigable. `messageCount` counts sent prompts and resets
-// with the session, so the next one is always +1.
-editor.turnNumber = () => messageCount + 1;
+// The prompt is labelled with the branch a submitted prompt will act on,
+// re-read per render so a checkout in another terminal shows up at once.
+// Outside a repo it falls back to the turn number: `messageCount` counts
+// sent prompts and resets with the session, so the next one is always +1.
+editor.promptLabel = () => readGitBranch() ?? messageCount + 1;
 editor.isProcessing = () => activeTurnSessionId !== null;
 
 // `@` file mentions run on fd when it is installed and on a JS tree walk when

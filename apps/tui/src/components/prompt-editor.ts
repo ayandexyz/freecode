@@ -67,13 +67,13 @@ export function promptGlyph(mode: ComposerMode): string {
 }
 
 /**
- * The full prompt prefix: the 1-based turn number then the mode glyph, e.g.
- * `3> `. The number is what makes a scrolled-back transcript navigable — it
- * tells you which exchange you are about to add without any chrome around
- * the input.
+ * The full prompt prefix: the label (the git branch, or the 1-based turn
+ * number outside a repo) then the mode glyph, e.g. `main> `. The branch is
+ * what a prompt is about to act on, and the composer is the one place it is
+ * read every time before pressing Enter.
  */
-export function promptPrefix(turn: number, mode: ComposerMode): string {
-  return `${turn}${promptGlyph(mode)}`;
+export function promptPrefix(label: string | number, mode: ComposerMode): string {
+  return `${label}${promptGlyph(mode)}`;
 }
 
 /**
@@ -260,11 +260,11 @@ export class PromptEditor extends Editor {
    */
   statusLabel?: () => string;
   /**
-   * 1-based number of the prompt being composed, shown before the glyph.
-   * A getter so a completed turn renumbers the composer without the editor
-   * needing to be told.
+   * Label shown before the glyph: the git branch, or the 1-based turn number
+   * outside a repo. A getter so a checkout or a completed turn relabels the
+   * composer without the editor needing to be told.
    */
-  turnNumber: () => number = () => 1;
+  promptLabel: () => string | number = () => 1;
   /** Whether a turn is currently running — selects the `…` prompt glyph. */
   isProcessing: () => boolean = () => false;
 
@@ -376,7 +376,7 @@ export class PromptEditor extends Editor {
     // base class lays text out — otherwise the first render after the turn
     // counter rolls to 10 wraps one column short.
     const mode = composerMode(this.getText(), this.isProcessing());
-    const prefix = promptPrefix(this.turnNumber(), mode);
+    const prefix = promptPrefix(this.promptLabel(), mode);
     this.setPaddingX(prefix.length);
 
     const editorLines = super.render(width);
