@@ -15,7 +15,7 @@ import {
 function renderRow(
   ...args: Parameters<typeof createInProgressMessageComponent>
 ): string {
-  return stripAnsi(createInProgressMessageComponent(...args).render(200).at(-1)!);
+  return stripAnsi(createInProgressMessageComponent(...args).render(200)[1]!);
 }
 
 test("in-progress row shows run totals and cache reads, no context meter", () => {

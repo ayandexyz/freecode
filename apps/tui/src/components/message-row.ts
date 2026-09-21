@@ -153,8 +153,9 @@ class InProgressMessage implements Component {
     const maxWidth = Math.max(40, Math.min(width, 200)) - 1;
     const truncated = truncateToWidth(display, maxWidth);
     // Blank above: the row sits directly under whatever was last (the prompt,
-    // a tool summary), none of which leave space below themselves.
-    return ["", truncated];
+    // a tool summary), none of which leave space below themselves. Blank
+    // below: the borderless composer starts on the very next row.
+    return ["", truncated, ""];
   }
 
   invalidate(): void {}
