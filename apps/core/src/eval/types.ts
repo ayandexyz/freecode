@@ -106,7 +106,7 @@ export interface EvalCase {
   agentMode?: "plan" | "build" | "review" | "explore" | "danger";
 
   // --- trajectory expectations -------------------------------------------
-  /** `null` asserts that NO tool fired. Satisfied by a call ANYWHERE in the run. */
+  /** A name requires an executed call anywhere; `null` forbids even attempted/denied calls. */
   expectTool?: string | null;
   /**
    * The run's FIRST tool must be one of these (spec

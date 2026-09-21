@@ -9,6 +9,8 @@ import {
   redactVariant,
   trialOrder,
   VARIABLE_ENV_KEYS,
+  isInfrastructureFailure,
+  comparablePairs,
 } from "./ab.js";
 
 test("parses a model and env assignments", () => {
@@ -101,6 +103,9 @@ const tally = (passed: number, ran = passed) => ({ passed, ran });
 test("agreeing majorities are unchanged, either way", () => {
   assert.equal(classify(tally(3), tally(3), 3), "unchanged-pass");
   assert.equal(classify(tally(0, 3), tally(0, 3), 3), "unchanged-fail");
+  // These labels are majority classifications, not claims of identical results.
+  assert.equal(classify(tally(3, 3), tally(2, 3), 3), "unchanged-pass");
+  assert.equal(classify(tally(1, 3), tally(0, 3), 3), "unchanged-fail");
 });
 
 test("a two-trial gap with opposite majorities is a real verdict", () => {
@@ -152,10 +157,30 @@ test("tallyOf folds efficiency and keeps unpriced distinct from free", () => {
   ]);
   assert.equal(t.passed, 2);
   assert.equal(t.ran, 2);
-  assert.equal(t.turns, 4);
-  assert.equal(t.repeatedCalls, 2);
-  assert.equal(t.tokens, 220);
+  assert.equal(t.turns, 6);
+  assert.equal(t.repeatedCalls, 3);
+  assert.equal(t.tokens, 330);
+  assert.equal(t.infrastructureFailures, 1);
   assert.equal(t.costUsd, 0.5);
   // No trial priced at all -> undefined, never 0.
   assert.equal(tallyOf([trial({ costUsd: undefined })]).costUsd, undefined);
+});
+
+test("provider errors make a comparison inconclusive and exclude both halves from paired efficiency", () => {
+  const good = { passed: true, reason: "ok", turns: 1, repeatedCalls: 0, inputTokens: 100, outputTokens: 10, costUsd: 0.1 } as any;
+  const error = { ...good, passed: false, reason: "model error: provider", inputTokens: 20, costUsd: 0.02 };
+  const b = tallyOf([good, good, good]);
+  const c = tallyOf([good, error, good]);
+  assert.equal(c.ran, 2);
+  assert.equal(classify(b, c, 3), "inconclusive");
+  assert.equal(c.infrastructureFailures, 1);
+  assert.equal(c.tokens, 250);
+  const paired = comparablePairs([good, good, good], [good, error, good]);
+  assert.equal(paired.pairs, 2);
+  assert.equal(paired.baseline.tokens, 220);
+  assert.equal(paired.candidate.tokens, 220);
+  assert.equal(isInfrastructureFailure({ reason: "no rollout events recorded" }), true);
+  assert.equal(isInfrastructureFailure({ reason: "model call hung" }), true);
+  assert.equal(isInfrastructureFailure({ reason: "called forbidden read" }), false);
+  assert.equal(isInfrastructureFailure({ reason: "unexpected", infra: true }), true);
 });

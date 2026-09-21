@@ -5,12 +5,13 @@
 // Everything worth testing without a token lives next door.
 // =============================================================================
 
-import { execFileSync } from "child_process";
+import { captureAbProvenance, type AbProvenance } from "./ab-artifacts.js";
 import { loadSuite } from "./dataset.js";
 import { initRunner, runTrial, type RunnerConfig } from "./runner.js";
 import {
   AbError,
   classify,
+  comparablePairs,
   redactVariant,
   tallyOf,
   trialOrder,
@@ -34,6 +35,13 @@ export interface AbCaseResult {
   delta: Delta;
   baseline: SideTally;
   candidate: SideTally;
+  /** Array index is the paired trial index; results include session IDs. */
+  trialResults?: { baseline: TrialResult[]; candidate: TrialResult[] };
+  comparable?: ReturnType<typeof comparablePairs>;
+  resolved?: {
+    baseline: { provider: string; model?: string };
+    candidate: { provider: string; model?: string };
+  };
   /** First failure reason seen on each side, for the "why" column. */
   baselineReason?: string;
   candidateReason?: string;
@@ -47,6 +55,8 @@ export interface AbReport {
   sides: { baseline: Record<string, string>; candidate: Record<string, string> };
   /** Provenance: which tree produced these numbers. */
   commit?: string;
+  provenance?: AbProvenance;
+  projectPath?: string;
   /** What each side's provider said it actually served (`model-echo.ts`). */
   served: { baseline: string[]; candidate: string[] };
   cases: AbCaseResult[];
@@ -93,17 +103,6 @@ function configFor(base: RunnerConfig, variant: Variant): RunnerConfig {
     : { ...base, model: variant.model };
 }
 
-function commitSha(): string | undefined {
-  try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    return undefined;
-  }
-}
-
 export async function runAb(
   options: AbOptions,
   onCase?: (result: AbCaseResult) => void,
@@ -118,6 +117,8 @@ export async function runAb(
     }
   }
 
+  const provenance = captureAbProvenance();
+  const ranAt = new Date().toISOString();
   const base = await initRunner();
   const configs = {
     baseline: configFor(base, options.baseline),
@@ -142,19 +143,32 @@ export async function runAb(
         for (const m of trial.echoedModels ?? []) served[side].add(m);
       }
     }
-    results.push(summariseCase(kase, tally, options.trials));
+    const result = summariseCase(kase, tally, options.trials);
+    const resolved = (side: "baseline" | "candidate") => {
+      const config = kase.model
+        ? configFor(configs[side], { model: kase.model, env: {} })
+        : configs[side];
+      return { provider: config.provider, model: config.model };
+    };
+    result.resolved = {
+      baseline: resolved("baseline"),
+      candidate: resolved("candidate"),
+    };
+    results.push(result);
     onCase?.(results[results.length - 1]);
   }
 
   return {
     suite: options.suite,
-    ranAt: new Date().toISOString(),
+    ranAt,
     trials: options.trials,
     sides: {
       baseline: redactVariant(options.baseline),
       candidate: redactVariant(options.candidate),
     },
-    commit: commitSha(),
+    commit: provenance?.commit,
+    provenance,
+    projectPath: base.projectPath,
     served: {
       baseline: [...served.baseline].sort(),
       candidate: [...served.candidate].sort(),
@@ -163,7 +177,7 @@ export async function runAb(
   };
 }
 
-function summariseCase(
+export function summariseCase(
   kase: EvalCase,
   tally: Record<"baseline" | "candidate", TrialResult[]>,
   trials: number,
@@ -175,6 +189,8 @@ function summariseCase(
     delta: classify(baseline, candidate, trials),
     baseline,
     candidate,
+    trialResults: tally,
+    comparable: comparablePairs(tally.baseline, tally.candidate),
     baselineReason: tally.baseline.find((t) => !t.passed)?.reason,
     candidateReason: tally.candidate.find((t) => !t.passed)?.reason,
   };

@@ -160,11 +160,12 @@ export interface SideTally {
   passed: number;
   /** Trials that ran at all — a trial that died on infrastructure does not. */
   ran: number;
-  /** Model calls, summed over trials that ran. */
+  infrastructureFailures?: number;
+  /** Model calls across all attempts, including infrastructure failures. */
   turns: number;
   /** Redundant tool calls, summed — the tell-tale of a recovery detour. */
   repeatedCalls: number;
-  /** input + output tokens, summed over trials that ran. */
+  /** input + output tokens across all attempts. */
   tokens: number;
   /**
    * USD summed over PRICED trials only — `undefined` when nothing priced, so
@@ -175,24 +176,46 @@ export interface SideTally {
   costUsd?: number;
 }
 
+/** Legacy reports had only reason strings; new trials carry `infra`. */
+export function isInfrastructureFailure(t: Pick<TrialResult, "reason" | "infra">): boolean {
+  return t.infra ?? (
+    t.reason.startsWith("run failed:") || t.reason.startsWith("model error:") ||
+    t.reason === "model call hung" || t.reason === "no rollout events recorded"
+  );
+}
+
 /** Pure fold of one side's trials. `ran` excludes infrastructure deaths. */
 export function tallyOf(
   trials: Pick<
     TrialResult,
-    "passed" | "reason" | "turns" | "repeatedCalls" | "inputTokens" | "outputTokens" | "costUsd"
+    "passed" | "reason" | "infra" | "turns" | "repeatedCalls" | "inputTokens" | "outputTokens" | "costUsd"
   >[],
 ): SideTally {
   const tally: SideTally = { passed: 0, ran: 0, turns: 0, repeatedCalls: 0, tokens: 0 };
   for (const t of trials) {
-    if (t.passed) tally.passed++;
-    if (t.reason.startsWith("run failed:")) continue;
-    tally.ran++;
+    if (isInfrastructureFailure(t)) {
+      tally.infrastructureFailures = (tally.infrastructureFailures ?? 0) + 1;
+    } else {
+      if (t.passed) tally.passed++;
+      tally.ran++;
+    }
+    // Retain actual spend even for a trial that failed partway through.
     tally.turns += t.turns;
     tally.repeatedCalls += t.repeatedCalls;
     tally.tokens += t.inputTokens + t.outputTokens;
     if (t.costUsd !== undefined) tally.costUsd = (tally.costUsd ?? 0) + t.costUsd;
   }
   return tally;
+}
+
+export function comparablePairs(baseline: TrialResult[], candidate: TrialResult[]) {
+  const b: TrialResult[] = [], c: TrialResult[] = [];
+  for (let i = 0; i < Math.min(baseline.length, candidate.length); i++) {
+    if (isInfrastructureFailure(baseline[i]) || isInfrastructureFailure(candidate[i])) continue;
+    b.push(baseline[i]);
+    c.push(candidate[i]);
+  }
+  return { pairs: b.length, baseline: tallyOf(b), candidate: tallyOf(c) };
 }
 
 /**

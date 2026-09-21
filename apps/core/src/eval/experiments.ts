@@ -51,6 +51,10 @@ export interface ExperimentRecord {
   verdict: "kept" | "rejected" | null;
   /** Optional rationale, added by hand alongside the verdict. */
   note?: string;
+  reportPath?: string;
+  provenance?: AbReport["provenance"];
+  /** Case selection, resolved models and per-case tallies survive temp cleanup. */
+  cases?: AbCaseResult[];
 }
 
 export function experimentsPath(): string {
@@ -104,6 +108,7 @@ function totalsOf(cases: AbCaseResult[], side: "baseline" | "candidate") {
 export function recordExperiment(
   hypothesis: string,
   report: AbReport,
+  reportPath?: string,
 ): ExperimentRecord {
   const existing = loadExperiments();
   const day = report.ranAt.slice(0, 10);
@@ -123,6 +128,9 @@ export function recordExperiment(
     ...(report.commit ? { commit: report.commit } : {}),
     trials: report.trials,
     sides: report.sides,
+    reportPath,
+    provenance: report.provenance,
+    cases: report.cases.map(({ trialResults, ...summary }) => summary),
     deltas,
     totals: {
       baseline: totalsOf(report.cases, "baseline"),

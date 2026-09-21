@@ -63,6 +63,19 @@ const kase = (over: Partial<EvalCase>): EvalCase => ({
   ...over,
 });
 
+test("no-tool expectations reject model calls even when no tool executes", () => {
+  const record = run([], [{ ...modelSpan(), toolCalls: ["bash"] }]);
+  assert.equal(scoreTrajectory(record, kase({ expectTool: null })).passed, false);
+});
+
+test("no-tool expectations reject recorded denials without model call metadata", () => {
+  const record = run([]);
+  record.trace.deniedSpans = [{ tool: "bash", at: 1, source: "mode", reason: "read-only" }];
+  assert.equal(scoreTrajectory(record, kase({ expectTool: null })).passed, false);
+  // Execution-based restrictions still describe what actually ran.
+  assert.equal(scoreTrajectory(record, kase({ forbidTools: ["bash"] })).passed, true);
+});
+
 test("expectParallelTools passes when one turn emitted a batch", () => {
   const spans = [
     { ...modelSpan(), toolCalls: ["read", "read", "grep"] },

@@ -279,6 +279,7 @@ async function runTrialIn(
     return {
       passed: false,
       reason: "no rollout events recorded",
+      infra: true,
       durationMs: Date.now() - startedAt,
       inputTokens: 0,
       outputTokens: 0,

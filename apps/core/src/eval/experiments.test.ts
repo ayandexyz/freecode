@@ -65,9 +65,20 @@ test("record folds deltas and per-side totals, awaiting a verdict", () => {
     assert.equal(rec.totals.baseline.passed, 4);
     assert.equal(rec.totals.candidate.passed, 6);
     assert.equal(rec.totals.baseline.tokens, 200);
+    assert.deepEqual(rec.cases?.map(c => c.id), ["a", "b"]);
     // Unpriced baseline stays undefined — "free" and "unknown" distinct.
     assert.equal(rec.totals.baseline.costUsd, undefined);
     assert.ok(Math.abs((rec.totals.candidate.costUsd ?? 0) - 0.03) < 1e-9);
+  });
+});
+
+test("ledger retains report location and code provenance", () => {
+  withEvalsDir(() => {
+    const provenance = { commit: "abc1234", dirty: true, treeHash: "hash" };
+    recordExperiment("h", report({ provenance }), "/durable/report.json");
+    const [saved] = loadExperiments();
+    assert.equal(saved.reportPath, "/durable/report.json");
+    assert.deepEqual(saved.provenance, provenance);
   });
 });
 

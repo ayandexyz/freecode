@@ -95,12 +95,17 @@ export function scoreTrajectory(run: RunRecord, kase: EvalCase): TrialScore {
     }
   }
 
-  // `expectTool: null` asserts that nothing fired — the "just answer, don't
-  // go rummaging" case, which is a real regression when it breaks.
+  // No-tool cases measure the model's choice, including calls permissions
+  // refused. Keep toolSpans itself restricted to tools that actually ran.
   if (kase.expectTool === null) {
-    return fired.length === 0
+    const attempted = new Set([
+      ...fired,
+      ...run.trace.modelSpans.flatMap((s) => s.toolCalls),
+      ...(run.trace.deniedSpans ?? []).map((s) => s.tool),
+    ]);
+    return attempted.size === 0
       ? pass
-      : fail(`expected no tool, called ${fired}`);
+      : fail(`expected no tool, attempted ${[...attempted]}`);
   }
 
   // Position, not membership. `expectTool` cannot distinguish "greped" from

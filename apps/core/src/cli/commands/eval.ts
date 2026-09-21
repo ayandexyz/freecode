@@ -324,9 +324,13 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
         },
       );
 
+      const { saveAbReport } = await import("../../eval/ab-artifacts.js");
+      const reportPath = saveAbReport(report);
+      console.error(`${dim}saved full A/B report to ${reportPath}${reset}`);
+
       if (argv.hypothesis !== undefined) {
         const { recordExperiment } = await import("../../eval/experiments.js");
-        const record = recordExperiment(argv.hypothesis, report);
+        const record = recordExperiment(argv.hypothesis, report, reportPath);
         console.error(
           `${dim}recorded ${record.id} in evals/experiments.jsonl — decide it ` +
             `by editing \`"verdict": null\` to "kept" or "rejected"${reset}`,
@@ -351,7 +355,12 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
         .sort((a, b) => b[1] - a[1])
         .map(([k, n]) => `${n} ${k}`)
         .join(" · ");
-      console.log(`\n${summary}`);
+      console.log(`\nMajority classification: ${summary}`);
+      const declines = report.cases.filter((c) => c.candidate.passed < c.baseline.passed);
+      console.log(`Raw pass-count declines: ${declines.length}`);
+      for (const c of declines) {
+        console.log(`  ${c.id}: ${c.baseline.passed}/${report.trials} → ${c.candidate.passed}/${report.trials} (${c.delta})`);
+      }
       console.log(
         `${dim}baseline ${JSON.stringify(report.sides.baseline)} · ` +
           `candidate ${JSON.stringify(report.sides.candidate)}` +
@@ -366,25 +375,32 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
       }
       // The efficiency totals — for a harness experiment these ARE the
       // result: quality holding is the precondition, cost moving is the point.
-      const sum = (side: "baseline" | "candidate") => {
+      const sum = (side: "baseline" | "candidate", paired = false) => {
         let tokens = 0, turns = 0, repeated = 0;
         let cost: number | undefined;
         for (const c of report.cases) {
-          tokens += c[side].tokens;
-          turns += c[side].turns;
-          repeated += c[side].repeatedCalls;
-          if (c[side].costUsd !== undefined) cost = (cost ?? 0) + c[side].costUsd!;
+          const tally = paired ? c.comparable?.[side] : c[side];
+          if (!tally) continue;
+          tokens += tally.tokens;
+          turns += tally.turns;
+          repeated += tally.repeatedCalls;
+          if (tally.costUsd !== undefined) cost = (cost ?? 0) + tally.costUsd;
         }
         return { tokens, turns, repeated, cost };
       };
-      const b = sum("baseline");
-      const cd = sum("candidate");
+      const rawB = sum("baseline"), rawC = sum("candidate");
+      const b = sum("baseline", true);
+      const cd = sum("candidate", true);
+      const pairs = report.cases.reduce((n, c) => n + (c.comparable?.pairs ?? 0), 0);
+      const failures = (side: "baseline" | "candidate") => report.cases.reduce((n, c) => n + (c[side].infrastructureFailures ?? 0), 0);
+      console.log(`Infrastructure failures: baseline ${failures("baseline")}, candidate ${failures("candidate")}. Affected cases are inconclusive.`);
       const pct = (from: number, to: number) =>
         from > 0 ? ` (${(((to - from) / from) * 100).toFixed(1)}%)` : "";
       const money = (v: number | undefined) =>
         v === undefined ? "unpriced" : `$${v.toFixed(4)}`;
+      console.log(`All attempts: tokens ${rawB.tokens} → ${rawC.tokens} · cost ${money(rawB.cost)} → ${money(rawC.cost)} · turns ${rawB.turns} → ${rawC.turns}`);
       console.log(
-        `tokens ${b.tokens} → ${cd.tokens}${pct(b.tokens, cd.tokens)} · ` +
+        `Comparable pairs (${pairs}): tokens ${b.tokens} → ${cd.tokens}${pct(b.tokens, cd.tokens)} · ` +
           `cost ${money(b.cost)} → ${money(cd.cost)}` +
           (b.cost !== undefined && cd.cost !== undefined ? pct(b.cost, cd.cost) : "") +
           ` · turns ${b.turns} → ${cd.turns} · ` +

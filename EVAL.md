@@ -88,6 +88,30 @@ confounded by definition.
 one exits non-zero somebody wires it into CI and starts reverting on noise.
 Don't wire it.
 
+Every completed A/B automatically saves a full report under
+`~/.freecode/eval-ab/<id>.json`; `--out` writes an additional copy. Reports keep
+each side's ordered trial results and session IDs, resolved models per case,
+and the starting commit, dirty flag, and working-tree content hash. The hash
+includes tracked edits and non-ignored untracked files, but stores no source
+contents. External configuration and provider state are not captured by it.
+With `--hypothesis`, the ledger also records the report path, provenance and
+per-case tallies. Older reports cannot recover trial links they never stored.
+
+Delta labels compare trial majorities, not statistical significance. The CLI
+also lists every raw pass-count decline, including cases labelled unchanged.
+`expectTool: null` requires zero attempted calls, including denied calls;
+`forbidTools` continues to describe tools that actually executed.
+
+Provider errors, hung requests, and missing rollout records are infrastructure
+failures, making affected A/B cases inconclusive. Reports retain the actual
+spend of all attempts. Efficiency deltas use only matching trial indices where
+both sides completed without infrastructure failure (`comparable` per case).
+Do not interpret lower total spend from failed requests as an improvement.
+
+The symbol-search fixture was isolated on 2026-09-21 because the original
+answer appeared in project instructions. Older runs of that case used a
+different input and are not directly comparable.
+
 **The experiment ledger.** An A/B without `--out` used to evaporate, and
 nothing recorded why it ran or what was decided — so an abandoned tweak could
 be earnestly re-tried a quarter later. `--hypothesis` (declared **before** the
