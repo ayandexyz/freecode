@@ -112,3 +112,21 @@ test("a project with no git repository gets no git line", () => {
   assert.ok(!out.includes("Git HEAD"), "tree-cache's marker is not a value");
   assert.ok(!out.includes("no-git"));
 });
+
+test("background context is delimited and stable with a frozen clock", () => {
+  const compiler = new PromptCompiler("/home/example", "example");
+  const compile = () =>
+    compiler.compileDynamicContext(
+      "dev.sh\nDocuments/ticketDesk/",
+      "no-git",
+      "",
+      undefined,
+      "2026-09-21T00:00:00Z",
+    );
+  const context = compile();
+  assert.ok(context.startsWith("<system-reminder>"));
+  assert.match(context, /not a user request/);
+  assert.ok(context.endsWith("</system-reminder>"));
+  assert.match(context, /dev\.sh/);
+  assert.equal(context, compile());
+});

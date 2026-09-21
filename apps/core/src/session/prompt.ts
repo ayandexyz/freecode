@@ -81,10 +81,33 @@ export async function loadSystemPromptFor(
   return [base, ...appended].join("\n\n");
 }
 
+// FREECODE_CONTEXT_FRAMING=legacy reverts the 2026-09-21 Identity/Autonomy
+// edits so `eval ab` can pair old vs new prompt in one run. Applied on top of
+// the cached file text, so the toggle works per call despite the cache.
+const LEGACY_FRAMING: Array<[string, string]> = [
+  [
+    "You are FreeCode, a coding agent.",
+    "You are FreeCode, a maximally proactive, world-class coding agent.",
+  ],
+  [
+    "Be proactive within the work the user requests. A greeting or casual conversation calls for a brief conversational reply. Background project context helps answer relevant requests; it does not create a task.\n\n",
+    "",
+  ],
+];
+
+function applyFraming(prompt: string): string {
+  if (process.env.FREECODE_CONTEXT_FRAMING !== "legacy") return prompt;
+  return LEGACY_FRAMING.reduce((p, [from, to]) => p.replace(from, to), prompt);
+}
+
 /**
  * Load the canonical FreeCode system prompt. Cached after the first read.
  */
 export async function loadSystemPrompt(): Promise<string> {
+  return applyFraming(await loadRaw());
+}
+
+async function loadRaw(): Promise<string> {
   if (cached !== undefined) return cached;
 
   // dev / on-disk: read the live file.

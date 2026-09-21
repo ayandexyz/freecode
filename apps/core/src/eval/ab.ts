@@ -70,6 +70,8 @@ export const VARIABLE_ENV_KEYS = [
   "FREECODE_AUTO_POKE",
   "FREECODE_CONFIDENCE_GATE",
   "FREECODE_HILLCLIMB_GATE",
+  // Read per call in compileDynamicContext and loadSystemPrompt.
+  "FREECODE_CONTEXT_FRAMING",
 ] as const;
 
 /**

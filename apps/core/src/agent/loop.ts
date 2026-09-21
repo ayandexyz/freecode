@@ -2203,15 +2203,13 @@ export class AgentLoop {
       parts: [
         {
           type: "text",
-          content:
-            "Project context:\n\n" +
-            this.compiler.compileDynamicContext(
-              context.tree,
-              context.gitHead,
-              "",
-              undefined,
-              context.clock,
-            ),
+          content: this.compiler.compileDynamicContext(
+            context.tree,
+            context.gitHead,
+            "",
+            undefined,
+            context.clock,
+          ),
         },
       ],
       // Fixed, not Date.now(): the id and timestamp are part of what the

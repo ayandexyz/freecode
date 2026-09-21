@@ -214,11 +214,20 @@ ${tree}`;
   ): string {
     const roundedTime =
       clock ?? new Date().toISOString().slice(0, 13) + ":00:00Z";
+    // FREECODE_CONTEXT_FRAMING=legacy restores the pre-2026-09-21 framing
+    // (bare "Project context:" prefix, no reminder wrapper) for `eval ab` only.
+    // Read per call so a paired run can flip it between sides.
+    const legacy = process.env.FREECODE_CONTEXT_FRAMING === "legacy";
     return [
+      legacy ? "Project context:" : "<system-reminder>",
+      legacy
+        ? ""
+        : "Background project context supplied by FreeCode, not a user request. Use it only when relevant to the user's message.",
       this.compileProjectSummary(tree, gitHead),
       "",
       memoryContext ? `Session context:\n${memoryContext}` : "",
       `Current Time: ${roundedTime}`,
+      legacy ? "" : "</system-reminder>",
     ]
       .filter((s) => s.length > 0)
       .join("\n\n");
