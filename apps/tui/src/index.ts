@@ -72,6 +72,8 @@ import {
   listCommands,
   resolveCommand,
   listTools,
+  listSkills,
+  listPlugins,
   mcpStatus,
   shellsList,
   shellsOutput,
@@ -201,6 +203,8 @@ let contextCacheStats: CacheStats | undefined;
 // resolves; the header renders `…` while the values are still pending.
 let headerToolCount = -1;
 let headerMcpCount = -1;
+let headerSkillCount = -1;
+let headerPluginCount = -1;
 // Cache totals across every prompt in this session. A single run can look fine
 // while the session average is poor — the first prompt after a compaction pays
 // full price for the whole rebuilt prefix, and that only shows up in the sum.
@@ -332,6 +336,8 @@ import { Spacer } from "@earendil-works/pi-tui";
 const logoHeader = new LogoHeader(
   () => headerToolCount,
   () => headerMcpCount,
+  () => headerSkillCount,
+  () => headerPluginCount,
 );
 
 // Floating top-right one-line overlay showing context usage as `tokens / limit`.
@@ -2909,14 +2915,20 @@ setCliRestartHandler(() => {
 
 loadCurrentModel();
 
-// Cache the tool + MCP counts once at startup so the logo header can render
-// them synchronously. Errors are swallowed (daemon may not be ready yet) and
-// leave the values at `-1`; the header falls back to `…`.
+// Cache the tool/MCP/skill/plugin counts once at startup so the logo header can
+// render them synchronously. Errors are swallowed (daemon may not be ready
+// yet) and leave the values at `-1`; the header falls back to `…`.
 async function loadHeaderCounts(): Promise<void> {
   try {
     const [tools, servers] = await Promise.all([listTools(), mcpStatus()]);
     headerToolCount = tools.length;
     headerMcpCount = servers.length;
+    // Skills and plugins are discovered from disk on the daemon; a failure
+    // there should not blank the tool/MCP counts, so each gets its own guard.
+    [headerSkillCount, headerPluginCount] = await Promise.all([
+      listSkills().then((s) => s.length, () => -1),
+      listPlugins().then((p) => p.length, () => -1),
+    ]);
   } catch {
     // daemon may not be ready; leave the counts at -1.
   }

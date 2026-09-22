@@ -485,6 +485,15 @@ export const METHODS = {
       scope: string;
     }[],
   },
+  "plugins.list": {
+    params: {},
+    result: [] as {
+      id: string;
+      name: string;
+      version?: string;
+      installPath: string;
+    }[],
+  },
   "mcp.status": {
     params: { name: undefined as string | undefined },
     result: [] as {
@@ -494,6 +503,9 @@ export const METHODS = {
       status: "connected" | "disconnected";
       toolCount: number;
       tools: string[];
+      // Set when the entry was imported from Claude Code's config rather
+      // than ~/.freecode/config.json.
+      source?: "claude-code";
     }[],
   },
   // Persisted prompt history — up-arrow recall across sessions. Core owns
@@ -784,6 +796,7 @@ export const REQUIRED_PARAMS: Record<
   "agents.stop": { sessionId: "string", agentId: "string" },
   "agents.remove": { sessionId: "string", agentId: "string" },
   "skills.list": {},
+  "plugins.list": {},
   "mcp.status": {},
   "history.list": {},
   "history.append": { text: "string" },

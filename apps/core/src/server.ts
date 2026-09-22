@@ -985,6 +985,15 @@ export const methodHandlers: Record<
     }));
   },
 
+  // Installed Claude Code plugins (~/.claude/plugins). Their skills already
+  // surface through skills.list; this is the roster behind the header count.
+  "plugins.list": async (): Promise<
+    { id: string; name: string; version?: string; installPath: string }[]
+  > => {
+    const { listInstalledPlugins } = await import("./skills/loader.js");
+    return listInstalledPlugins();
+  },
+
   "mcp.status": async (
     params: Record<string, unknown>,
   ): Promise<
@@ -995,6 +1004,7 @@ export const methodHandlers: Record<
       status: "connected" | "disconnected";
       toolCount: number;
       tools: string[];
+      source?: "claude-code";
     }[]
   > => {
     const { name } = params as { name?: string };
@@ -1020,6 +1030,7 @@ export const methodHandlers: Record<
         status: isConnected ? "connected" : "disconnected",
         toolCount: serverTools.length,
         tools: serverTools.map((t: any) => t.id),
+        source: server.source,
       };
     });
   },

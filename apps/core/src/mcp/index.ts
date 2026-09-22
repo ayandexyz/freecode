@@ -1,5 +1,6 @@
 export type { McpServer, McpConfig, McpClient } from "./types.js";
 export { loadMcpConfig, saveMcpServer, removeMcpServer } from "./config.js";
+export { loadClaudeCodeMcpServers } from "./claude-code-config.js";
 export {
   createStdioTransport,
   createHttpTransport,

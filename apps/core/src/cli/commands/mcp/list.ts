@@ -17,7 +17,9 @@ const handler = async () => {
   for (const server of config.servers) {
     const name = server.name.padEnd(14);
     const type = server.type.padEnd(7);
-    const status = server.enabled ? "enabled" : "disabled";
+    const status = server.source === "claude-code"
+      ? "claude"
+      : server.enabled ? "enabled" : "disabled";
     const statusStr = status.padEnd(11);
 
     // Show command/url instead of tools (tools only available when daemon running)
@@ -37,7 +39,8 @@ const handler = async () => {
     "└────────────────┴─────────┴─────────────┴────────────────────┘\n",
   );
   console.log(
-    "Note: Status shows config-only. Run 'freecode serve' (TUI/VSCode) to connect servers.\n",
+    "Note: Status shows config-only. Run 'freecode serve' (TUI/VSCode) to connect servers.\n" +
+      "      'claude' = imported from Claude Code (~/.claude.json, .mcp.json); FREECODE_MCP_CLAUDE_CODE=0 hides them.\n",
   );
 };
 
