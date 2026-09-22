@@ -138,7 +138,7 @@ What it reports, and where each number comes from:
 | Section | Number | Source |
 | --- | --- | --- |
 | Confidence stepping | one line per todo item: confidence at assignment → at completion; which spiked (+40 in one step); which the gate sent back | `function.call` args of `todowrite`, paired per item id; `todo.signal(confidence_spike)` |
-| Hill-climbable goals | histogram of every `hillClimbability` rating (re-ratings count again), mean, median, % below 90 | `todowrite` args; `todo.signal(hill_climb_low)` |
+| Hill-climbable goals | histogram, mean, median and % below 90 over the **first** rating each item gets (`ratings` carries the total, re-ratings included). Note this is the harsher axis: jcode publishes every submission, so compare on `ratings`, not the histogram | `todowrite` args; `todo.signal(hill_climb_low)` |
 | Auto-poke | **sessions that ended with open todos** (from the LAST todowrite — measurable on logs from before the gate existed, which is the baseline), pokes fired, pokes followed by a tool call, items completed after a poke, skip reasons, and the ended-open rate split gate-on vs gate-off | `poke.*` events; `todowrite` args |
 
 Numbers only reach the file: no item text, no session ids, no prompts.

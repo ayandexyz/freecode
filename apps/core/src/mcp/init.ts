@@ -33,6 +33,7 @@ async function connectServer(
       const cmdArgs = server.command?.slice(1) || [];
       const extraArgs = server.args || [];
       transport = createStdioTransport({
+        name: server.name,
         command: server.command?.[0] || "",
         args: [...cmdArgs, ...extraArgs],
         env: server.env as Record<string, string> | undefined,

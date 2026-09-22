@@ -72,6 +72,8 @@ import {
   listCommands,
   resolveCommand,
   listTools,
+  listSkills,
+  listPlugins,
   mcpStatus,
   shellsList,
   shellsOutput,
@@ -137,6 +139,7 @@ import { installCrashHandlers } from "./crash-handler.js";
 // import { ResponsiveInfoBox } from "./components/info-box.js"; // commented out: header disabled
 // import { StatusHeader } from "./components/status-header.js"; // commented out: context moved to ContextBox overlay
 import { LogoHeader } from "./components/logo-header.js";
+import { checkForUpdate } from "./utils/update-check.js";
 import { ContextBox } from "./components/context-box.js";
 import { ModeLine } from "./components/mode-line.js";
 import {
@@ -201,6 +204,11 @@ let contextCacheStats: CacheStats | undefined;
 // resolves; the header renders `…` while the values are still pending.
 let headerToolCount = -1;
 let headerMcpCount = -1;
+let headerSkillCount = -1;
+let headerPluginCount = -1;
+// Newer release found by the background probe, or null for "nothing to say".
+// Stays null until the probe answers, so the header simply omits the line.
+let headerUpdateVersion: string | null = null;
 // Cache totals across every prompt in this session. A single run can look fine
 // while the session average is poor — the first prompt after a compaction pays
 // full price for the whole rebuilt prefix, and that only shows up in the sum.
@@ -332,6 +340,9 @@ import { Spacer } from "@earendil-works/pi-tui";
 const logoHeader = new LogoHeader(
   () => headerToolCount,
   () => headerMcpCount,
+  () => headerSkillCount,
+  () => headerPluginCount,
+  () => headerUpdateVersion,
 );
 
 // Floating top-right one-line overlay showing context usage as `tokens / limit`.
@@ -2312,7 +2323,12 @@ let todoPanel: TodoPanel | null = null;
 let todoOverlay: OverlayHandle | null = null;
 
 function updateTodoPanel(items: ReturnType<typeof parseTodoResult>): void {
-  if (items.length === 0) {
+  // Empty list, or every item settled (completed/cancelled) — nothing left to
+  // track, so drop the panel instead of pinning a finished plan.
+  const allDone = items.every(
+    (i) => i.status === "completed" || i.status === "cancelled",
+  );
+  if (items.length === 0 || allDone) {
     hideTodoPanel();
     return;
   }
@@ -2909,19 +2925,31 @@ setCliRestartHandler(() => {
 
 loadCurrentModel();
 
-// Cache the tool + MCP counts once at startup so the logo header can render
-// them synchronously. Errors are swallowed (daemon may not be ready yet) and
-// leave the values at `-1`; the header falls back to `…`.
+// Cache the tool/MCP/skill/plugin counts once at startup so the logo header
+// can render them synchronously. All four go out in one batch and each is
+// guarded on its own, so a failure (daemon not ready, a discovery error)
+// leaves only that count at `-1` — rendered as `…`.
 async function loadHeaderCounts(): Promise<void> {
-  try {
-    const [tools, servers] = await Promise.all([listTools(), mcpStatus()]);
-    headerToolCount = tools.length;
-    headerMcpCount = servers.length;
-  } catch {
-    // daemon may not be ready; leave the counts at -1.
-  }
+  const count = (p: Promise<unknown[]>) => p.then((r) => r.length, () => -1);
+  [headerToolCount, headerMcpCount, headerSkillCount, headerPluginCount] =
+    await Promise.all([
+      count(listTools()),
+      count(mcpStatus()),
+      count(listSkills()),
+      count(listPlugins()),
+    ]);
 }
 void loadHeaderCounts();
+
+// Update probe: deliberately fired here, after the TUI is up, and never
+// awaited. Blocking the launch on it cost ~1.1s of blank terminal per start.
+// A null answer (offline, pinned, already current) leaves the header as-is.
+void checkForUpdate().then((latest) => {
+  if (!latest) return;
+  headerUpdateVersion = latest;
+  logoHeader.invalidate();
+  tui.requestRender();
+});
 
 // Check for interrupted sessions on startup
 async function checkForInterruptedSession(): Promise<void> {

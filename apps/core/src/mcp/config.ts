@@ -1,10 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
 import { McpConfigSchema, type McpConfig, type McpServer } from "./types.js";
+import { loadClaudeCodeMcpServers } from "./claude-code-config.js";
 
 const CONFIG_FILE = "config.json";
 
-export async function loadMcpConfig(configDir: string): Promise<McpConfig> {
+/** Servers from FreeCode's own config.json only. */
+function loadOwnMcpConfig(configDir: string): McpConfig {
   const configPath = path.join(configDir, CONFIG_FILE);
 
   if (!fs.existsSync(configPath)) {
@@ -19,6 +21,26 @@ export async function loadMcpConfig(configDir: string): Promise<McpConfig> {
   }
 
   return McpConfigSchema.parse(config.mcp);
+}
+
+/**
+ * FreeCode's servers plus any Claude Code has configured for `projectPath`
+ * (user, project and repo `.mcp.json`). A FreeCode entry wins over a Claude
+ * Code entry of the same name, so `freecode mcp add` can override one.
+ * `FREECODE_MCP_CLAUDE_CODE=0` turns the import off.
+ */
+export async function loadMcpConfig(
+  configDir: string,
+  projectPath: string = process.cwd(),
+): Promise<McpConfig> {
+  const own = loadOwnMcpConfig(configDir);
+  if (process.env.FREECODE_MCP_CLAUDE_CODE === "0") return own;
+
+  const names = new Set(own.servers.map((s) => s.name));
+  const imported = loadClaudeCodeMcpServers(projectPath).filter(
+    (s) => !names.has(s.name),
+  );
+  return { ...own, servers: [...own.servers, ...imported] };
 }
 
 export async function saveMcpServer(

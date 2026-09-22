@@ -705,6 +705,18 @@ export async function listSkills(): Promise<SkillInfo[]> {
   })) as SkillInfo[];
 }
 
+export interface PluginInfo {
+  id: string;
+  name: string;
+  version?: string;
+  installPath: string;
+}
+
+/** Installed Claude Code plugins (~/.claude/plugins). */
+export async function listPlugins(): Promise<PluginInfo[]> {
+  return (await sendRequest("plugins.list", {})) as PluginInfo[];
+}
+
 /**
  * Open the optional graph explorer in the browser. Returns the URL on
  * success; returns `{ error: "not-installed" }` when the user hasn't run
@@ -890,6 +902,7 @@ export interface McpServerStatus {
   status: "connected" | "disconnected";
   toolCount: number;
   tools: string[];
+  source?: "claude-code";
 }
 
 /**

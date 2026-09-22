@@ -14,6 +14,9 @@ export const McpServerSchema = z
     // Common config
     enabled: z.boolean().default(true),
     timeout: z.number().default(5000),
+    // Where the definition came from. Absent means FreeCode's own config.json;
+    // "claude-code" entries are read-only mirrors (see claude-code-config.ts).
+    source: z.enum(["claude-code"]).optional(),
   })
   .refine(
     (data) =>

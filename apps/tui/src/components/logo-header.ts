@@ -28,23 +28,37 @@ const PENDING = "…";
 /**
  * Pinned top-of-TUI logo header. Renders the OmaCode logo (centered, two-tone
  * yellow) with the `>_ OmaCode (vX.Y.Z)` subtitle, a compact stats line
- * (tools + MCP counts) and a directory line — all centered and in yellow.
+ * (tools/MCP/skills/plugins counts) and a directory line — all centered and in yellow.
  *
- * Tool/MCP counts come from accessor functions so the parent can cache them
+ * The counts come from accessor functions so the parent can cache them
  * once at startup and the header stays synchronous.
  */
 export class LogoHeader implements Component {
   /**
    * Rendered every frame as the message list's first entry (even in follow
    * mode, where the window slice usually discards it), so the lines are
-   * cached on everything they actually depend on: width and the two counts
+   * cached on everything they actually depend on: width and the counts
    * (version and cwd are fixed for the process).
    */
-  private cache?: { width: number; tools: number; mcp: number; lines: string[] };
+  private cache?: {
+    width: number;
+    tools: number;
+    mcp: number;
+    skills: number;
+    plugins: number;
+    update: string | null;
+    lines: string[];
+  };
 
   constructor(
     private getToolCount: () => number,
     private getMcpCount: () => number,
+    private getSkillCount: () => number,
+    private getPluginCount: () => number,
+    // The newer release's version once the background probe answers, null
+    // while it is in flight and for good after it comes back empty. Same
+    // accessor shape as the counts so the header stays synchronous.
+    private getUpdateVersion: () => string | null = () => null,
   ) {}
 
   invalidate(): void {
@@ -74,11 +88,17 @@ export class LogoHeader implements Component {
 
     const toolCount = this.getToolCount();
     const mcpCount = this.getMcpCount();
+    const skillCount = this.getSkillCount();
+    const pluginCount = this.getPluginCount();
+    const updateVersion = this.getUpdateVersion();
     if (
       this.cache &&
       this.cache.width === width &&
       this.cache.tools === toolCount &&
-      this.cache.mcp === mcpCount
+      this.cache.mcp === mcpCount &&
+      this.cache.skills === skillCount &&
+      this.cache.plugins === pluginCount &&
+      this.cache.update === updateVersion
     ) {
       return this.cache.lines;
     }
@@ -97,16 +117,33 @@ export class LogoHeader implements Component {
       chalk.dim(`(v${version})`);
     const subtitleLine = this.centerLine(width, subtitlePlain.length, subtitleStyled);
 
-    // Stats: `Tools: N    MCP: M` — dimmed labels, plain values.
-    const toolsPlain = this.formatCount(this.getToolCount());
-    const mcpPlain = this.formatCount(this.getMcpCount());
-    const statsPlain = `Tools: ${toolsPlain}    MCP: ${mcpPlain}`;
-    const statsStyled =
-      chalk.dim("Tools:") +
-      ` ${toolsPlain}` +
-      " ".repeat(4) +
-      chalk.dim("MCP:") +
-      ` ${mcpPlain}`;
+    // Sits directly under the subtitle, and only once the background probe
+    // has found a newer release — nothing is installed on our initiative any
+    // more, so this line is the whole of the update story the user sees.
+    const updateLines: string[] = [];
+    if (updateVersion) {
+      const updatePlain = `update available (v${updateVersion}) · run freecode update`;
+      const updateStyled =
+        palette.accent("update available") +
+        chalk.dim(` (v${updateVersion}) · run `) +
+        chalk.bold("freecode update");
+      updateLines.push(this.centerLine(width, updatePlain.length, updateStyled));
+    }
+
+    // Stats: `Tools: N    MCP: M    Skills: K    Plugins: P` — dimmed
+    // labels, plain values, four spaces between pairs.
+    const stats: Array<[string, number]> = [
+      ["Tools", toolCount],
+      ["MCP", mcpCount],
+      ["Skills", skillCount],
+      ["Plugins", pluginCount],
+    ];
+    const statsPlain = stats
+      .map(([label, n]) => `${label}: ${this.formatCount(n)}`)
+      .join("    ");
+    const statsStyled = stats
+      .map(([label, n]) => chalk.dim(`${label}:`) + ` ${this.formatCount(n)}`)
+      .join("    ");
     const statsLine = this.centerLine(width, statsPlain.length, statsStyled);
 
     // Directory: `Directory: <cwd>` — dimmed label, plain path.
@@ -124,10 +161,19 @@ export class LogoHeader implements Component {
       ...coloredLogoLines.map((logoLine) => `${indent}${logoLine}${rightPad}`),
       "", // gap between the logo and its subtitle
       subtitleLine,
+      ...updateLines,
       statsLine,
       dirLine,
     ].map((line) => truncateToWidth(line, width));
-    this.cache = { width, tools: toolCount, mcp: mcpCount, lines };
+    this.cache = {
+      width,
+      tools: toolCount,
+      mcp: mcpCount,
+      skills: skillCount,
+      plugins: pluginCount,
+      update: updateVersion,
+      lines,
+    };
     return lines;
   }
 }

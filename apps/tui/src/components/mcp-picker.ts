@@ -22,7 +22,9 @@ export function createMcpSelector(
   const items: SelectItem[] = servers.map((s) => ({
     label: s.name,
     value: s.name,
-    description: `${statusLabel(s)}${chalk.dim(` · ${s.type}`)}`,
+    description:
+      `${statusLabel(s)}${chalk.dim(` · ${s.type}`)}` +
+      (s.source === "claude-code" ? chalk.dim(" · from Claude Code") : ""),
   }));
 
   const maxVisible = Math.min(items.length, 10);

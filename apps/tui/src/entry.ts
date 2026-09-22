@@ -13,7 +13,7 @@
 // =============================================================================
 
 // @ts-ignore — resolved via core's package.json exports map
-import { createCli, resolveVersion } from "@thisisayande/freecode-core/cli/create-cli";
+import { createCli } from "@thisisayande/freecode-core/cli/create-cli";
 // @ts-ignore — resolved via core's package.json exports map
 import { formatFatalError } from "@thisisayande/freecode-core/cli/format-fatal-error";
 import type { CommandModule } from "yargs";
@@ -51,9 +51,10 @@ if (
   process.exit(result.status ?? 1);
 }
 
-// Checked once per launch, only in the distributed binary — dev (tsx) has no
-// release to compare against. Best-effort: any failure (offline, GitHub down,
-// rate limit) just skips the check and opens the TUI on the current version.
+// Update handling lives in the TUI now (utils/update-check.ts), not here: an
+// awaited GitHub round-trip in front of the TUI import put ~1.1s of blank
+// terminal on every launch. Nothing self-installs any more either — the
+// header shows a notice and `freecode update` below does the work.
 
 // Cross-platform installer invocation. The bash installer at /install calls
 // `err` and aborts on Windows (it expects `install.ps1` instead), so spawning
@@ -81,87 +82,6 @@ function runInstaller() {
     stdio: "inherit",
   });
 }
-// Same 1/true/yes convention as core's FREECODE_DISABLE_* flags.
-function isEnvTruthy(value: string | undefined): boolean {
-  if (!value) return false;
-  const v = value.toLowerCase();
-  return v === "1" || v === "true" || v === "yes";
-}
-
-async function checkForUpdate(): Promise<void> {
-  // FREECODE_NO_UPDATE is how a version is pinned: without it, launching an
-  // older binary from builds/versions/<old>/ installs the latest and re-execs
-  // into it, so the versioned layout couldn't actually hold a version. The
-  // explicit `freecode update` command ignores the flag — that's the user
-  // asking.
-  if (
-    process.env.FREECODE_BUNDLED !== "1" ||
-    process.env.__FREECODE_UPDATE_CHECKED ||
-    isEnvTruthy(process.env.FREECODE_NO_UPDATE)
-  ) {
-    return;
-  }
-  process.env.__FREECODE_UPDATE_CHECKED = "1";
-
-  let latest: string;
-  try {
-    const res = await fetch(
-      "https://api.github.com/repos/ayandexyz/freecode/releases/latest",
-      { signal: AbortSignal.timeout(3000) },
-    );
-    if (!res.ok) return;
-    const data = (await res.json()) as { tag_name?: string };
-    latest = (data.tag_name ?? "").replace(/^v/, "");
-  } catch {
-    return;
-  }
-  const current = resolveVersion();
-  if (!latest || latest === current) return;
-
-  process.stderr.write(`[freecode] updating ${current} → ${latest}\n`);
-  const r = runInstaller();
-  if (r.status !== 0) {
-    process.stderr.write(`[freecode] update failed, continuing on ${current}\n`);
-    return;
-  }
-
-  // Re-exec so the TUI that opens is the newly installed binary, not the
-  // one already loaded in this process's memory. Re-exec through the
-  // installer's `stable` symlink rather than `process.execPath`: the kernel
-  // resolves symlinks at exec time, so `process.execPath` is the concrete
-  // path to the *old* version's binary file. Spawning that path again runs
-  // the stale binary, and the user has to close the TUI and re-type
-  // `freecode` to actually pick up the update. The `stable` symlink is
-  // rewritten on every install to point at the version just unpacked.
-  //
-  // This has to be checked AFTER the installer runs (not before), because at
-  // startup `stable` still points at the same version as `process.execPath`
-  // — the installer is what rewrites it. Comparing pre-install would
-  // conclude "no change" and re-exec the same old binary, leaving the TUI
-  // showing the stale version and forcing the user to relaunch manually.
-  const freecodeHome = process.env.FREECODE_HOME ?? path.join(process.env.HOME ?? "", ".freecode");
-  const stable = path.join(freecodeHome, "builds", "stable", "freecode");
-  let execTarget: string;
-  if (
-    process.env.FREECODE_BUNDLED === "1" &&
-    fs.existsSync(stable) &&
-    fs.realpathSync(stable) !== fs.realpathSync(process.execPath)
-  ) {
-    execTarget = stable;
-  } else {
-    // No bundled re-exec (dev) or `stable` still points at the version we
-    // just ran from — the installer either failed or installed the same
-    // version we already are. Either way, nothing to do: stay in this
-    // process.
-    return;
-  }
-  const result = spawnSync(execTarget, process.argv.slice(2), {
-    stdio: "inherit",
-    env: { ...process.env, __FREECODE_UPDATE_CHECKED: "1" },
-  });
-  process.exit(result.status ?? 0);
-}
-
 interface TuiArgs {
   project?: string;
   resume?: string;
@@ -197,8 +117,6 @@ const tuiCommand: CommandModule<object, TuiArgs> = {
         process.exit(1);
       }
     }
-
-    await checkForUpdate();
 
     // Lazy: importing runs the TUI (index.ts calls tui.start()), and the
     // other commands must not pay its startup cost.

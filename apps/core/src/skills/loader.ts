@@ -135,9 +135,7 @@ function getPluginSkillPatterns(home: string): {
   const pluginsRoot = path.join(home, ".claude", "plugins");
   if (!fs.existsSync(pluginsRoot)) return { patterns: [] };
 
-  const installPaths = readInstalledPluginPaths(
-    path.join(pluginsRoot, "installed_plugins.json"),
-  );
+  const installPaths = listInstalledPlugins(home).map((p) => p.installPath);
 
   if (installPaths.length > 0) {
     const patterns = installPaths.flatMap((p) => [
@@ -162,8 +160,22 @@ function getPluginSkillPatterns(home: string): {
   };
 }
 
-/** Parse install paths from a Claude Code installed_plugins.json manifest. */
-function readInstalledPluginPaths(manifest: string): string[] {
+export interface InstalledPlugin {
+  /** `<plugin>@<marketplace>` as Claude Code keys it. */
+  id: string;
+  name: string;
+  version?: string;
+  installPath: string;
+}
+
+/**
+ * Installed Claude Code plugins from ~/.claude/plugins/installed_plugins.json.
+ * Entries whose install path no longer exists are dropped.
+ */
+export function listInstalledPlugins(
+  home = os.homedir(),
+): InstalledPlugin[] {
+  const manifest = path.join(home, ".claude", "plugins", "installed_plugins.json");
   let raw: string;
   try {
     raw = fs.readFileSync(manifest, "utf-8");
@@ -177,15 +189,24 @@ function readInstalledPluginPaths(manifest: string): string[] {
     const plugins = value.plugins;
     if (!plugins || typeof plugins !== "object") return [];
 
-    const paths: string[] = [];
-    for (const installs of Object.values(plugins)) {
+    const out: InstalledPlugin[] = [];
+    for (const [id, installs] of Object.entries(plugins)) {
       const list = Array.isArray(installs) ? installs : [installs];
       for (const install of list) {
-        const p = (install as { installPath?: unknown })?.installPath;
-        if (typeof p === "string" && fs.existsSync(p)) paths.push(p);
+        const { installPath, version } = (install ?? {}) as {
+          installPath?: unknown;
+          version?: unknown;
+        };
+        if (typeof installPath !== "string" || !fs.existsSync(installPath)) continue;
+        out.push({
+          id,
+          name: id.split("@")[0] ?? id,
+          version: typeof version === "string" ? version : undefined,
+          installPath,
+        });
       }
     }
-    return paths;
+    return out;
   } catch {
     return [];
   }
