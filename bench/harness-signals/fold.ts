@@ -111,6 +111,11 @@ export function foldSession(events: RawEvent[]): SessionSignals | undefined {
   const assigned = new Map<string, number>();
   const done = new Set<string>();
   const flagged = new Map<string, { gated: boolean }>();
+  // Item id per pushed trajectory. The loop records `todo.signal` AFTER the
+  // `function.call` it diffed, so a spike that fires on the completing write
+  // lands one event too late to be read inline — exactly the case that matters.
+  // Flags are resolved against `flagged` once every event has been seen.
+  const trajectoryIds: string[] = [];
   const hcRated = new Set<string>();
   let pokeOpen = false; // a poke fired and no tool call has followed yet
   let pokedEver = false;
@@ -172,8 +177,8 @@ export function foldSession(events: RawEvent[]): SessionSignals | undefined {
         done.add(id);
         if (pokedEver) s.pokes.itemsCompletedAfterPoke++;
         if (a !== undefined && conf !== undefined) {
-          const f = flagged.get(id);
-          s.trajectories.push({ assigned: a, completed: conf, spike: !!f, gated: f?.gated ?? false });
+          s.trajectories.push({ assigned: a, completed: conf, spike: false, gated: false });
+          trajectoryIds.push(id);
         } else if (a === undefined && conf !== undefined) {
           // The number jcode trusts least: a claim with no prior assessment.
           s.itemsRatedOnlyAtCompletion++;
@@ -184,6 +189,12 @@ export function foldSession(events: RawEvent[]): SessionSignals | undefined {
     s.finalOpen = open;
     s.finalTotal = list.length;
   }
+  s.trajectories.forEach((t, i) => {
+    const f = flagged.get(trajectoryIds[i]!);
+    if (!f) return;
+    t.spike = true;
+    t.gated = f.gated;
+  });
   s.itemsSeen = new Set([...assigned.keys(), ...done]).size;
   s.itemsCompleted = done.size;
   s.itemsRated = assigned.size;
@@ -262,7 +273,6 @@ const median = (xs: number[]) => {
 };
 
 export const HILL_CLIMB_THRESHOLD = 90;
-export const CONFIDENCE_SPIKE = 40;
 const MAX_TRAJECTORIES = 600;
 
 export function aggregate(
@@ -306,9 +316,13 @@ export function aggregate(
       trajectories: trajectories.slice(-MAX_TRAJECTORIES),
       assignedMean: mean(trajectories.map((t) => t.assigned)),
       completedMean: mean(trajectories.map((t) => t.completed)),
+      // The spikes the LOOP saw: +40 in one call, as `todo.signal` recorded it.
+      // Not `completed - assigned >= 40`, which is the whole life of the item
+      // and counts a legitimate 50 → 70 → 95 climb as a spike; the page says
+      // "rose 40+ in one step" and this is that number.
       spikes: {
-        n: trajectories.filter((t) => t.completed - t.assigned >= CONFIDENCE_SPIKE).length,
-        gated: trajectories.filter((t) => t.gated).length,
+        n: sessions.reduce((n, s) => n + s.spikes.n, 0),
+        gated: sessions.reduce((n, s) => n + s.spikes.gated, 0),
       },
       rated: sessions.reduce((n, s) => n + s.itemsRated, 0),
       ratedOnlyAtCompletion: sessions.reduce((n, s) => n + s.itemsRatedOnlyAtCompletion, 0),

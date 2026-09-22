@@ -368,6 +368,37 @@ From releasing `todowrite-for-multistep` and `review-mode-readonly` from
       `hi`). The first two share a cause (M3 answers from memory instead of
       reaching for a tool). A fix is a prompt change measured by `eval ab`.
 
+## Harness signals — uncalibrated numbers (2026-09-22)
+
+From refreshing `apps/web/app/data/harness/signals.json` (5,313 sessions; the
+published file had been a stale 30-day / 8-session window that showed zeros
+everywhere). Two fold bugs were fixed in the same pass — spike flags never
+resolved because `todo.signal` is recorded after the `function.call` it diffed,
+and `aggregate` discarded the recorded spike tally in favour of an
+assigned→completed recompute that counts a legitimate 50→70→95 climb as a
+spike. What is left is measurement, not code:
+
+- [ ] **`/bench` shows the gate making auto-poke's headline metric worse.**
+      Ended-open is 58/106 (54.7%) with the gate on vs 144/276 (52.2%) off. The
+      106 gate-on sessions are recent bench/eval runs on longer tasks, not a
+      matched sample, so this is almost certainly confounding — but the page
+      states it flat. Either split bench sessions out of the fold, or label the
+      arms as unmatched. The honest answer needs an `eval ab`, per EVAL.md.
+- [ ] **The spike rate mixes two eras.** `confidence.spikes.n` can only count
+      sessions recorded after the signals code landed (2026-09-12), while
+      `confidence.n` (370 trajectories) reaches back to 07-27. So 11/370 is not
+      a rate of anything. Either scope the denominator to sessions that could
+      have emitted a `todo.signal`, or report the two windows separately.
+- [ ] **The hill-climb headline is not on jcode's axis.** We publish
+      first-rating-per-item (mean 87.56, 36.3% below the gate); jcode publishes
+      every submission (mean 91.29, 18.0%). On their axis we are at 91.67 /
+      21.2% — a tie, not the loss the page implies. Publish both, and say which
+      is which. (`fold.ts` builds the histogram from `hillClimbFirst`;
+      HARNESS-BENCH.md §3 still claims "re-ratings count again".)
+- [ ] **71 of 740 rated items got their first confidence number on the call
+      that completed them** — a claim with no prior assessment, which the fold's
+      own comment calls the number jcode trusts least. Nothing acts on it.
+
 ## Spec findings (eval harness — 2026-08-23)
 
 From writing `docs/specs/2026-08-23-eval-harness.md`. Details in that

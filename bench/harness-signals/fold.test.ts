@@ -32,7 +32,9 @@ test("confidence at assignment and at completion pair up per item", () => {
   assert.deepEqual(
     s.trajectories.map((x) => [x.assigned, x.completed, x.spike, x.gated]),
     [
-      [30, 95, false, false], // signal arrives after the call that completed it…
+      // The signal arrives AFTER the call that completed "a" — the real log
+      // order — and still marks it: flags are resolved after the whole fold.
+      [30, 95, true, true],
       [60, 85, false, false],
     ],
   );
@@ -45,8 +47,8 @@ test("confidence at assignment and at completion pair up per item", () => {
 
 test("a spike signal recorded BEFORE the completing call marks the trajectory", () => {
   // The loop records the signal after diffing the call, so in the real log the
-  // call comes first; the signal still refers to it. Either order must work
-  // for the count, and the trajectory picks up the flag when it precedes.
+  // call comes first; the signal still refers to it. Either order must work,
+  // for the count and for the flag on the trajectory.
   const s = foldSession([
     todo([{ id: "a", status: "pending", confidence: 20 }]),
     ev({ type: "todo.signal", kind: "confidence_spike", itemId: "a", from: 20, to: 100, gated: false }),
@@ -127,6 +129,25 @@ test("aggregate splits the ended-open rate by whether the gate was on", () => {
   assert.deepEqual(r.hillClimb.range, [50, 100]);
   assert.equal(r.confidence.n, 0);
   assert.equal(r.confidence.assignedMean, null);
+});
+
+test("aggregate reports the spikes the loop saw, not assigned→completed spread", () => {
+  // 50 → 70 → 95 is a legitimate climb: 45 points across the item's life, but
+  // never 40 in one call, so the loop never signalled and the page must not
+  // call it a spike. Only the recorded `todo.signal` counts.
+  const climb = foldSession([
+    todo([{ id: "a", status: "pending", confidence: 50 }]),
+    todo([{ id: "a", status: "in_progress", confidence: 70 }]),
+    todo([{ id: "a", status: "completed", confidence: 95 }]),
+  ])!;
+  const spiked = foldSession([
+    todo([{ id: "b", status: "in_progress", confidence: 50 }]),
+    todo([{ id: "b", status: "completed", confidence: 95 }]),
+    ev({ type: "todo.signal", kind: "confidence_spike", itemId: "b", from: 50, to: 95, gated: true }),
+  ])!;
+  const r = aggregate([climb, spiked], 2);
+  assert.equal(r.confidence.n, 2);
+  assert.deepEqual(r.confidence.spikes, { n: 1, gated: 1 });
 });
 
 test("empty input aggregates to nulls, never zeros dressed as rates", () => {
