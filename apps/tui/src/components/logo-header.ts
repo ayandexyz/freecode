@@ -46,6 +46,7 @@ export class LogoHeader implements Component {
     mcp: number;
     skills: number;
     plugins: number;
+    update: string | null;
     lines: string[];
   };
 
@@ -54,6 +55,10 @@ export class LogoHeader implements Component {
     private getMcpCount: () => number,
     private getSkillCount: () => number,
     private getPluginCount: () => number,
+    // The newer release's version once the background probe answers, null
+    // while it is in flight and for good after it comes back empty. Same
+    // accessor shape as the counts so the header stays synchronous.
+    private getUpdateVersion: () => string | null = () => null,
   ) {}
 
   invalidate(): void {
@@ -85,13 +90,15 @@ export class LogoHeader implements Component {
     const mcpCount = this.getMcpCount();
     const skillCount = this.getSkillCount();
     const pluginCount = this.getPluginCount();
+    const updateVersion = this.getUpdateVersion();
     if (
       this.cache &&
       this.cache.width === width &&
       this.cache.tools === toolCount &&
       this.cache.mcp === mcpCount &&
       this.cache.skills === skillCount &&
-      this.cache.plugins === pluginCount
+      this.cache.plugins === pluginCount &&
+      this.cache.update === updateVersion
     ) {
       return this.cache.lines;
     }
@@ -109,6 +116,19 @@ export class LogoHeader implements Component {
       `>_ ${chalk.bold(palette.accent("OmaCode"))} ` +
       chalk.dim(`(v${version})`);
     const subtitleLine = this.centerLine(width, subtitlePlain.length, subtitleStyled);
+
+    // Sits directly under the subtitle, and only once the background probe
+    // has found a newer release — nothing is installed on our initiative any
+    // more, so this line is the whole of the update story the user sees.
+    const updateLines: string[] = [];
+    if (updateVersion) {
+      const updatePlain = `update available (v${updateVersion}) · run freecode update`;
+      const updateStyled =
+        palette.accent("update available") +
+        chalk.dim(` (v${updateVersion}) · run `) +
+        chalk.bold("freecode update");
+      updateLines.push(this.centerLine(width, updatePlain.length, updateStyled));
+    }
 
     // Stats: `Tools: N    MCP: M    Skills: K    Plugins: P` — dimmed
     // labels, plain values, four spaces between pairs.
@@ -141,6 +161,7 @@ export class LogoHeader implements Component {
       ...coloredLogoLines.map((logoLine) => `${indent}${logoLine}${rightPad}`),
       "", // gap between the logo and its subtitle
       subtitleLine,
+      ...updateLines,
       statsLine,
       dirLine,
     ].map((line) => truncateToWidth(line, width));
@@ -150,6 +171,7 @@ export class LogoHeader implements Component {
       mcp: mcpCount,
       skills: skillCount,
       plugins: pluginCount,
+      update: updateVersion,
       lines,
     };
     return lines;

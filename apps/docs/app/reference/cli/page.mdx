@@ -41,11 +41,12 @@ freecode [project] [--resume [id]]
 The project path is resolved and `chdir`'d into before anything else starts, so
 project-scoped settings, skills, and commands are read from there.
 
-In a release binary this is also where the **update check** happens: one GitHub
-API call with a 3-second timeout, and if a newer release exists the installer runs
-and the process re-execs through `~/.freecode/builds/stable/freecode` so the TUI
-you end up in is the new version. Any failure — offline, rate-limited, install
-error — is swallowed and the current version opens.
+In a release binary an **update check** runs shortly after the TUI is on screen
+— one GitHub API call with a 3-second timeout, never awaited and never on the
+path to first paint. If a newer release exists, an `update available (vX.Y.Z) ·
+run freecode update` line appears under the version in the header; nothing is
+installed until you run [`freecode update`](#freecode-update). Any failure —
+offline, rate-limited, GitHub down — is swallowed and no line appears.
 
 ## `freecode run` — one-shot, headless
 

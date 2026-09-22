@@ -81,27 +81,33 @@ build from a clone.
 
 ## Updating
 
-Three things update FreeCode, and the third one is the one to know about:
+Updating is always something you ask for:
 
 ```bash
 freecode update                                  # re-runs the installer
 curl -fsSL https://freecode.website/install | bash  # identical, without the binary
 ```
 
-**FreeCode also updates itself on launch.** A release binary checks the GitHub
-API once per start with a 3-second timeout; if a newer release exists it runs
-the installer and re-execs through `~/.freecode/builds/stable/freecode`, so the
-TUI you land in is already the new version (`apps/tui/src/entry.ts:56`). Any
-failure — offline, rate-limited, install error — is swallowed and your current
-version opens.
+**FreeCode tells you when there is one, and never installs it behind your
+back.** Shortly after the TUI opens, a release binary asks the GitHub API once
+(3-second timeout) whether a newer release exists. If there is one, a line
+appears under the version in the header:
 
-The re-exec goes through the `stable` symlink rather than the path of the
-running binary, deliberately: the kernel resolves symlinks at exec time, so
-re-running your own `process.execPath` would launch the *old* version again and
-you would have to quit and retype `freecode` to actually get the update.
+```
+>_ OmaCode (v0.38.0)
+update available (v0.39.0) · run freecode update
+```
+
+That is the whole of it — run `freecode update` when it suits you.
+
+The check runs *after* the first frame is on screen and is never awaited.
+It used to be awaited ahead of the TUI, which put a GitHub round-trip on the
+path to first paint: ~1.1s of blank terminal on every launch, measured at
+1.68s vs 0.58s time-to-input-ready with the check disabled. Any failure —
+offline, rate-limited, GitHub down — is swallowed and no line appears.
 
 This check does not run when you are working from a clone — there is no release
-to compare against. To turn it off, set `FREECODE_NO_UPDATE=1` (an explicit
+to compare against. To silence it, set `FREECODE_NO_UPDATE=1` (an explicit
 `freecode update` still works — that's you asking).
 
 ## Rolling back
@@ -114,9 +120,9 @@ ls ~/.freecode/builds/versions
 ~/.freecode/builds/versions/0.25.15/freecode
 ```
 
-To *stay* on it, set `FREECODE_NO_UPDATE=1` — otherwise that binary performs
-the same update check at launch, installs the latest release, and re-execs you
-into it.
+It stays on that version: nothing updates on launch, so running an old binary
+keeps you there until you run `freecode update`. It will still show the
+"update available" line; `FREECODE_NO_UPDATE=1` silences that too.
 
 ## Running from a clone instead
 
