@@ -475,6 +475,7 @@ export const methodHandlers: Record<
   },
 
   "session.send": async (params: Record<string, unknown>): Promise<unknown> => {
+    await mcpReady;
     const {
       sessionId,
       message,
@@ -1540,6 +1541,13 @@ export async function handleRequest(
 // listeners, every request handled twice. Idempotency flag makes any second
 // call a no-op.
 let serverStarted = false;
+/**
+ * MCP servers connect in the background so startup (and the frontend's first
+ * requests — tools.list, mcp.status, skills.list) isn't gated on the slowest
+ * server: agentmemory alone costs ~3s probing its backend. `session.send`
+ * still awaits this, so the first turn sees the full tool set.
+ */
+let mcpReady: Promise<void> = Promise.resolve();
 
 // Last-resort net for a provider/effect error that escapes every try/catch in
 // the turn path (see cli.ts's matching handler — this is the same fault,
@@ -1577,7 +1585,9 @@ export async function startServer() {
   );
 
   await initProviders();
-  await initMcpServers();
+  mcpReady = initMcpServers().catch((err) => {
+    logger.warn(`[mcp] init failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
   await loadExtensions(process.cwd());
 
   // Built-in hooks + settings.json hooks (project + user scopes). Shared with

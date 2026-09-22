@@ -2915,23 +2915,19 @@ setCliRestartHandler(() => {
 
 loadCurrentModel();
 
-// Cache the tool/MCP/skill/plugin counts once at startup so the logo header can
-// render them synchronously. Errors are swallowed (daemon may not be ready
-// yet) and leave the values at `-1`; the header falls back to `…`.
+// Cache the tool/MCP/skill/plugin counts once at startup so the logo header
+// can render them synchronously. All four go out in one batch and each is
+// guarded on its own, so a failure (daemon not ready, a discovery error)
+// leaves only that count at `-1` — rendered as `…`.
 async function loadHeaderCounts(): Promise<void> {
-  try {
-    const [tools, servers] = await Promise.all([listTools(), mcpStatus()]);
-    headerToolCount = tools.length;
-    headerMcpCount = servers.length;
-    // Skills and plugins are discovered from disk on the daemon; a failure
-    // there should not blank the tool/MCP counts, so each gets its own guard.
-    [headerSkillCount, headerPluginCount] = await Promise.all([
-      listSkills().then((s) => s.length, () => -1),
-      listPlugins().then((p) => p.length, () => -1),
+  const count = (p: Promise<unknown[]>) => p.then((r) => r.length, () => -1);
+  [headerToolCount, headerMcpCount, headerSkillCount, headerPluginCount] =
+    await Promise.all([
+      count(listTools()),
+      count(mcpStatus()),
+      count(listSkills()),
+      count(listPlugins()),
     ]);
-  } catch {
-    // daemon may not be ready; leave the counts at -1.
-  }
 }
 void loadHeaderCounts();
 
