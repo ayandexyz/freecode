@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.39.0
+
+FreeCode inherits Claude Code's MCP servers, and the launch path stops waiting on the network. The update check and the MCP connect both moved off startup, taking time-to-input-ready from ~1.0s to ~0.46s against a 0.37s floor.
+
+### Added
+
+- **Claude Code's MCP servers are imported** (`3ee7526`). `mcp/claude-code-config.ts` reads `~/.claude.json` (user and per-project entries) and `<cwd>/.mcp.json`, translating them into `McpServer` and expanding `${VAR:-default}`. They merge *after* FreeCode's own entries, so a same-named FreeCode server wins. `source: "claude-code"` flows through `mcp.status`: the picker labels them, `freecode mcp list` shows `claude`, and `freecode mcp remove` refuses them and points at `claude mcp remove` instead. `FREECODE_MCP_CLAUDE_CODE=0` turns the whole thing off.
+- **Skills and plugins in the header** (`3ee7526`). The logo header's stats line reads Tools / MCP / Skills / Plugins, fed by a new `plugins.list` IPC and a public `listInstalledPlugins()` in the skills loader.
+
+### Changed
+
+- **The update check no longer blocks launch** (`4f1682e`). `entry.ts` awaited a GitHub round-trip before importing the TUI — ~1.1s of blank terminal every launch, up to 3s when GitHub was slow. It now runs after the first frame, is never awaited, and only reports: a line under the version reading `update available (vX.Y.Z) · run freecode update`. The old path installed and re-exec'd on its own; that is gone, so `freecode update` is the only thing that updates you. Consequence worth knowing: launching an old binary from `builds/versions/<old>/` now keeps you there, and `FREECODE_NO_UPDATE` only silences the notice rather than pinning a version.
+- **The daemon no longer waits on MCP to start** (`3742595`). `initMcpServers()` was awaited before core read a single stdin line, so the frontend's first `tools.list`, `mcp.status` and `skills.list` all queued behind the slowest server — ~3s for one backend probe. Connection now happens in the background; `session.send` still awaits it so the first turn sees every MCP tool, and headless `run`/`eval` keep awaiting. The TUI fires its four header requests in one batch instead of two rounds.
+- **Repo hygiene for a public release** (`188ceaa`). Stray root files moved under `docs/` (papers, screenshots, notes), install scripts and doc links repointed at `ayandexyz/omacode` — the old `ayandexyz/freecode` URL only worked through GitHub's rename redirect — and root `CONTRIBUTING.md` / `SECURITY.md` added.
+- **The backlog is three files** (`c44639c`). `TODO.md` is debt that must reach zero before 1.0, `ROADMAP.md` is unbuilt features needing a spec, and `docs/DECISIONS.md` is deliberate behaviour that must not be "fixed".
+
+### Fixed
+
+- **An MCP server's startup banner no longer looks like a FreeCode error** (`a28fb6f`). `StdioClientTransport` defaulted to `stderr: "inherit"`, so a server's own notices were printed on core's stderr and rendered by the TUI as if FreeCode had failed. They go to `~/.freecode/logs/mcp/<name>.log` instead; `FREECODE_DEBUG=1` still echoes them.
+- **The update-check endpoint** (`4f1682e`). It pointed at `ayandexyz/freecode`, which has answered `301 -> ayandexyz/omacode` since the rename, costing a redirect round-trip on a request made once per launch.
+- **Confidence spikes are counted as the loop recorded them** (`6e98db7`). Two fold bugs in `bench/harness-signals`: spike flags never resolved, because `todo.signal` is recorded *after* the `function.call` it diffed and so landed one event too late to read inline; and `aggregate` discarded the recorded tally to recompute `completed - assigned >= 40`, which spans an item's whole life and counts a legitimate 50 → 70 → 95 climb as a spike. Refreshes `signals.json` over 5,313 sessions — the published file was a stale 8-session window showing zeros.
+- **Todo UI** (`ecbd6f7`).
+
 ## v0.38.0
 
 The TUI grows jcode's KV cache widget and jcode's composer. The top-right corner now says whether the harness is reusing its own prompt cache and which turn lost what; the input loses its box and gains the branch name.
