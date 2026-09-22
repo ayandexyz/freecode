@@ -2318,7 +2318,12 @@ let todoPanel: TodoPanel | null = null;
 let todoOverlay: OverlayHandle | null = null;
 
 function updateTodoPanel(items: ReturnType<typeof parseTodoResult>): void {
-  if (items.length === 0) {
+  // Empty list, or every item settled (completed/cancelled) — nothing left to
+  // track, so drop the panel instead of pinning a finished plan.
+  const allDone = items.every(
+    (i) => i.status === "completed" || i.status === "cancelled",
+  );
+  if (items.length === 0 || allDone) {
     hideTodoPanel();
     return;
   }
