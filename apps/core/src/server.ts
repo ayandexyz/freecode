@@ -109,6 +109,10 @@ import { startGraphExplorer } from "./graph-explorer/server.js";
 import { openBrowser } from "./utils/open-browser.js";
 import { randomUUID } from "crypto";
 import { createRecorder } from "./rollout/recorder.js";
+import { CheckpointService } from "./checkpoint/index.js";
+import type { SerializedMessage } from "./session/store.js";
+import type { FileChange } from "./checkpoint/index.js";
+import { invalidateProjectContext } from "./context/tree-cache.js";
 import {
   summarizeBranch,
   branchSummaryMessage,
@@ -307,6 +311,84 @@ async function runSessionTurn(
 
   return result;
 }
+/**
+ * Move the session's active leaf to `entryId`, optionally summarizing the
+ * branch that is being set aside. Extracted from the `session.navigate`
+ * handler so `session.rewind` (spec 2026-09-23-checkpoints-rewind §5) performs
+ * the identical conversation move after restoring files, rather than growing a
+ * second copy of it that drifts.
+ */
+async function navigateSession(
+  session: SessionInfo,
+  entryId: string,
+  summarize?: boolean,
+): Promise<{
+  messages: SerializedMessage[];
+  abandoned: number;
+  summarized: boolean;
+}> {
+  const sessionId = session.id;
+  // A running loop appends as it goes; moving the leaf under it would
+  // splice its next message onto the wrong branch. The frontend stops the
+  // turn first (session.stop) and retries.
+  if (activeLoops.has(sessionId)) {
+    throw new Error(
+      "A turn is in progress; stop it before navigating the session tree.",
+    );
+  }
+  const store = await getSessionStore();
+  const before = await store.getMessages(sessionId, session.projectPath);
+  const nav = await store.navigate(sessionId, entryId, session.projectPath);
+
+  let summarized = false;
+  if (summarize && nav.abandoned.length > 0) {
+    const config = readConfig();
+    const provider = config.current?.provider || session.provider;
+    const model = config.current?.model || session.model;
+    let llm;
+    // FREECODE_BRANCH_SUMMARY=heuristic: no model call (tests, offline).
+    if (process.env.FREECODE_BRANCH_SUMMARY !== "heuristic") {
+      try {
+        llm = createLlmSummarizer(getProvider(provider as ProviderId), model);
+      } catch {
+        // No provider configured — heuristic digest.
+      }
+    }
+    const summary = await summarizeBranch(sessionId, nav.abandoned, llm);
+    const text = branchSummaryMessage(summary.text, nav.abandoned.length);
+    const message = {
+      id: randomUUID(),
+      role: "user" as const,
+      parts: [{ type: "text" as const, content: text }],
+      timestamp: Date.now(),
+      synthetic: "branch_summary" as const,
+    };
+    await store.appendMessage(sessionId, message, session.projectPath);
+    nav.path.push(message);
+    summarized = true;
+  }
+
+  // The compaction transcript must describe the path the model now sees.
+  const memory = new MemoryService(sessionId);
+  memory.resetTranscript(
+    nav.path.map((m) => ({ role: m.role, content: renderEntryForSummary(m) })),
+  );
+
+  createRecorder(sessionId).recordSessionNavigate({
+    from: before[before.length - 1]?.id,
+    to: entryId,
+    abandoned: nav.abandoned.length,
+    summarized,
+  });
+  logger.info("Session navigated", {
+    sessionId,
+    entryId,
+    abandoned: nav.abandoned.length,
+    summarized,
+  });
+  return { messages: nav.path, abandoned: nav.abandoned.length, summarized };
+}
+
 // Per-session SSE subscriber fan-out lives in web/stream-subscribers.ts —
 // each session owns a Set<Subscriber> rather than a single callback, and
 // the module also runs the heartbeat/idle-reaper that prunes dead sockets.
@@ -1353,7 +1435,9 @@ export const methodHandlers: Record<
     return store.getTree(sessionId, session.projectPath);
   },
 
-  "session.navigate": async (params: Record<string, unknown>): Promise<unknown> => {
+  "session.navigate": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown> => {
     const { sessionId, entryId, summarize } = params as {
       sessionId: string;
       entryId: string;
@@ -1361,63 +1445,98 @@ export const methodHandlers: Record<
     };
     const session = getSession(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
-    // A running loop appends as it goes; moving the leaf under it would
-    // splice its next message onto the wrong branch. The frontend stops the
-    // turn first (session.stop) and retries.
-    if (activeLoops.has(sessionId)) {
-      throw new Error("A turn is in progress; stop it before navigating the session tree.");
-    }
-    const store = await getSessionStore();
-    const before = await store.getMessages(sessionId, session.projectPath);
-    const nav = await store.navigate(sessionId, entryId, session.projectPath);
+    return navigateSession(session, entryId, summarize);
+  },
+  // --- checkpoints / rewind (spec 2026-09-23-checkpoints-rewind) -----------
+  "session.checkpoints": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown> => {
+    const { sessionId } = params as { sessionId: string };
+    const session = getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    if (!session.projectPath) return [];
+    return new CheckpointService(sessionId, session.projectPath).list();
+  },
 
-    let summarized = false;
-    if (summarize && nav.abandoned.length > 0) {
-      const config = readConfig();
-      const provider = config.current?.provider || session.provider;
-      const model = config.current?.model || session.model;
-      let llm;
-      // FREECODE_BRANCH_SUMMARY=heuristic: no model call (tests, offline).
-      if (process.env.FREECODE_BRANCH_SUMMARY !== "heuristic") {
-        try {
-          llm = createLlmSummarizer(getProvider(provider as ProviderId), model);
-        } catch {
-          // No provider configured — heuristic digest.
-        }
-      }
-      const summary = await summarizeBranch(sessionId, nav.abandoned, llm);
-      const text = branchSummaryMessage(summary.text, nav.abandoned.length);
-      const message = {
-        id: randomUUID(),
-        role: "user" as const,
-        parts: [{ type: "text" as const, content: text }],
-        timestamp: Date.now(),
-        synthetic: "branch_summary" as const,
-      };
-      await store.appendMessage(sessionId, message, session.projectPath);
-      nav.path.push(message);
-      summarized = true;
-    }
-
-    // The compaction transcript must describe the path the model now sees.
-    const memory = new MemoryService(sessionId);
-    memory.resetTranscript(
-      nav.path.map((m) => ({ role: m.role, content: renderEntryForSummary(m) })),
+  // What a rewind would write, without touching disk (§5.1). The TUI shows
+  // this and asks before anything is restored.
+  "session.rewindPreview": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown> => {
+    const { sessionId, entryId } = params as {
+      sessionId: string;
+      entryId: string;
+    };
+    const session = getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    if (!session.projectPath) throw new Error("Session has no project path");
+    return new CheckpointService(sessionId, session.projectPath).preview(
+      entryId,
     );
+  },
 
-    createRecorder(sessionId).recordSessionNavigate({
-      from: before[before.length - 1]?.id,
-      to: entryId,
-      abandoned: nav.abandoned.length,
-      summarized,
-    });
-    logger.info("Session navigated", {
+  "session.rewind": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown> => {
+    const {
       sessionId,
       entryId,
-      abandoned: nav.abandoned.length,
-      summarized,
+      files = true,
+      conversation = true,
+      summarize = true,
+    } = params as {
+      sessionId: string;
+      entryId: string;
+      files?: boolean;
+      conversation?: boolean;
+      summarize?: boolean;
+    };
+    const session = getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    // Same guard as navigate, checked up front: a running loop is still
+    // writing files, so restoring under it would race its own edits.
+    if (activeLoops.has(sessionId)) {
+      throw new Error(
+        "A turn is in progress; stop it before rewinding.",
+      );
+    }
+
+    // Files FIRST (§5): if the restore throws, the transcript has not moved
+    // and the user is exactly where they were. The reverse order could leave
+    // a rewound conversation describing files that were never put back.
+    let restored: FileChange[] = [];
+    let skipped: string[] = [];
+    if (files) {
+      if (!session.projectPath) throw new Error("Session has no project path");
+      const service = new CheckpointService(sessionId, session.projectPath);
+      const checkpoint = (await service.list()).find(
+        (c) => c.entryId === entryId,
+      );
+      const result = await service.restore(entryId);
+      restored = result.restored;
+      skipped = result.skipped;
+      createRecorder(sessionId).recordCheckpointRestored({
+        entryId,
+        snapshot: checkpoint?.snapshot ?? "",
+        filesChanged: restored.length,
+        durationMs: result.durationMs,
+      });
+      // The cached file tree is now stale — the same invalidation any
+      // mutating tool triggers.
+      invalidateProjectContext(session.projectPath);
+    }
+
+    const nav = conversation
+      ? await navigateSession(session, entryId, summarize)
+      : { messages: [], abandoned: 0, summarized: false };
+
+    logger.info("Session rewound", {
+      sessionId,
+      entryId,
+      filesRestored: restored.length,
+      abandoned: nav.abandoned,
     });
-    return { messages: nav.path, abandoned: nav.abandoned.length, summarized };
+    return { restored, skipped, ...nav };
   },
 
   "session.label": async (params: Record<string, unknown>): Promise<void> => {

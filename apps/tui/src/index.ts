@@ -60,6 +60,9 @@ import {
   type LoadedExtensionInfo,
   sessionTree,
   sessionNavigate,
+  sessionCheckpoints,
+  sessionRewind,
+  sessionRewindPreview,
   sessionFork,
   sessionCompact,
   getContextStats,
@@ -291,6 +294,8 @@ let effortPicker: EffortPicker | null = null;
 let resumeSelector: ResumePicker | null = null;
 let mcpSelector: SearchableSelectList | null = null;
 let treeSelector: SearchableSelectList | null = null;
+/** `/rewind` — two steps: pick a checkpoint, then confirm the file list. */
+let rewindSelector: SearchableSelectList | null = null;
 /**
  * The /shells card. Also kept up to date while CLOSED — shell_* stream events
  * land in it regardless — so opening it shows history rather than only what
@@ -594,12 +599,179 @@ function hideTreeSelector(): void {
   tui.requestRender();
 }
 
+function hideRewindSelector(): void {
+  removeSelector(rewindSelector);
+  rewindSelector = null;
+  tui.setFocus(focusTarget());
+  tui.requestRender();
+}
+
 /**
  * `/tree` (spec 2026-09-20-pi-parity-plan Phase 3): every entry in the
  * session log, active path marked, newest first. Enter rewinds to that entry;
  * the abandoned branch is summarized under the new leaf. A running turn is
  * stopped first — core refuses to move the leaf under an appending loop.
  */
+/**
+ * `/rewind` (spec 2026-09-23-checkpoints-rewind §5): undo a turn's file
+ * changes AND the conversation that caused them.
+ *
+ * Two steps on purpose. Restoring files is the one action here that destroys
+ * work the user can't get back from the transcript, so the file list is shown
+ * and confirmed before anything is written — `session.rewindPreview` computes
+ * it without touching disk.
+ */
+async function showRewindPicker(): Promise<void> {
+  hideRewindSelector();
+  hideTreeSelector();
+  if (!currentSession) {
+    showMessage("**No active session.**");
+    return;
+  }
+  const sessionId = currentSession.sessionId;
+  let checkpoints;
+  try {
+    checkpoints = await sessionCheckpoints(sessionId);
+  } catch (err) {
+    showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  if (checkpoints.length === 0) {
+    showMessage(
+      "**Nothing to rewind to.** Checkpoints start at your next message — " +
+        "and need this project to be a git repository.",
+    );
+    return;
+  }
+
+  const items = [...checkpoints].reverse().map((c, i) => ({
+    value: c.entryId,
+    label: c.preview || "(no text)",
+    description: i === 0 ? "most recent turn" : new Date(c.timestamp).toLocaleTimeString(),
+  }));
+  rewindSelector = new SearchableSelectList(items, 12, defaultSelectListTheme);
+  rewindSelector.onSelect = (item) => {
+    hideRewindSelector();
+    void confirmRewind(sessionId, item.value, item.label);
+  };
+  rewindSelector.onCancel = () => hideRewindSelector();
+  const editorIdx = tui.children.indexOf(editor);
+  tui.children.splice(editorIdx + 1, 0, rewindSelector);
+  tui.setFocus(rewindSelector);
+  tui.requestRender();
+}
+
+/** Step 2: show what would change on disk, then act on the answer. */
+async function confirmRewind(
+  sessionId: string,
+  entryId: string,
+  label: string,
+): Promise<void> {
+  let changes;
+  try {
+    changes = await sessionRewindPreview(sessionId, entryId);
+  } catch (err) {
+    showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
+  const glyph = { modified: "~", added: "+", deleted: "-" };
+  const shown = changes.slice(0, 20);
+  const more = changes.length - shown.length;
+  showMessage(
+    [
+      `**Rewind to:** ${label}`,
+      "",
+      changes.length === 0
+        ? "*No file changes to undo since that point.*"
+        : [
+            `**${changes.length} file(s) would be restored:**`,
+            "```",
+            // `added` since the checkpoint means the restore DELETES it — say
+            // so, rather than printing a "+" the user reads as "will create".
+            ...shown.map(
+              (c) =>
+                `${glyph[c.status]} ${c.path}${c.status === "added" ? "  (deleted — it did not exist yet)" : ""}`,
+            ),
+            ...(more > 0 ? [`… and ${more} more`] : []),
+            "```",
+          ].join("\n"),
+    ].join("\n"),
+  );
+
+  const options = [
+    ...(changes.length > 0
+      ? [
+          {
+            value: "both",
+            label: `Restore ${changes.length} file(s) and rewind the conversation`,
+            description: "undo both",
+          },
+          {
+            value: "files",
+            label: "Restore files only",
+            description: "keep the transcript, so the model still sees what it did",
+          },
+        ]
+      : []),
+    {
+      value: "conversation",
+      label: "Rewind the conversation only",
+      description: "leave the working tree alone",
+    },
+    { value: "cancel", label: "Cancel", description: "change nothing" },
+  ];
+
+  rewindSelector = new SearchableSelectList(options, 6, defaultSelectListTheme);
+  rewindSelector.onSelect = (item) => {
+    hideRewindSelector();
+    if (item.value === "cancel") {
+      showMessage("*Rewind cancelled — nothing changed.*");
+      return;
+    }
+    void (async () => {
+      try {
+        if (activeTurnSessionId === sessionId) {
+          await sessionStop(sessionId);
+        }
+        const result = await sessionRewind(sessionId, entryId, {
+          files: item.value !== "conversation",
+          conversation: item.value !== "files",
+          summarize: true,
+        });
+        if (item.value !== "files") {
+          clearMessages();
+          loadSessionMessages(result.messages);
+        }
+        const parts: string[] = [];
+        if (result.restored.length > 0) {
+          parts.push(`${result.restored.length} file(s) restored`);
+        }
+        if (item.value !== "files") {
+          parts.push(
+            result.abandoned > 0
+              ? `${result.abandoned} message(s) set aside`
+              : "already at this point",
+          );
+        }
+        if (result.skipped.length > 0) {
+          parts.push(`${result.skipped.length} skipped`);
+        }
+        showMessage(`**Rewound.** ${parts.join(", ")}.`);
+      } catch (err) {
+        showMessage(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
+      }
+      tui.setFocus(focusTarget());
+      tui.requestRender();
+    })();
+  };
+  rewindSelector.onCancel = () => hideRewindSelector();
+  const editorIdx = tui.children.indexOf(editor);
+  tui.children.splice(editorIdx + 1, 0, rewindSelector);
+  tui.setFocus(rewindSelector);
+  tui.requestRender();
+}
+
 async function showTreePicker(): Promise<void> {
   hideTreeSelector();
   hideModelSelector();
@@ -2122,6 +2294,7 @@ editor.onSubmit = async (value: string) => {
           showEffortPicker,
           showResumePicker: showResumePicker,
           showTreePicker,
+          showRewindPicker,
           forkSession,
           showExtensions,
           reloadExtensions,

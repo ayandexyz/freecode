@@ -854,6 +854,54 @@ export async function sessionNavigate(
   };
 }
 
+// --- checkpoints / rewind (spec 2026-09-23-checkpoints-rewind) -------------
+
+export interface CheckpointInfo {
+  entryId: string;
+  snapshot: string;
+  timestamp: number;
+  preview: string;
+}
+
+export interface CheckpointFileChange {
+  path: string;
+  status: "modified" | "deleted" | "added";
+}
+
+export interface RewindResult {
+  restored: CheckpointFileChange[];
+  skipped: string[];
+  messages: SerializedMessage[];
+  abandoned: number;
+  summarized: boolean;
+}
+
+export async function sessionCheckpoints(sessionId: string): Promise<CheckpointInfo[]> {
+  return (await sendRequest("session.checkpoints", { sessionId })) as CheckpointInfo[];
+}
+
+export async function sessionRewindPreview(
+  sessionId: string,
+  entryId: string,
+): Promise<CheckpointFileChange[]> {
+  return (await sendRequest("session.rewindPreview", {
+    sessionId,
+    entryId,
+  })) as CheckpointFileChange[];
+}
+
+export async function sessionRewind(
+  sessionId: string,
+  entryId: string,
+  opts: { files?: boolean; conversation?: boolean; summarize?: boolean } = {},
+): Promise<RewindResult> {
+  return (await sendRequest("session.rewind", {
+    sessionId,
+    entryId,
+    ...opts,
+  })) as RewindResult;
+}
+
 export async function sessionFork(sessionId: string): Promise<string> {
   return (await sendRequest("session.fork", { sessionId })) as string;
 }

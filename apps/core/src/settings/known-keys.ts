@@ -40,6 +40,9 @@ export const KNOWN_SETTINGS: Readonly<
   redirect: ["enabled", "maxPerRun"],
   // `agent/signals/settings.ts` — the three loop gates, all off by default.
   signals: ["autoPoke", "confidenceGate", "hillClimbGate"],
+  // `checkpoint/settings.ts` — working-tree snapshots per user turn, ON by
+  // default wherever the project is a git repo.
+  checkpoints: ["enabled", "maxPerSession"],
 };
 
 /**

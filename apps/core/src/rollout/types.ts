@@ -49,7 +49,10 @@ export type RolloutEvent =
   | TodoSignalEvent
   | MessageSteeredEvent
   | CacheWarmEvent
-  | SessionNavigateEvent;
+  | SessionNavigateEvent
+  | CheckpointCapturedEvent
+  | CheckpointSkippedEvent
+  | CheckpointRestoredEvent;
 
 export interface TurnStartedEvent extends BaseEvent {
   type: "turn.started";
@@ -388,4 +391,31 @@ export interface SessionNavigateEvent extends BaseEvent {
   /** Entries the old path had that the new one does not. */
   abandoned: number;
   summarized: boolean;
+}
+
+// ============================================================================
+// Checkpoints (spec 2026-09-23-checkpoints-rewind, §7). Ids and counts only —
+// never paths. The rollout log feeds the OTLP export, which stays leak-free.
+// ============================================================================
+
+export interface CheckpointCapturedEvent extends BaseEvent {
+  type: "checkpoint.captured";
+  /** Session-store entry id of the user message this snapshot precedes. */
+  entryId: string;
+  /** Git tree id. */
+  snapshot: string;
+  durationMs: number;
+}
+
+export interface CheckpointSkippedEvent extends BaseEvent {
+  type: "checkpoint.skipped";
+  reason: "disabled" | "not_a_git_repo" | "capture_failed" | "subagent" | "synthetic";
+}
+
+export interface CheckpointRestoredEvent extends BaseEvent {
+  type: "checkpoint.restored";
+  entryId: string;
+  snapshot: string;
+  filesChanged: number;
+  durationMs: number;
 }

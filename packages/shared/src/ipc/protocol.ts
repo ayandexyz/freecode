@@ -696,6 +696,49 @@ export const METHODS = {
     params: {} as { sessionId: string; entryId: string; label: string },
     result: undefined as void,
   },
+  // Checkpoints / rewind (spec 2026-09-23-checkpoints-rewind). A checkpoint is
+  // the working tree as it stood before a user turn, keyed by that turn's
+  // session-tree entry id. `session.rewind` restores the files and then
+  // performs the same leaf move as `session.navigate`, in that order.
+  "session.checkpoints": {
+    params: { sessionId: "" },
+    result: [] as Array<{
+      entryId: string;
+      snapshot: string;
+      timestamp: number;
+      preview: string;
+    }>,
+  },
+  /** What a rewind would write, without touching disk. */
+  "session.rewindPreview": {
+    params: {} as { sessionId: string; entryId: string },
+    result: [] as Array<{
+      path: string;
+      status: "modified" | "deleted" | "added";
+    }>,
+  },
+  "session.rewind": {
+    params: {} as {
+      sessionId: string;
+      entryId: string;
+      /** Restore the turn's file changes. Default true. */
+      files?: boolean;
+      /** Move the conversation leaf back too. Default true. */
+      conversation?: boolean;
+      summarize?: boolean;
+    },
+    result: {} as {
+      restored: Array<{
+        path: string;
+        status: "modified" | "deleted" | "added";
+      }>;
+      /** Paths the snapshot could not speak for (e.g. oversize untracked). */
+      skipped: string[];
+      messages: import("../types.js").SerializedMessage[];
+      abandoned: number;
+      summarized: boolean;
+    },
+  },
   "session.archive": {
     params: { sessionId: "" },
     result: undefined as void,
@@ -824,6 +867,9 @@ export const REQUIRED_PARAMS: Record<
   "session.tree": { sessionId: "string" },
   "session.navigate": { sessionId: "string", entryId: "string" },
   "session.label": { sessionId: "string", entryId: "string", label: "string" },
+  "session.checkpoints": { sessionId: "string" },
+  "session.rewindPreview": { sessionId: "string", entryId: "string" },
+  "session.rewind": { sessionId: "string", entryId: "string" },
   "session.archive": { sessionId: "string" },
   "session.delete": { sessionId: "string" },
   "session.getInterrupted": {},

@@ -261,6 +261,9 @@ async function executeSubagent(
       redirect: false,
       autoPoke: false,
       cacheWarming: false,
+      // A subagent's edits belong to the parent turn, which is already
+      // checkpointed; snapshotting again would add a tree per delegation.
+      checkpoints: false,
     });
     // Late-bound because the loop cannot exist until the spawn has been
     // allowed; this is what makes `k` in the /agents panel able to stop it.

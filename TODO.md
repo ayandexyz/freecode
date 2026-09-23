@@ -12,6 +12,39 @@ be "fixed" → `docs/DECISIONS.md`.
 
 ## Small known limitations
 
+### `freecode eval` does not exit after printing its results (found 2026-09-24)
+
+**Status:** confirmed, wastes wall-clock only, not money. Pre-dates the
+checkpoints branch.
+
+A `pnpm eval trajectory --trials 1` run printed `25/25 cases passed` and its
+cost summary, then sat for **18 minutes** without exiting, until killed. During
+the stall the process was idle in `do_epoll_wait` — 25s of CPU across 22
+minutes, **no open TCP sockets**, no child `git`. So it is not a provider call
+(and the 300s header timeout would have fired three times over); it is a
+non-daemon handle keeping the event loop alive after the suite is done.
+
+Prime suspect is the MCP stdio client. The run spawns `npm exec
+@agentmemory/mcp` — imported from Claude Code's config by
+`mcp/claude-code-config.ts` — and that child was still alive, idle, with 0s of
+CPU. Nothing in the eval path appears to call a shutdown/`close()` on the MCP
+clients when a suite finishes.
+
+Why it matters beyond patience: `.github/workflows/eval.yml` runs `trajectory
+--gate` nightly. A job that never exits burns the runner's whole timeout and
+reports as a timeout failure, not as the green run it actually was.
+
+**Cause: confirmed 2026-09-24.** `FREECODE_MCP_CLAUDE_CODE=0 pnpm eval:gate`
+ran all three suites to completion. Without it the `&&` chain cannot advance
+past the first suite at all, because the chain only proceeds when trajectory
+*exits* — so this bug does not merely delay `eval:gate`, it prevents coding and
+judged from ever running.
+
+Fix: close the MCP clients when a suite finishes (or open them lazily, since
+no eval case uses an MCP tool). Reproduce with `pnpm eval trajectory --trials
+1` and Claude Code MCP servers present in `~/.claude.json`.
+
+
 ### The compaction eval case is a 20KB JSONL line (added 2026-09-08)
 
 **Status:** known, cosmetic, needs a paid run to fix.
