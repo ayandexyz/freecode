@@ -33,15 +33,12 @@ and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
 - [ ] **7. MCP server (expose)** — serve FreeCode's tools *as* an MCP server. The client
       side is done. Already listed as deferred in `CLAUDE.md`.
 
-- [ ] **8. Checkpoints / rewind** — `rollout/` has full event sourcing and `replay.ts`, but
-      there's no user-facing way to undo a turn's file changes. Mostly a command + a
-      file-state diff on top of machinery we already paid for.
-
-
-**Suggested order:** 3, then 4. Items 5 and 8 are larger, self-contained
-projects. (Item 2, user-defined slash commands, shipped as `commands/loader.ts`.
-Item 6, background bash, shipped as `tools/shells/` + `bashoutput`/`killbash`
-and the TUI's `/shells` panel.)
+**Suggested order:** 3, then 4. Item 5 is a larger, self-contained project.
+(Item 2, user-defined slash commands, shipped as `commands/loader.ts`. Item 6,
+background bash, shipped as `tools/shells/` + `bashoutput`/`killbash` and the
+TUI's `/shells` panel. Item 8, checkpoints/rewind, shipped 2026-09-23 as
+`checkpoint/` + `/rewind` — spec `2026-09-23-checkpoints-rewind.md`; its §9
+open questions, chiefly non-git projects, are the remaining work.)
 
 ## Background shell completion notifications (added 2026-09-08)
 
