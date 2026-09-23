@@ -34,8 +34,6 @@ const SEGMENT_COLORS: Record<ContextSegmentId, string> = palette.segments as Rec
   string
 >;
 
-const FREE_COLOR = palette.segmentFree;
-
 /**
  * Hand out `totalCells` among the segments in proportion to their tokens.
  *
@@ -119,11 +117,11 @@ export function renderContextReport(
   if (limit > 0) {
     const freeCells = cells[segments.length] ?? 0;
     for (let n = 0; n < freeCells; n++) {
-      glyphs.push(chalk.hex(FREE_COLOR)(FREE_CELL));
+      glyphs.push(chalk.hex(palette.segmentFree)(FREE_CELL));
     }
   }
   // Guard against a short grid if every weight was zero (a brand-new session).
-  while (glyphs.length < TOTAL_CELLS) glyphs.push(chalk.hex(FREE_COLOR)(FREE_CELL));
+  while (glyphs.length < TOTAL_CELLS) glyphs.push(chalk.hex(palette.segmentFree)(FREE_CELL));
 
   // Legend text is built plain so it can be measured and truncated by character
   // count — slicing a string with ANSI escapes in it cuts an escape in half.
@@ -151,7 +149,7 @@ export function renderContextReport(
     const size = formatTokenCount(free);
     const pct = percent(free, limit);
     legend.push({
-      color: FREE_COLOR,
+      color: palette.segmentFree,
       glyph: FREE_CELL,
       variants: [
         `Free space: ${size} (${pct})`,
