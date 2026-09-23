@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.40.0
+
+Undo. `/rewind` takes back a turn's file changes and the conversation that caused them, together — the session tree already rewound the transcript and left disk untouched, which made the conversation describe files that were never put back. On Omarchy, switching the OS theme now repaints a running session instead of asking for a restart.
+
+### Added
+
+- **Checkpoints and `/rewind`** (`0d5fe5f`, `6c07076`, `c004330`, `7c3100d`). The working tree is snapshotted once per user turn, and `/rewind` restores a turn's files and moves the conversation leaf back to it. Snapshots are **git trees in a shadow repository** under `~/.freecode/snapshots/<hash>/` whose work tree is the project: the project's own `.git` — index, HEAD, stash, `git status` — is never touched, which `shadow-git.test.ts` pins by asserting the host repo is byte-identical across a capture/restore cycle. Capture costs ~13ms per turn after a one-time ~240ms, and is best-effort: it never fails the turn it was taken for. `/tree` is unchanged and stays conversation-only. Spec: `docs/specs/2026-09-23-checkpoints-rewind.md`.
+- **`freecode checkpoint status|gc`** (`f42c88a`). Where the snapshot store lives and how big it is; `gc` prunes it. `gc` discards **every** snapshot, so `/rewind` can no longer restore files for existing sessions — the conversation history is untouched. Pruning is manual on purpose: `git gc` walks every object, and a checkpoint has to cost nothing you can feel.
+- **`session.checkpoints` / `session.rewindPreview` / `session.rewind` IPC** (`c004330`). `rewindPreview` returns the exact file list without touching disk, which is what makes the TUI's confirmation meaningful.
+- **`checkpoint.captured` / `skipped` / `restored` rollout events** (`4e62e1d`). Ids, counts and durations only — paths never enter the log, because it feeds the OTLP export.
+
+### Changed
+
+- **The TUI follows Omarchy theme changes during a running session** (`c409e9c`). `omarchy-theme-set` notifies nobody, so a theme switch previously meant restarting. The obstacle was not re-reading the theme but the ten call sites that capture paints at module scope; `palette` is now a stable facade whose paints resolve when called, so captured references follow the theme with no consumer changes. The watcher watches the **parent** state directory, not `theme/colors.toml`, because a switch replaces the theme directory and a watch on a file inside it is left on a stale inode and silently never fires again. A failed read keeps the last valid palette, so a half-written theme cannot flash the UI back to the defaults. A user-pinned theme override remains unbuilt.
+- **`checkpoints.{enabled,maxPerSession}` settings** (`f42c88a`), `FREECODE_CHECKPOINTS` to override. **On by default**, unlike the loop gates: it does not change what the model does, so the rule about flipping a default only on an `eval ab` delta does not apply.
+
+### Known limitations
+
+- **Checkpoints require a git repository.** `add -A` leans on the project's `.gitignore` to know what not to snapshot; without one the first capture of a Node project would walk `node_modules`. A non-git project logs a line and stays inert rather than failing a turn.
+- **A rewind reverts changes the agent did not make.** The restore diffs the snapshot against the current tree, which cannot tell an agent edit from one you made by hand since the checkpoint. Everything changed since the snapshot is reverted. The preview lists every affected path and requires a confirmation, which is the floor rather than the fix; per-tool path tracking is the fix and is not built (spec §9 Q4).
+- **Writes outside the project root are not captured or restored** — a `bash` command that edits `~/.config` is outside the snapshot's work tree, and previews as "no file changes".
+- **The snapshot store grows and is pruned manually** (~12 MB for a repo this size). `freecode checkpoint gc`.
+
+### Notes
+
+`freecode eval` does not exit after printing its results (`fdb6836`, `6831584`), and because `eval:gate` chains its three suites on `&&`, that stops coding and judged from running at all. `FREECODE_MCP_CLAUDE_CODE=0` is the confirmed workaround and was used to gate this release. Filed in `TODO.md`, not yet fixed.
+
+This release was gated at 25/25 trajectory and 12/12 coding (3 trials each, MiniMax-M3). The judged suite reported 6/6 and a 4.80/5 mean, but only **7 of 18 trials actually scored** — the judge hit its quota mid-run — so treat that number as thin rather than as a quality signal.
+
 ## v0.39.0
 
 FreeCode inherits Claude Code's MCP servers, and the launch path stops waiting on the network. The update check and the MCP connect both moved off startup, taking time-to-input-ready from ~1.0s to ~0.46s against a 0.37s floor.
