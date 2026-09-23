@@ -21,7 +21,8 @@ import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Input, type Component } from "@earendil-works/pi-tui";
 import { Loader, Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { palette } from "./palette.js";
+import { palette, refreshPalette } from "./palette.js";
+import { watchOmarchyTheme } from "./utils/omarchy-theme.js";
 import { defaultEditorTheme, MODE_COLORS } from "./themes.js";
 import {
   getRandomElapsedPhrase,
@@ -2999,10 +3000,25 @@ if (resumeArg.present && resumeArg.id) {
   checkForInterruptedSession();
 }
 
+// Follow the OS theme while the session runs (docs/OMACODE_OMARCHY_EXPERIENCE.md
+// §2). `omarchy-theme-set` replaces the state directory and notifies nobody, so
+// the TUI watches for it and repaints in place rather than asking for a restart.
+//
+// Nothing to invalidate beyond a redraw: every component repaints from
+// `palette` on each `render()`, and `palette` is a stable facade whose paints
+// resolve at call time (see palette.ts), so captured colours follow too.
+const stopThemeWatch = watchOmarchyTheme(() => {
+  if (!refreshPalette()) return; // unchanged, or a failed read — keep painting
+  tui.requestRender();
+});
+
 // Safety net for crash / uncaught-exception exits that skip the explicit
 // shutdown() path above — restoreScreen() is idempotent, so this is a no-op
 // when the alt screen was already exited cleanly.
-process.on("exit", restoreScreen);
+process.on("exit", () => {
+  stopThemeWatch();
+  restoreScreen();
+});
 
 // A supervising process (agent-board driving this TUI headlessly over a PTY)
 // has no way to send the double Ctrl+C that normally arms+confirms exit, so

@@ -1,5 +1,10 @@
 import { Chalk } from "chalk";
-import { omarchyPalette } from "./utils/omarchy-theme.js";
+import {
+  loadOmarchyPalette,
+  omarchyPalette,
+  OMARCHY_KEYS,
+  type OmarchyPalette,
+} from "./utils/omarchy-theme.js";
 
 /**
  * The one place the TUI picks a colour. Every component paints through these
@@ -236,6 +241,94 @@ function omarchyThemedPalette(t: NonNullable<typeof omarchyPalette>): Palette {
   };
 }
 
-export const palette: Palette = omarchyPalette
+// =============================================================================
+// Live palette
+//
+// `palette` is a STABLE FACADE, not the colours themselves. Every paint on it
+// is a permanent wrapper that resolves against `current` when it is CALLED.
+//
+// That indirection is the whole trick. Components capture paints at module
+// scope — `const accent = palette.accent`, `const SHELLS_CHIP_BG =
+// palette.bgAccent`, `diffTheme` in code-block.ts, `STATUS_BAR_BG` in
+// themes.ts — and they call them inside `render()`. Swapping the object behind
+// the facade therefore repaints all of them with no change at any of the ~28
+// call sites. Reassigning `palette` itself would strand every one of those
+// captures on the old theme, which is the bug this shape exists to avoid.
+// =============================================================================
+
+/** The colours in force. Replaced wholesale by `applyPalette`. */
+let current: Palette = omarchyPalette
   ? omarchyThemedPalette(omarchyPalette)
   : defaultPalette();
+
+/** The raw OS palette the current theme was built from, for change detection. */
+let currentSource: OmarchyPalette | null = omarchyPalette;
+
+/** A paint that looks itself up at call time. */
+const live =
+  (pick: (p: Palette) => Paint): Paint =>
+  (text: string) =>
+    pick(current)(text);
+
+function buildFacade(): Palette {
+  const syntax = {} as Palette["syntax"];
+  for (const key of Object.keys(current.syntax) as (keyof Palette["syntax"])[]) {
+    syntax[key] = live((p) => p.syntax[key]);
+  }
+
+  const facade = {
+    syntax,
+    // Object identity is preserved for these two: `context-report.ts` captures
+    // `palette.segments` at module scope, so they are mutated in place by
+    // `applyPalette` rather than replaced.
+    segments: { ...current.segments },
+    shimmer: { ...current.shimmer },
+  } as Palette;
+
+  for (const key of Object.keys(current) as (keyof Palette)[]) {
+    if (typeof current[key] === "function") {
+      facade[key] = live((p) => p[key] as Paint) as never;
+    }
+  }
+
+  // A plain string cannot be made live by capture, so it is a getter; the one
+  // consumer reads `palette.segmentFree` at use rather than hoisting it.
+  Object.defineProperty(facade, "segmentFree", {
+    get: () => current.segmentFree,
+    enumerable: true,
+  });
+
+  return facade;
+}
+
+export const palette: Palette = buildFacade();
+
+/** Swap the colours behind the facade. */
+function applyPalette(next: Palette): void {
+  current = next;
+  for (const key of Object.keys(palette.segments)) delete palette.segments[key];
+  Object.assign(palette.segments, next.segments);
+  Object.assign(palette.shimmer, next.shimmer);
+}
+
+/**
+ * Re-read the OS theme and repaint if it changed.
+ *
+ * Returns true when the palette actually moved, so a caller can skip a render.
+ * A failed read — theme mid-swap, CLI missing, a key it cannot resolve —
+ * KEEPS the last valid palette: a half-written theme must not flash the UI
+ * back to the chalk defaults and then forward again.
+ *
+ * `load` is injectable so the liveness contract can be tested off Omarchy;
+ * production callers pass nothing.
+ */
+export function refreshPalette(load: () => OmarchyPalette | null = loadOmarchyPalette): boolean {
+  const next = load();
+  if (!next) return false;
+  if (currentSource && OMARCHY_KEYS.every((k) => currentSource![k] === next[k])) {
+    return false;
+  }
+  currentSource = next;
+  applyPalette(omarchyThemedPalette(next));
+  return true;
+}

@@ -1,7 +1,7 @@
 import { execFileSync } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, watch, type FSWatcher } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 
 /**
  * Omarchy exposes the active theme as a flat `colors.toml` with semantic
@@ -9,9 +9,8 @@ import { join } from "path";
  * `omarchy-theme-color` CLI, which handles aliasing, light/dark detection,
  * and derived shades — we reuse that instead of re-parsing the toml here.
  *
- * The TUI is a long-lived process and the theme is fixed for the session
- * (`omarchy-theme-set` doesn't notify running TUI clients), so we read once
- * at module init.
+ * `omarchy-theme-set` doesn't notify running TUI clients, so we read once at
+ * module init and then WATCH for a switch — see `watchOmarchyTheme`.
  */
 
 /** Every key the TUI palette maps. Names follow colors.toml. */
@@ -82,5 +81,81 @@ export function loadOmarchyPalette(): OmarchyPalette | null {
   return palette;
 }
 
-/** Resolved once per session; `null` means use the default chalk colors. */
+/** Resolved at startup; `null` means use the default chalk colors. */
 export const omarchyPalette: OmarchyPalette | null = loadOmarchyPalette();
+
+/**
+ * The directory `omarchy-theme-set` rewrites: it replaces `theme/` wholesale
+ * and writes the new name into `theme.name`.
+ *
+ * Watching the PARENT rather than `theme/colors.toml` is deliberate. A switch
+ * replaces the theme directory, so a watch on a file inside it is left holding
+ * a stale inode and never fires again — the failure mode is silent, which is
+ * worse than not watching at all.
+ */
+const STATE_DIR = dirname(dirname(COLORS_FILE));
+
+/** Coalesce the burst of events one theme switch produces. */
+const DEBOUNCE_MS = 150;
+
+/**
+ * Call `onChange` when the active Omarchy theme changes.
+ *
+ * Returns a stop function. A no-op (and a stop that does nothing) when this is
+ * not an Omarchy session, so callers need no platform check of their own.
+ *
+ * `persistent: false` matters: a watcher that holds the event loop open would
+ * stop the TUI process from exiting, and a handle that keeps a finished
+ * process alive is a bug this repo has already been bitten by (see TODO.md,
+ * `freecode eval` not exiting).
+ */
+export function watchOmarchyTheme(onChange: () => void): () => void {
+  if (process.platform !== "linux" || !existsSync(STATE_DIR)) return () => {};
+
+  let watcher: FSWatcher | undefined;
+  let timer: NodeJS.Timeout | undefined;
+  let retry: NodeJS.Timeout | undefined;
+  let stopped = false;
+
+  const fire = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      if (!stopped) onChange();
+    }, DEBOUNCE_MS);
+    timer.unref?.();
+  };
+
+  const attach = (): void => {
+    if (stopped) return;
+    try {
+      watcher = watch(STATE_DIR, { persistent: false }, fire);
+      // A replaced directory surfaces as an error on some kernels rather than
+      // a rename event; reattach instead of going quiet for the session.
+      watcher.on("error", reattach);
+    } catch {
+      reattach();
+    }
+  };
+
+  const reattach = (): void => {
+    if (stopped || retry) return;
+    watcher?.close();
+    watcher = undefined;
+    retry = setTimeout(() => {
+      retry = undefined;
+      attach();
+      // The theme may well have changed during the gap.
+      fire();
+    }, 500);
+    retry.unref?.();
+  };
+
+  attach();
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+    if (retry) clearTimeout(retry);
+    watcher?.close();
+  };
+}
