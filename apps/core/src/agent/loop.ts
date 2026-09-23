@@ -99,6 +99,7 @@ import {
   VERIFIER_MIN_FILES,
   MAX_VERIFIER_ATTEMPTS,
 } from "./subagent.js";
+import { CheckpointService } from "../checkpoint/index.js";
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
@@ -270,6 +271,14 @@ export interface AgentLoopConfig {
    */
   cacheWarming?: boolean;
   /**
+   * Snapshot the working tree before each user turn so `/rewind` can undo the
+   * turn's file changes (spec `2026-09-23-checkpoints-rewind.md` §4.1).
+   * Defaults to true and is still gated by `checkpoints.enabled` and by the
+   * project being a git repo; `agent/subagent.ts` sets it false, because a
+   * subagent's edits belong to the parent turn that is already checkpointed.
+   */
+  checkpoints?: boolean;
+  /**
    * Answer every `ask` decision with "allow" instead of prompting. Set by
    * `freecode run --yes`, where there is no frontend to prompt: `askPermission`
    * rejects with no subscriber, so an unattended `build` run was denied every
@@ -386,6 +395,8 @@ export class AgentLoop {
   private orchestrator: ToolOrchestrator;
   private recovery: RecoveryManager;
   private memoryExtraction: boolean;
+  private checkpointsEnabled: boolean;
+  private checkpointService?: CheckpointService;
   private sessionStore: SessionStore | undefined;
   private lastThinking: string | undefined;
   // Last text the model actually produced, kept independent of how the turn
@@ -505,6 +516,7 @@ export class AgentLoop {
     this.compiler = new PromptCompiler("", "");
     this.sessionStore = config?.sessionStore;
     this.memoryExtraction = config?.memoryExtraction ?? true;
+    this.checkpointsEnabled = config?.checkpoints ?? true;
   }
 
   private async loadHistory(): Promise<void> {
@@ -849,7 +861,17 @@ export class AgentLoop {
         timestamp: Date.now(),
       };
       this.history.push(initialUserMessage);
-      await this.appendUserMessage(input.prompt, imageParts);
+      // Snapshot the tree BEFORE the model acts, keyed by the id this message
+      // is persisted under — that id is what session.tree lists and what
+      // session.rewind targets, so the two must be the same id, not two
+      // randomUUIDs (spec 2026-09-23-checkpoints-rewind §4.1).
+      await this.captureCheckpoint(initialUserMessage.id, input.prompt);
+      await this.appendUserMessage(
+        input.prompt,
+        imageParts,
+        {},
+        initialUserMessage.id,
+      );
       this.memory.addMessage("user", input.prompt);
 
       let totalInputTokens = 0;
@@ -3559,6 +3581,42 @@ export class AgentLoop {
       } catch {
         // ignore
       }
+    }
+  }
+
+  /**
+   * Best-effort working-tree snapshot for this user turn. Never throws: a
+   * checkpoint is a convenience, and failing to take one must not fail the
+   * turn it was taken for (spec §4.1).
+   */
+  private async captureCheckpoint(entryId: string, prompt: string): Promise<void> {
+    if (!this.checkpointsEnabled) {
+      this.recorder.recordCheckpointSkipped("subagent");
+      return;
+    }
+    try {
+      await this.ensureProjectPath();
+      const projectPath = this.state.projectPath;
+      if (!projectPath) return;
+      this.checkpointService ??= new CheckpointService(
+        this.state.sessionId,
+        projectPath,
+      );
+      const result = await this.checkpointService.capture(entryId, prompt);
+      if (result.snapshot) {
+        this.recorder.recordCheckpointCaptured({
+          entryId,
+          snapshot: result.snapshot,
+          durationMs: result.durationMs,
+        });
+      } else if (result.skipped) {
+        this.recorder.recordCheckpointSkipped(result.skipped);
+      }
+    } catch (err) {
+      logger.warn("[AgentLoop] checkpoint capture failed", {
+        sessionId: this.state.sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

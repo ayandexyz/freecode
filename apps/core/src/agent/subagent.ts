@@ -128,6 +128,9 @@ export async function executeSubagent(
       // And for auto-poke: a subagent's stop is its parent's to judge.
       autoPoke: false,
       cacheWarming: false,
+      // A subagent's edits belong to the parent turn, which is already
+      // checkpointed; snapshotting again would add a tree per delegation.
+      checkpoints: false,
       sessionStore,
     });
     if (parentSessionId) agents.attachInterrupt(id, () => loop.interrupt());
