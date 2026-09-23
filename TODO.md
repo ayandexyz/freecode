@@ -34,9 +34,15 @@ Why it matters beyond patience: `.github/workflows/eval.yml` runs `trajectory
 --gate` nightly. A job that never exits burns the runner's whole timeout and
 reports as a timeout failure, not as the green run it actually was.
 
-Reproduce: `pnpm eval trajectory --trials 1` with Claude Code MCP servers
-present in `~/.claude.json`. Confirm with `FREECODE_MCP_CLAUDE_CODE=0` — if it
-exits promptly, the MCP client teardown is the cause.
+**Cause: confirmed 2026-09-24.** `FREECODE_MCP_CLAUDE_CODE=0 pnpm eval:gate`
+ran all three suites to completion. Without it the `&&` chain cannot advance
+past the first suite at all, because the chain only proceeds when trajectory
+*exits* — so this bug does not merely delay `eval:gate`, it prevents coding and
+judged from ever running.
+
+Fix: close the MCP clients when a suite finishes (or open them lazily, since
+no eval case uses an MCP tool). Reproduce with `pnpm eval trajectory --trials
+1` and Claude Code MCP servers present in `~/.claude.json`.
 
 
 ### The compaction eval case is a 20KB JSONL line (added 2026-09-08)
