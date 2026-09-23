@@ -18,6 +18,9 @@ import type {
   RedirectTriggeredEvent,
   RolloutEvent,
   SessionNavigateEvent,
+  CheckpointCapturedEvent,
+  CheckpointSkippedEvent,
+  CheckpointRestoredEvent,
 } from "./types.js";
 
 // ============================================================================
@@ -495,6 +498,29 @@ export class RolloutRecorder {
     fields: Omit<SessionNavigateEvent, keyof BaseEvent | "type">,
   ): void {
     this.write(this.makeEvent("session.navigate", { aggregateID: this.sessionId, fields }));
+  }
+
+  // --- checkpoints (spec 2026-09-23-checkpoints-rewind, §7) ------------------
+  // Ids and counts only; paths never enter the log.
+  recordCheckpointCaptured(
+    fields: Omit<CheckpointCapturedEvent, keyof BaseEvent | "type">,
+  ): void {
+    this.write(this.makeEvent("checkpoint.captured", { aggregateID: this.sessionId, fields }));
+  }
+
+  recordCheckpointSkipped(reason: CheckpointSkippedEvent["reason"]): void {
+    this.write(
+      this.makeEvent("checkpoint.skipped", {
+        aggregateID: this.sessionId,
+        fields: { reason },
+      }),
+    );
+  }
+
+  recordCheckpointRestored(
+    fields: Omit<CheckpointRestoredEvent, keyof BaseEvent | "type">,
+  ): void {
+    this.write(this.makeEvent("checkpoint.restored", { aggregateID: this.sessionId, fields }));
   }
 
   recordCacheWarm(fields: Omit<CacheWarmEvent, keyof BaseEvent | "type">): void {
