@@ -34,6 +34,12 @@ export interface CommandContext extends MessageCreators {
   showModelSelector?(): void;
   /** `/tree` — session tree picker (spec 2026-09-20-pi-parity-plan Phase 3). */
   showTreePicker?(): Promise<void>;
+  /**
+   * `/rewind` — undo a turn's file changes AND the conversation that caused
+   * them (spec 2026-09-23-checkpoints-rewind). `/tree` stays
+   * conversation-only, so an existing habit does not start rewriting files.
+   */
+  showRewindPicker?(): Promise<void>;
   /** `/fork` — new session from the active path. */
   forkSession?(): Promise<void>;
   showExtensions?(): Promise<void>;

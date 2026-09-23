@@ -130,6 +130,14 @@ const treeCommand: Command = {
   },
 };
 
+const rewindCommand: Command = {
+  name: "rewind",
+  description: "Undo a turn's file changes and rewind the conversation to it",
+  execute: (_args, ctx) => {
+    void ctx.showRewindPicker?.();
+  },
+};
+
 const forkCommand: Command = {
   name: "fork",
   description: "Copy the current conversation into a new session",
@@ -323,6 +331,7 @@ export function registerBuiltInCommands(): void {
   registerCommand(resumeCommand);
   registerCommand(compactCommand);
   registerCommand(treeCommand);
+  registerCommand(rewindCommand);
   registerCommand(extensionsCommand);
   registerCommand(reloadCommand);
   registerCommand(forkCommand);
