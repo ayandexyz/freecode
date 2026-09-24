@@ -139,8 +139,13 @@ test("the selection band covers a truncated row to the border, ellipsis included
   const card = new MenuCard(new ListSource("Provider", rows), () => 30, false);
   const row = card.render(40).find((l) => plain(l).includes("Cloudflare"))!;
   // The band opens once and closes once, and everything between the two
-  // borders — ellipsis and status included — sits inside it.
-  const band = row.slice(row.indexOf("\x1b[48;"), row.indexOf("\x1b[49m"));
+  // borders — ellipsis and status included — sits inside it. The open code
+  // depends on the palette: truecolor under an Omarchy theme, a basic
+  // background (`bgYellow`) without one, as on CI.
+  // eslint-disable-next-line no-control-regex
+  const open = row.search(/\x1b\[(?:4[0-7]|10[0-7]|48;[0-9;]+)m/);
+  assert.notEqual(open, -1);
+  const band = row.slice(open, row.indexOf("\x1b[49m"));
   assert.doesNotMatch(band, /\x1b\[0m/);
   assert.equal(visibleWidth(band), 38);
   assert.match(plain(band), /\.\.\. not configured $/);
