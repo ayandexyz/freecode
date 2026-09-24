@@ -359,7 +359,14 @@ async function runTrialIn(
   }
 
   const { JUDGE_CASE_FLOOR } = await import("./gate.js");
-  const { traceCost } = await import("../rollout/cost.js");
+  const { traceCost, traceCostByOperation } = await import("../rollout/cost.js");
+  const cost = memoryJobsPending === 0 ? traceCost(trace) : undefined;
+  const costByOperation = Object.fromEntries(
+    Object.entries(traceCostByOperation(trace)).map(([op, c]) => [
+      op,
+      c?.usd ?? null,
+    ]),
+  );
   const echoed = echoedModels(trace);
 
   // A judged case that scored below the floor is a failure; one the judge
@@ -383,7 +390,9 @@ async function runTrialIn(
     durationMs: Date.now() - startedAt,
     inputTokens: trace.inputTokens,
     outputTokens: trace.outputTokens,
-    costUsd: memoryJobsPending === 0 ? traceCost(trace)?.usd : undefined,
+    costUsd: cost?.usd,
+    ...(cost?.partial ? { costPartial: true } : {}),
+    ...(Object.keys(costByOperation).length > 0 ? { costByOperation } : {}),
     memoryCostComplete: memoryJobsPending === 0,
     ...(memoryJobsPending > 0 ? { memoryJobsPending } : {}),
     turns: trace.modelSpans.length,

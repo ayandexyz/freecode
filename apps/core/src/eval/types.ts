@@ -251,6 +251,17 @@ export interface TrialResult {
    * would silently read as a saving.
    */
   costUsd?: number;
+  /**
+   * True when `costUsd` is a lower bound: some call in the trial was unpriced
+   * or reported no usage (a failed memory call). Comparisons treat it like an
+   * unpriced trial.
+   */
+  costPartial?: boolean;
+  /**
+   * `costUsd` split by operation — foreground agent turns vs each memory
+   * operation (spec 2026-09-25 §5). `null` = ran, price unknown.
+   */
+  costByOperation?: Record<string, number | null>;
   /** False when background memory work outlived the evaluation drain budget. */
   memoryCostComplete?: boolean;
   /** Unfinished memory jobs mean the full runtime cost is unknown. */

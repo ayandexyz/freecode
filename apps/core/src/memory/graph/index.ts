@@ -24,6 +24,7 @@ import { cascadeRetrieve } from "./cascade.js";
 import { computeClusters } from "./clusters.js";
 import { containsSecret } from "./secret-filter.js";
 import type { MemoryAuxiliaryObserver } from "../auxiliary.js";
+import { trackMemoryJob } from "../background-jobs.js";
 import type { GraphEdge, GraphNode, RetrievalResult } from "./graph-types.js";
 
 const GRAPH_DIR = ".graph";
@@ -672,7 +673,7 @@ export class MemoryGraphService {
     }
     const cold = st.stash.length === 0;
     if (!st.resolved) {
-      this.kickPrefetch(st);
+      this.kickPrefetch(sessionId, st);
     }
 
     // Cold start: give the in-flight retrieval a brief chance to land.
@@ -688,7 +689,11 @@ export class MemoryGraphService {
   // The judge (D15) runs *here*, on the one-turn-behind path, which is what
   // makes it affordable: the loop never waits on it, and the cadence carry
   // below means it fires on a topic change rather than every user message.
-  private kickPrefetch(st: SessionMemory): void {
+  //
+  // Tracked as a background memory job so an eval trial's drain waits for an
+  // in-flight judge call — otherwise its cost lands after the trace is folded
+  // and the trial reports a complete total that is missing it.
+  private kickPrefetch(sessionId: string, st: SessionMemory): void {
     if (st.inflight) return;
     st.inflight = (async () => {
       try {
@@ -711,6 +716,7 @@ export class MemoryGraphService {
         st.inflight = null;
       }
     })();
+    void trackMemoryJob(sessionId, st.inflight);
   }
 
   /**

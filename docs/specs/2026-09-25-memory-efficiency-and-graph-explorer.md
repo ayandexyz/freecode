@@ -1,7 +1,7 @@
 # Memory efficiency evaluation and graph explorer improvements
 
 **Date:** 2026-09-25  
-**Status:** In progress — rendering, attribution, and auxiliary-cost trace slice implemented; remaining items proposed
+**Status:** In progress — P0 (§5 metering, §6 rendering and attribution) complete 2026-09-25; P1+ proposed
 **Audit baseline:** `f7c83321`  
 **Goal:** Establish whether native memory improves completed tasks enough to justify its full token and cost overhead, correct identified gaps, and make `/graph` compact, readable, and useful for inspecting recall.
 
@@ -82,8 +82,8 @@ The viewer uses many-body repulsion `-180`, fixed link distance `60`, and link s
 
 | Priority | Work package                      | Deliverable                                                             | Dependency                                     |
 | -------- | --------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------- |
-| P0       | Complete memory accounting        | Auxiliary-call usage and request-level injection measurements           | None                                           |
-| P0       | Correct rendering and attribution | Strict byte cap and exact rendered-memory identities                    | None                                           |
+| P0 ✅    | Complete memory accounting        | Auxiliary-call usage and request-level injection measurements — **done 2026-09-25** | None                                           |
+| P0 ✅    | Correct rendering and attribution | Strict byte cap and exact rendered-memory identities — **done 2026-09-25** | None                                           |
 | P1       | Production-path evaluation        | Isolated retrieval and end-to-end task comparisons                      | Accounting and rendering                       |
 | P1       | Retrieval correctness             | Tested freshness, judge carry, supersession, and safe fallback behavior | Reproducers; evaluation before default changes |
 | P1       | Explorer layout and interaction   | Compact graph, real fit, local view, readable controls                  | Can proceed independently of retrieval tuning  |
@@ -91,7 +91,7 @@ The viewer uses many-body repulsion `-180`, fixed link distance `60`, and link s
 | P2       | Multi-session learning evaluation | Capture, consolidation, and amortized cost report                       | Accounting and isolated lifecycle harness      |
 | P2       | Documentation and addon release   | Updated references, reproducible reports, installed UI verification     | Relevant implementation complete               |
 
-All work below is pending unless explicitly marked as audit evidence above.
+P0 (§5, §6) is complete as of 2026-09-25. Everything from P1 on is pending unless explicitly marked otherwise.
 
 ## 5. P0: measure the complete bill
 
@@ -100,13 +100,13 @@ All work below is pending unless explicitly marked as audit evidence above.
 - [x] Introduce a shared core path for metering auxiliary model calls, used by retrieval judging, extraction, final flush, and consolidation.
 - [x] Record operation purpose, originating session/run where available, call ID, resolved provider/model, auth mode, timing, success/failure, and provider-returned usage.
 - [x] Price calls with existing pricing semantics: unknown price remains unknown; cache-read tokens are not added again to inclusive input usage; auth mode is captured on the call.
-- [ ] Include successful retries and any reported usage from failed attempts without double counting. Report unavailable usage explicitly.
-- [ ] Attribute project-wide consolidation once to its originating operation, and report how its cost is amortized across a multi-session experiment.
-- [ ] Record per-model-request memory bytes, estimated tokens, selected count, rendered count, rendering mode, retrieval outcome, judge outcome, and whether preparation was fresh, carried, pending, or empty.
+- [x] Include successful retries and any reported usage from failed attempts without double counting. Report unavailable usage explicitly. _(No retries exist to double-count: `PROVIDER_MAX_RETRIES` is 0 and each judge/extract/consolidate call is one `provider.execute`, so one `memory.auxiliary` event is one attempt. A call that failed or reported no usage prices as unknown and marks the total `partial` (`rollout/cost.ts`), and the trace flags it.)_
+- [x] Attribute project-wide consolidation once to its originating operation. _(One `memory.auxiliary` event on the triggering session. Amortization across a multi-session experiment moved to §7.3, the only place it is measurable.)_
+- [x] Record per-model-request memory bytes, estimated tokens, selected count, rendered count, rendering mode, retrieval outcome, judge outcome, and whether preparation was fresh, carried, pending, or empty. _(Rendering mode = `fullCount` / `summaryCount` on `memory.exposure`.)_
 - [x] Keep estimated memory-block tokens separate from actual provider usage. The total provider input already includes the block; never add the estimate to that total again.
 - [x] Retain separate counters for unique user-turn exposures and repeated model-request exposures. Repeated exposure is relevant to cost even when the UI notice is deduplicated.
-- [x] Give evaluation runs a bounded way to drain background memory jobs. Pending work or unknown spend makes the full-cost result incomplete; a timeout must not silently look like savings.
-- [x] Expose a memory cost breakdown through existing report/trace mechanisms. Keep external quality-grader spend separate from product runtime spend.
+- [x] Give evaluation runs a bounded way to drain background memory jobs. Pending work or unknown spend makes the full-cost result incomplete; a timeout must not silently look like savings. _(Extraction, consolidation, and the retrieval-judge prefetch are all tracked; comparisons refuse to compare cost when either side has an unpriced trial.)_
+- [x] Expose a memory cost breakdown through existing report/trace mechanisms. Keep external quality-grader spend separate from product runtime spend. _(Terminal `by op` line, `TrialResult.costByOperation`, one OTLP span per call; grader spend stays in `judgeCostUsd`.)_
 
 Proposed report categories: main agent, retrieval judge, extraction/final flush, consolidation, and evaluation grader. Final field names and event names must align with rollout/OTLP conventions before implementation.
 
@@ -145,6 +145,37 @@ tracked per session. The evaluation runner drains them for up to
 still pending, it reports that count and leaves `costUsd` unavailable rather
 than presenting an incomplete total as savings.
 
+**P0 audit 2026-09-25 (at `0bf5c0e7`), resolved the same day.** An audit
+against the code found six gaps behind the notes above; each is now closed:
+
+1. **Unknown cost was silently dropped from comparisons.** `compare.ts`
+   `totalCost()` and the `ab.ts` tally skipped undefined `costUsd`, so the side
+   with pending memory jobs summed fewer trials and read as cheaper. Both now
+   count `unpricedTrials` (undefined *or* `costPartial`); `compareReports`
+   drops the cost row and the `eval ab` CLI prints `≥$x (N unpriced)` with no
+   percentage when either side has one. The experiment ledger records the
+   count too.
+2. **The retrieval-judge prefetch was not drained.** `kickPrefetch()` now
+   registers its promise with `trackMemoryJob`, so a judge still in flight at
+   trial end is waited for, or reported as pending.
+3. **Failed calls priced as free.** An auxiliary span with no reported usage
+   is now unpriceable (`auxiliaryUsageUnavailable`), making the total
+   `partial`; the runner stamps `costPartial` on the trial.
+4. **No per-operation breakdown.** `traceCostByOperation()` → the terminal
+   `by op` line and `TrialResult.costByOperation`.
+5. **No rendering mode.** `memory.exposure` carries `fullCount` /
+   `summaryCount`.
+6. **No acceptance tests.** Added `rollout/cost.test.ts`,
+   `memory/background-jobs.test.ts`, `agent/loop-memory-exposure.test.ts`
+   (real loop, fake provider: one exposure per request that carried the block,
+   zero bytes when nothing was injected, no memory text in the event), a
+   prefetch-drain case in `session-memory.test.ts`, and unpriced-trial cases in
+   `compare.test.ts` / `ab.test.ts`.
+
+Out of P0 by design: the session-end final flush never runs inside an eval
+trial (the runner does not call `endSession`). That is correct for §7.2's
+frozen-corpus read-path comparison and must be revisited for §7.3.
+
 ### Acceptance criteria
 
 Controlled provider tests reconcile report totals with returned usage across success, retries, failure, and late background completion. A request with no injected memory records zero memory-block bytes. A ten-request tool loop records all ten exposures if the block was sent ten times. Unknown cost cannot produce a definitive savings verdict.
@@ -156,8 +187,8 @@ The audit reproduced a 2,061-byte result against the advertised 2,048-byte cap. 
 - [x] Budget the complete serialized block: headers, sections, separators, bodies/summaries, episodes, and citation footer.
 - [x] Return rendering metadata alongside text, including exact rendered entries. Preserve a compatibility wrapper for callers that need a string.
 - [x] Base injection notices, exposure attribution, and citation eligibility on rendered entries rather than all retrieved candidates.
-- [ ] Give episode summaries an unambiguous citation identity without exceeding the budget.
-- [ ] Test exact boundaries, multi-byte text, long names/descriptions, every memory type, omitted entries, and empty output. Preserve whole-entry degradation rather than truncating a fact mid-sentence.
+- [x] Give episode summaries an unambiguous citation identity without exceeding the budget. _(Episode lines render `- <name> (<date>) — <description>` under `## Episode`, the same shape as other summaries, so `episode/<name>` is citable; the whole-block budget check covers the added bytes.)_
+- [x] Test exact boundaries, multi-byte text, long names/descriptions, every memory type, omitted entries, and empty output. Preserve whole-entry degradation rather than truncating a fact mid-sentence. _(`mem-prompt.test.ts`: a byte-by-byte sweep across the full→summary flip, a tight exact-cap case, all five types, long names, 4-byte code points, 40-entry overflow, empty input.)_
 
 **Acceptance:** every emitted block fits the UTF-8 byte cap; omitted memories receive no exposure credit; citation credit can only reference something actually rendered. Static guidance and provider cache placement remain unchanged.
 
@@ -211,7 +242,7 @@ Measure task pass rate, correctness of remembered facts, tool calls/repeated rea
 
 Run a second experiment with extraction and consolidation enabled. Feed the same scripted histories, restart sessions, change facts, and ask later tasks whose answers require prior context. Allow memory changes only inside isolated stores.
 
-Measure durable-fact capture, false memories, duplicate growth, corrections, consolidation retention, later task quality, and cumulative cost at increasing session counts. Compare frozen snapshots before/after consolidation to isolate its retrieval effect from new learning.
+Measure durable-fact capture, false memories, duplicate growth, corrections, consolidation retention, later task quality, and cumulative cost at increasing session counts. Report consolidation cost amortized across the sessions it served (moved here from §5), and run the session-end final flush inside the harness, since single-trial evals never call `endSession`. Compare frozen snapshots before/after consolidation to isolate its retrieval effect from new learning.
 
 Add an external held-out corpus such as LongMemEval-S after validating its license and adapter. Report it separately from repository-specific coding tasks and the hand-written corpus; do not tune thresholds on the held-out set.
 
@@ -300,8 +331,8 @@ The explorer layout work can proceed alongside accounting/evaluation work, but i
 
 ## 12. Completion checklist
 
-- [ ] Full runtime memory cost is measurable, including late/background calls.
-- [ ] The byte cap is strict and exposure attribution matches rendered content.
+- [x] Full runtime memory cost is measurable, including late/background calls.
+- [x] The byte cap is strict and exposure attribution matches rendered content.
 - [ ] Cold recall, topic changes, updates, supersession, and failures have meaningful regression coverage.
 - [ ] A reproducible report compares no memory, lexical, vector, graph, and real-judge variants.
 - [ ] A multi-session report measures capture/consolidation benefits and cumulative cost.

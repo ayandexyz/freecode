@@ -108,6 +108,18 @@ spend of all attempts. Efficiency deltas use only matching trial indices where
 both sides completed without infrastructure failure (`comparable` per case).
 Do not interpret lower total spend from failed requests as an improvement.
 
+**Unknown cost is never compared.** A trial's `costUsd` is left undefined when
+background memory work (extraction, consolidation, the retrieval judge) is
+still running after the drain budget (`FREECODE_EVAL_MEMORY_DRAIN_TIMEOUT_MS`,
+default 10s; the trial records `memoryJobsPending`), and is marked
+`costPartial` when some call in it was unpriced or a memory call reported no
+usage. Both count as **unpriced**. A side with any unpriced trial prints its
+cost as `≥$x (N unpriced)` with no percentage, and `eval --compare` drops the
+cost row — the side with more unknowns would otherwise read as cheaper. Each
+trial also carries `costByOperation` (`agent`, `retrieval_judge`,
+`extraction`, `consolidation`, `final_flush`; `null` = ran at an unknown
+price). Grader spend stays in `judgeCostUsd`, outside `costUsd`.
+
 The symbol-search fixture was isolated on 2026-09-21 because the original
 answer appeared in project instructions. Older runs of that case used a
 different input and are not directly comparable.

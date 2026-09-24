@@ -162,6 +162,10 @@ test("tallyOf folds efficiency and keeps unpriced distinct from free", () => {
   assert.equal(t.tokens, 330);
   assert.equal(t.infrastructureFailures, 1);
   assert.equal(t.costUsd, 0.5);
+  // The sum is a lower bound: say how many trials it is missing.
+  assert.equal(t.unpricedTrials, 2);
+  assert.equal(tallyOf([trial({ costUsd: 0.2, costPartial: true })]).unpricedTrials, 1);
+  assert.equal(tallyOf([trial({ costUsd: 0.2 })]).unpricedTrials, undefined);
   // No trial priced at all -> undefined, never 0.
   assert.equal(tallyOf([trial({ costUsd: undefined })]).costUsd, undefined);
 });

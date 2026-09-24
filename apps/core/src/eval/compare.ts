@@ -29,6 +29,8 @@ export interface MetricSummary {
    * "this got cheaper" from "we cannot say" (spec §12.1).
    */
   costUsd?: number;
+  /** Trials with no price. Non-zero makes `costUsd` a lower bound. */
+  unpricedTrials: number;
 }
 
 export interface ComparisonRow {
@@ -68,6 +70,13 @@ export function summarise(report: SuiteReport): MetricSummary {
     questionsRejected: sum(report, (t) => t.questionsRejected),
     trials: report.cases.reduce((n, c) => n + c.trials.length, 0),
     costUsd: totalCost(report),
+    unpricedTrials: report.cases.reduce(
+      (n, c) =>
+        n +
+        c.trials.filter((t) => t.costUsd === undefined || t.costPartial)
+          .length,
+      0,
+    ),
   };
 }
 
@@ -186,9 +195,13 @@ export function compareReports(
     // Reported, never gated. `tokens` is already the gated efficiency metric
     // and it is the one under the harness's control; cost also moves when a
     // provider reprices, which is not a regression in anything this suite is
-    // measuring. Omitted entirely when either side is unpriced — a comparison
-    // against an unknown is not a comparison.
-    ...(a.costUsd !== undefined && b.costUsd !== undefined
+    // measuring. Omitted entirely when either side has ANY unpriced trial — a
+    // partial sum is a lower bound, and the side with more unknowns (e.g.
+    // memory work still pending at trial end) would otherwise read as cheaper.
+    ...(a.costUsd !== undefined &&
+    b.costUsd !== undefined &&
+    a.unpricedTrials === 0 &&
+    b.unpricedTrials === 0
       ? [
           {
             metric: "cost (est.)",

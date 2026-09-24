@@ -7,7 +7,11 @@
 // =============================================================================
 
 import { formatUsd, pricesAsOf } from "../providers/pricing.js";
-import { traceCost } from "./cost.js";
+import {
+  auxiliaryUsageUnavailable,
+  traceCost,
+  traceCostByOperation,
+} from "./cost.js";
 import { HANG_THRESHOLD_MS, type ModelSpan, type Trace } from "./trace.js";
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
@@ -214,6 +218,20 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
     );
   } else if (subscription) {
     out.push(dim(`  cost    subscription ${dim("(no per-token price)")}`));
+  }
+  // Split only when memory spent something: a session without auxiliary calls
+  // has one operation, and the line above already is its total.
+  if (trace.auxiliarySpans.length > 0) {
+    const parts = Object.entries(traceCostByOperation(trace)).map(
+      ([op, c]) => `${op}=${c ? formatUsd(c) : "unpriced"}`,
+    );
+    const noUsage = trace.auxiliarySpans.filter(auxiliaryUsageUnavailable).length;
+    out.push(
+      dim(
+        `  by op   ${parts.join(" ")}` +
+          (noUsage > 0 ? ` ${yellow(`(${noUsage} memory call(s) reported no usage)`)}` : ""),
+      ),
+    );
   }
   // Only when something happened: a line reading "redirects 0" on every
   // healthy session is noise, and the feature is off by default.

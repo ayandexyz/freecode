@@ -174,6 +174,12 @@ export interface SideTally {
    * of `FREECODE_BASH_COMPRESS` reported quality and silently dropped these.
    */
   costUsd?: number;
+  /**
+   * Trials whose cost is unknown (unpriced model, or memory work still pending
+   * when the trial ended). When non-zero, `costUsd` is a lower bound and must
+   * not be compared against another side as if it were a total.
+   */
+  unpricedTrials?: number;
 }
 
 /** Legacy reports had only reason strings; new trials carry `infra`. */
@@ -188,7 +194,7 @@ export function isInfrastructureFailure(t: Pick<TrialResult, "reason" | "infra">
 export function tallyOf(
   trials: Pick<
     TrialResult,
-    "passed" | "reason" | "infra" | "turns" | "repeatedCalls" | "inputTokens" | "outputTokens" | "costUsd"
+    "passed" | "reason" | "infra" | "turns" | "repeatedCalls" | "inputTokens" | "outputTokens" | "costUsd" | "costPartial"
   >[],
 ): SideTally {
   const tally: SideTally = { passed: 0, ran: 0, turns: 0, repeatedCalls: 0, tokens: 0 };
@@ -204,6 +210,9 @@ export function tallyOf(
     tally.repeatedCalls += t.repeatedCalls;
     tally.tokens += t.inputTokens + t.outputTokens;
     if (t.costUsd !== undefined) tally.costUsd = (tally.costUsd ?? 0) + t.costUsd;
+    if (t.costUsd === undefined || t.costPartial) {
+      tally.unpricedTrials = (tally.unpricedTrials ?? 0) + 1;
+    }
   }
   return tally;
 }

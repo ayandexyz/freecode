@@ -135,6 +135,10 @@ export interface RenderedMemories {
   text: string;
   /** Exact entries represented in `text`, in retrieval relevance order. */
   entries: MemoryEntry[];
+  /** Entries rendered with their full body. */
+  fullCount: number;
+  /** Entries degraded to a one-line summary (every episode is one). */
+  summaryCount: number;
 }
 
 function promptHeader(): string[] {
@@ -205,7 +209,12 @@ function renderBlock(
   if (episodes.length > 0) {
     lines.push("", "## Episode");
     for (const entry of episodes) {
-      lines.push(`- ${entry.happened_at ?? "undated"} — ${entry.description}`);
+      // The name is the citation identity (`episode/<name>`), same shape as
+      // the other types' summary lines; without it an episode that shaped an
+      // answer could never be credited.
+      lines.push(
+        `- ${entry.name} (${entry.happened_at ?? "undated"}) — ${entry.description}`,
+      );
     }
   }
 
@@ -224,7 +233,9 @@ function renderBlock(
 export function renderRetrievedMemoriesDetailed(
   entries: MemoryEntry[],
 ): RenderedMemories {
-  if (entries.length === 0) return { text: "", entries: [] };
+  if (entries.length === 0) {
+    return { text: "", entries: [], fullCount: 0, summaryCount: 0 };
+  }
 
   // Try entries in retrieval relevance order and validate each prospective
   // block as a whole. This accounts for all section headings, separators, and
@@ -252,6 +263,8 @@ export function renderRetrievedMemoriesDetailed(
   return {
     text,
     entries: entries.filter((entry) => full.has(entry) || summaries.has(entry)),
+    fullCount: full.size,
+    summaryCount: summaries.size,
   };
 }
 

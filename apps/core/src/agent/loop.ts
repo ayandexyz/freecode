@@ -506,6 +506,7 @@ export class AgentLoop {
   // What the last provider call was shown, so a citation in its reply can be
   // verified against it rather than trusted (spec D12).
   private lastInjectedMemories: MemoryEntry[] = [];
+  private lastMemoryRenderCounts = { fullCount: 0, summaryCount: 0 };
   // Ids already credited for the current injection. A model that repeats the
   // citation tag across several inner-loop replies must bump useCount once per
   // show, or useCount/injectedCount stops being a precision estimate.
@@ -1817,6 +1818,10 @@ export class AgentLoop {
       // What was on screen when the model answered, so a citation in the reply
       // can be checked against it rather than trusted (D12).
       this.lastInjectedMemories = renderedMemories.entries;
+      this.lastMemoryRenderCounts = {
+        fullCount: renderedMemories.fullCount,
+        summaryCount: renderedMemories.summaryCount,
+      };
       // Persistent task list: re-rendered from the todo store every turn (not
       // from history), so the plan survives context compaction and a process
       // restart / session.resume. The model never loses remaining work.
@@ -2360,6 +2365,8 @@ export class AgentLoop {
       estimatedTokens: Math.ceil(blockBytes / 4),
       candidateCount: this.lastMemoryCandidateCount,
       renderedCount: injected ? this.lastInjectedMemories.length : 0,
+      fullCount: injected ? this.lastMemoryRenderCounts.fullCount : 0,
+      summaryCount: injected ? this.lastMemoryRenderCounts.summaryCount : 0,
       injected,
       preparation: this.lastMemoryPreparation.state,
       judgeDecision: this.lastMemoryPreparation.judgeDecision,

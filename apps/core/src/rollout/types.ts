@@ -299,6 +299,10 @@ export interface MemoryExposureEvent extends BaseEvent {
   estimatedTokens: number;
   candidateCount: number;
   renderedCount: number;
+  /** Of `renderedCount`: entries sent with their full body. */
+  fullCount: number;
+  /** Of `renderedCount`: entries degraded to a one-line summary. */
+  summaryCount: number;
   injected: boolean;
   preparation: "fresh" | "carried" | "pending" | "empty";
   judgeDecision:

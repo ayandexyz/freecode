@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MemoryStore } from "../mem-store.js";
 import { MemoryGraphService } from "./index.js";
+import { drainMemoryJobs } from "../background-jobs.js";
 import type { MemoryEntry } from "../mem-types.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -128,6 +129,26 @@ test("disposeSession drops a session's cache (next turn is cold again)", async (
     await service.prepareMemories("S", "q");
     // A dropped cache means we retrieved again for the same query.
     assert.ok(calls.includes("q"));
+  } finally {
+    cleanup();
+  }
+});
+
+test("a prefetch that outlives the cold budget is drainable", async () => {
+  // The judge runs inside this prefetch. If it were untracked, an eval trial
+  // would stop waiting before the judge's cost was recorded and still report
+  // a complete total (spec 2026-09-25 §5).
+  const { service, cleanup } = svc(200); // well past the 60ms cold budget
+  try {
+    await service.prepareMemories("drain-S", "slow topic");
+    assert.equal(service.preparationFor("drain-S").state, "pending");
+
+    const short = await drainMemoryJobs("drain-S", 10);
+    assert.deepEqual(short, { pending: 1, timedOut: true });
+
+    const full = await drainMemoryJobs("drain-S", 2_000);
+    assert.deepEqual(full, { pending: 0, timedOut: false });
+    assert.equal(service.preparationFor("drain-S").state, "fresh");
   } finally {
     cleanup();
   }

@@ -101,7 +101,17 @@ Other things the render will and won't say:
   on that.
 - **The cost line is silent when nothing in the session is priced.** An
   unpriced model shows no line at all, because `cost $0.00` reads as free. A
-  `*` marks a partially-priced trace.
+  `*` marks a partially-priced trace. A memory call (judge, extraction,
+  consolidation, final flush) that failed or reported no usage is **unknown,
+  not free** — it makes the total partial rather than adding $0.
+- **Memory lines appear only when memory did something.** `memory` (time and
+  call count) and `memory tokens` cover auxiliary calls; `by op` splits the
+  cost into `agent` and each memory operation (`unpriced` = ran, price
+  unknown) and flags calls that reported no usage. `memory context` counts
+  request exposures — one per provider request that carried the block, so a
+  tool loop resending it ten times shows ten — with its bytes and a local
+  token *estimate* that is never added to provider input, which already
+  includes the block.
 - **The redirect line only appears when something fired.** `redirects 0` on
   every healthy session is noise, and the feature is off by default.
 - **`echoedModel` vs `model`** — what the provider said it served vs what we
