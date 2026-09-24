@@ -148,6 +148,31 @@ test("memory auxiliary calls retain usage separately from model responses", () =
   }
 });
 
+test("memory exposure records every provider-request measurement", () => {
+  const dir = mkdtempSync(join(tmpdir(), "freecode-rollout-"));
+  try {
+    const recorder = new RolloutRecorder("s1", { rolloutDir: dir });
+    recorder.recordMemoryExposure("turn-4", {
+      blockBytes: 2048,
+      estimatedTokens: 512,
+      candidateCount: 8,
+      renderedCount: 3,
+      injected: true,
+    });
+
+    const [event] = readEvents(dir) as Array<Record<string, unknown>>;
+    assert.equal(event.type, "memory.exposure");
+    assert.equal(event.turnId, "turn-4");
+    assert.equal(event.blockBytes, 2048);
+    assert.equal(event.estimatedTokens, 512);
+    assert.equal(event.candidateCount, 8);
+    assert.equal(event.renderedCount, 3);
+    assert.equal(event.injected, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("function.denied records the tool, the gate, and the reason", () => {
   const dir = mkdtempSync(join(tmpdir(), "freecode-rollout-"));
   try {

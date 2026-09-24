@@ -43,6 +43,7 @@ export type RolloutEvent =
   | ModelResponseEvent
   | ModelErrorEvent
   | MemoryAuxiliaryEvent
+  | MemoryExposureEvent
   | RedirectTriggeredEvent
   | RedirectSkippedEvent
   | PokeTriggeredEvent
@@ -281,6 +282,24 @@ export interface MemoryAuxiliaryEvent extends BaseEvent {
   reasoningTokens?: number;
   /** Auth mode captured when the auxiliary call completed. */
   authMode?: "oauth";
+}
+
+/**
+ * What a single provider request actually carried from automatic memory.
+ *
+ * This is intentionally request-level: one user turn can issue several model
+ * calls after tools or an overflow retry, and each resend consumes context.
+ * It contains counts only, never memory text or identities.
+ */
+export interface MemoryExposureEvent extends BaseEvent {
+  type: "memory.exposure";
+  turnId: string;
+  blockBytes: number;
+  /** A local diagnostic estimate; provider input usage remains authoritative. */
+  estimatedTokens: number;
+  candidateCount: number;
+  renderedCount: number;
+  injected: boolean;
 }
 
 // ============================================================================

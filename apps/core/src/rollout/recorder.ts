@@ -14,6 +14,7 @@ import type {
   DenySource,
   ModelErrorEvent,
   MemoryAuxiliaryEvent,
+  MemoryExposureEvent,
   ModelRequestEvent,
   ModelResponseEvent,
   RedirectTriggeredEvent,
@@ -436,6 +437,19 @@ export class RolloutRecorder {
   ): void {
     this.write(
       this.makeEvent("memory.auxiliary", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields,
+      }),
+    );
+  }
+
+  recordMemoryExposure(
+    turnId: string,
+    fields: Omit<MemoryExposureEvent, keyof BaseEvent | "type" | "turnId">,
+  ): void {
+    this.write(
+      this.makeEvent("memory.exposure", {
         aggregateID: this.sessionId,
         turnId,
         fields,

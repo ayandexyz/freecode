@@ -120,6 +120,14 @@ these calls separately from foreground agent turns while pricing their combined
 runtime cost with the existing cache and subscription rules. Retry accounting,
 request-level exposure data, and background-drain support remain open.
 
+**In progress 2026-09-25:** every foreground provider attempt now writes a
+`memory.exposure` event, including attempts made after an overflow compaction
+or provider recovery. It records injected bytes, a separately labelled local
+token estimate, candidate count, rendered count, and whether a memory block was
+actually present. Preparation freshness, judge outcome, unique-turn rollups,
+and a bounded background drain are still required before the corresponding
+checklist items can be marked complete.
+
 ### Acceptance criteria
 
 Controlled provider tests reconcile report totals with returned usage across success, retries, failure, and late background completion. A request with no injected memory records zero memory-block bytes. A ten-request tool loop records all ten exposures if the block was sent ten times. Unknown cost cannot produce a definitive savings verdict.

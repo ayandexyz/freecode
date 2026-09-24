@@ -484,6 +484,9 @@ export class AgentLoop {
   private lastVerifierReport: string | undefined;
   // Last rendered memory block, so a run reset clears stale injected memory.
   private lastMemoryBlock: string | undefined = undefined;
+  // Candidate count remains distinct from rendered count: the byte budget can
+  // omit a relevant candidate, and only the latter reaches a provider request.
+  private lastMemoryCandidateCount = 0;
   // User text a memory_injected notice was last emitted for — dedupes the
   // stream event across the many inner-loop turns of one user request.
   private lastMemoryEmittedFor: string | undefined = undefined;
@@ -1764,6 +1767,7 @@ export class AgentLoop {
       );
       const renderedMemories =
         renderRetrievedMemoriesDetailed(retrievedMemories);
+      this.lastMemoryCandidateCount = retrievedMemories.length;
       this.lastMemoryBlock = renderedMemories.text;
       const memoryBlock = this.lastMemoryBlock;
       // UI visibility for the otherwise-silent auto-injection path: fire once
@@ -2323,6 +2327,19 @@ export class AgentLoop {
     const turnId = `turn-${this.state.turnCount}`;
     const resolvedModel = model ?? "(provider default)";
     const startedAt = Date.now();
+    const memoryBlock = this.lastMemoryBlock ?? "";
+    const injected =
+      memoryBlock.length > 0 && ephemeralTail.includes(memoryBlock);
+    const blockBytes = injected ? Buffer.byteLength(memoryBlock, "utf-8") : 0;
+    this.recorder.recordMemoryExposure(turnId, {
+      blockBytes,
+      // This is deliberately only a display diagnostic. It must never be
+      // summed into provider usage, which already includes the full block.
+      estimatedTokens: Math.ceil(blockBytes / 4),
+      candidateCount: this.lastMemoryCandidateCount,
+      renderedCount: injected ? this.lastInjectedMemories.length : 0,
+      injected,
+    });
     this.recorder.recordModelRequest(turnId, {
       provider,
       model: resolvedModel,
