@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import { traceToOtlp } from "./otlp.js";
 import { resetPricingCache } from "../providers/pricing.js";
-import type { ModelSpan, Trace } from "./trace.js";
+import type { MemoryAuxiliarySpan, ModelSpan, Trace } from "./trace.js";
 
 // These assert what an UNPRICED model emits, so they must not see models.dev's
 // rate card — it prices ~7000 models, including ones this file treats as
@@ -45,19 +45,36 @@ const modelSpan = (over: Partial<ModelSpan> = {}): ModelSpan => ({
   ...over,
 });
 
+const auxiliarySpan = (
+  over: Partial<MemoryAuxiliarySpan> = {},
+): MemoryAuxiliarySpan => ({
+  purpose: "retrieval_judge",
+  provider: "anthropic",
+  model: "claude-sonnet-4-5",
+  startedAt: 1200,
+  duration_ms: 200,
+  outcome: "succeeded",
+  ...over,
+});
+
 const trace = (over: Partial<Trace> = {}): Trace => ({
   sessionId: "session-abc",
   startedAt: 1000,
   endedAt: 2000,
   wall_ms: 1000,
   modelSpans: [],
+  auxiliarySpans: [],
   toolSpans: [],
   deniedSpans: [],
   model_ms: 500,
+  memory_ms: 0,
   tool_ms: 0,
   inputTokens: 0,
   outputTokens: 0,
   cacheReadTokens: 0,
+  memoryInputTokens: 0,
+  memoryOutputTokens: 0,
+  memoryCacheReadTokens: 0,
   hung: false,
   inFlight: false,
   redirects: 0,
@@ -120,7 +137,11 @@ test("an unpriced model emits no cost attribute at all", () => {
   const spans = spansOf(
     trace({
       modelSpans: [
-        modelSpan({ provider: "minimax", model: "MiniMax-M3", inputTokens: 10 }),
+        modelSpan({
+          provider: "minimax",
+          model: "MiniMax-M3",
+          inputTokens: 10,
+        }),
       ],
     }),
   );
@@ -134,12 +155,18 @@ test("a mixed-provider session reports a partial cost, and says so", () => {
     trace({
       modelSpans: [
         modelSpan({ inputTokens: 1_000_000 }),
-        modelSpan({ provider: "minimax", model: "MiniMax-M3", inputTokens: 10 }),
+        modelSpan({
+          provider: "minimax",
+          model: "MiniMax-M3",
+          inputTokens: 10,
+        }),
       ],
     }),
   );
   assert.deepEqual(attr(spans[0], "gen_ai.usage.cost"), { doubleValue: 3 });
-  assert.deepEqual(attr(spans[0], "freecode.cost_partial"), { boolValue: true });
+  assert.deepEqual(attr(spans[0], "freecode.cost_partial"), {
+    boolValue: true,
+  });
 });
 
 test("cache write tokens reach the export", () => {
@@ -152,6 +179,24 @@ test("cache write tokens reach the export", () => {
   assert.deepEqual(attr(chat, "gen_ai.usage.cache_creation_input_tokens"), {
     intValue: "4096",
   });
+});
+
+test("memory calls are exported and included in the session cost", () => {
+  const spans = spansOf(
+    trace({
+      auxiliarySpans: [auxiliarySpan({ inputTokens: 1_000_000 })],
+      memoryInputTokens: 1_000_000,
+      memory_ms: 200,
+    }),
+  );
+  const memory = spans.find((s) => s.name === "memory retrieval_judge")!;
+  assert.deepEqual(attr(memory, "gen_ai.usage.cost"), { doubleValue: 3 });
+  assert.equal(
+    attr(memory, "freecode.memory_purpose")?.stringValue,
+    "retrieval_judge",
+  );
+  assert.deepEqual(attr(spans[0], "gen_ai.usage.cost"), { doubleValue: 3 });
+  assert.deepEqual(attr(spans[0], "freecode.memory_ms"), { intValue: "200" });
 });
 
 test("a refused call is exported as an errored span, not omitted", () => {
@@ -179,7 +224,9 @@ test("a refused call is exported as an errored span, not omitted", () => {
 test("denied spans do not collide with tool span ids", () => {
   const spans = spansOf(
     trace({
-      toolSpans: [{ tool: "read", callSeq: 1, startedAt: 1100, duration_ms: 10 }],
+      toolSpans: [
+        { tool: "read", callSeq: 1, startedAt: 1100, duration_ms: 10 },
+      ],
       deniedSpans: [{ tool: "edit", at: 1500, source: "mode", reason: "no" }],
     }),
   ) as unknown as Array<{ spanId: string }>;

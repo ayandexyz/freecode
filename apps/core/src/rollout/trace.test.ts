@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { HANG_THRESHOLD_MS, buildTrace } from "./trace.js";
+import { traceCost } from "./cost.js";
 import { renderTrace } from "./trace-render.js";
 import type { RolloutEvent } from "./types.js";
 
@@ -57,6 +58,27 @@ test("pairs a request with its response", () => {
   assert.equal(trace.modelSpans[0].ttft_ms, 500);
   assert.equal(trace.hung, false);
   assert.equal(trace.inputTokens, 12_000);
+});
+
+test("folds memory calls separately and includes them in total cost", () => {
+  const trace = buildTrace("s1", [
+    event("memory.auxiliary", 5000, {
+      turnId: "turn-0",
+      purpose: "retrieval_judge",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      duration_ms: 700,
+      outcome: "succeeded",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+    }),
+  ]);
+  assert.equal(trace.auxiliarySpans.length, 1);
+  assert.equal(trace.auxiliarySpans[0].startedAt, 4300);
+  assert.equal(trace.memory_ms, 700);
+  assert.equal(trace.memoryInputTokens, 1_000_000);
+  assert.equal(traceCost(trace)?.usd, 3);
+  assert.match(renderTrace(trace), /memory.*retrieval_judge/);
 });
 
 test("an unterminated request is a hang, aged against the clock", () => {

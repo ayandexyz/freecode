@@ -349,7 +349,7 @@ async function runTrialIn(
   }
 
   const { JUDGE_CASE_FLOOR } = await import("./gate.js");
-  const { totalUsd } = await import("../providers/pricing.js");
+  const { traceCost } = await import("../rollout/cost.js");
   const echoed = echoedModels(trace);
 
   // A judged case that scored below the floor is a failure; one the judge
@@ -373,7 +373,7 @@ async function runTrialIn(
     durationMs: Date.now() - startedAt,
     inputTokens: trace.inputTokens,
     outputTokens: trace.outputTokens,
-    costUsd: totalUsd(trace.modelSpans)?.usd,
+    costUsd: traceCost(trace)?.usd,
     turns: trace.modelSpans.length,
     repeatedCalls: countRepeatedCalls(trace),
     redirects: trace.redirects,

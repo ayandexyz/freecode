@@ -1,7 +1,7 @@
 # Memory efficiency evaluation and graph explorer improvements
 
 **Date:** 2026-09-25  
-**Status:** In progress — rendering and attribution slice implemented; remaining items proposed  
+**Status:** In progress — rendering, attribution, and auxiliary-cost trace slice implemented; remaining items proposed
 **Audit baseline:** `f7c83321`  
 **Goal:** Establish whether native memory improves completed tasks enough to justify its full token and cost overhead, correct identified gaps, and make `/graph` compact, readable, and useful for inspecting recall.
 
@@ -99,14 +99,14 @@ All work below is pending unless explicitly marked as audit evidence above.
 
 - [x] Introduce a shared core path for metering auxiliary model calls, used by retrieval judging, extraction, final flush, and consolidation.
 - [x] Record operation purpose, originating session/run where available, call ID, resolved provider/model, auth mode, timing, success/failure, and provider-returned usage.
-- [ ] Price calls with existing pricing semantics: unknown price remains unknown; cache-read tokens are not added again to inclusive input usage; auth mode is captured on the call.
+- [x] Price calls with existing pricing semantics: unknown price remains unknown; cache-read tokens are not added again to inclusive input usage; auth mode is captured on the call.
 - [ ] Include successful retries and any reported usage from failed attempts without double counting. Report unavailable usage explicitly.
 - [ ] Attribute project-wide consolidation once to its originating operation, and report how its cost is amortized across a multi-session experiment.
 - [ ] Record per-model-request memory bytes, estimated tokens, selected count, rendered count, rendering mode, retrieval outcome, judge outcome, and whether preparation was fresh, carried, pending, or empty.
 - [ ] Keep estimated memory-block tokens separate from actual provider usage. The total provider input already includes the block; never add the estimate to that total again.
 - [ ] Retain separate counters for unique user-turn exposures and repeated model-request exposures. Repeated exposure is relevant to cost even when the UI notice is deduplicated.
 - [ ] Give evaluation runs a bounded way to drain background memory jobs. Pending work or unknown spend makes the full-cost result incomplete; a timeout must not silently look like savings.
-- [ ] Expose a memory cost breakdown through existing report/trace mechanisms. Keep external quality-grader spend separate from product runtime spend.
+- [x] Expose a memory cost breakdown through existing report/trace mechanisms. Keep external quality-grader spend separate from product runtime spend.
 
 Proposed report categories: main agent, retrieval judge, extraction/final flush, consolidation, and evaluation grader. Final field names and event names must align with rollout/OTLP conventions before implementation.
 
@@ -115,7 +115,10 @@ purpose, provider/model, auth mode, duration, outcome, and provider-reported
 token/cache usage for retrieval judging, extraction, consolidation, and the
 session-end flush. Event IDs identify calls; the rollout aggregate identifies
 the originating session, with the originating turn attached where available.
-Pricing, report aggregation, and background-drain support remain open.
+The trace, terminal waterfall, evaluation trial cost, and OTLP export fold
+these calls separately from foreground agent turns while pricing their combined
+runtime cost with the existing cache and subscription rules. Retry accounting,
+request-level exposure data, and background-drain support remain open.
 
 ### Acceptance criteria
 
