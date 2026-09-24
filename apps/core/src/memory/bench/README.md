@@ -1,4 +1,4 @@
-# Memory recall benchmark
+# Memory benchmarks: recall and injection
 
 Spec: `docs/specs/2026-08-23-memory-consolidation.md` D14.
 
@@ -13,7 +13,76 @@ Loads `corpus/` into a throwaway `MemoryStore`, runs every query through the
 calls the real service on purpose: a benchmark of a reimplementation measures
 the reimplementation.
 
-## Reading the output
+## Injection bench — `pnpm bench:inject`
+
+Spec: `docs/specs/2026-09-25-memory-efficiency-and-graph-explorer.md` §4.
+
+```bash
+pnpm bench:inject                    # judge off, + lifecycle scenarios
+pnpm bench:inject -- --judge=oracle  # perfect-reader ceiling
+pnpm bench:inject -- --verbose       # + per-query rows
+pnpm bench:inject -- --json          # raw numbers
+```
+
+`bench:recall` scores what `retrieve()` ranks; the model never sees that
+list. This bench runs each corpus query through `prepareMemories()` in its own
+session, drains the prefetch, renders the block with the production renderer,
+and scores **what the request carries**. It then runs twelve lifecycle
+scenarios (`scenarios.ts`) over the same production service. A failing
+scenario is printed, not thrown: it is a finding to fix, and each fix also gets
+a regression test next to the code it changes. Zero model calls; `oracle` is a
+labelled ceiling, never a real model.
+
+`bytes on non-gold` is the number that answers "what does the block cost us
+for nothing": bytes on memories that were not relevant, resent on every
+request of the turn. `headers + footer` is the fixed framing.
+
+### Results — 2026-09-25 (fused mode)
+
+| metric | judge off | oracle judge |
+| --- | ---: | ---: |
+| candidate recall | 84.1% | 84.1% |
+| **rendered recall** | 84.1% | 84.1% |
+| full-body recall | 84.1% | 84.1% |
+| rendered precision | 16.1% | 100.0% |
+| abstention accuracy | 0.0% | 100.0% |
+| mean block / request | 1962 B (~490 tok) | 597 B (~149 tok) |
+| bytes on gold | 9.9% | 32.5% |
+| **bytes on non-gold** | **62.5%** | 0.0% |
+| headers + footer | 27.6% | 67.5% |
+| gold dropped by budget | 0 | 0 |
+| prepare p50 / max | 134 / 155 ms | 112 / 161 ms |
+| cold misses | 0 | 0 |
+
+- **The budget is not what loses recall.** Rendered recall equals candidate
+  recall: every gold memory retrieval found reached the block. The 16% miss is
+  retrieval's.
+- **With the judge off, the block is mostly waste.** It fills the 2 KB cap on
+  nearly every request, and 62.5% of those bytes are memories that did not
+  apply. A perfect filter cuts the block by 70% (1962 → 597 B), and then the
+  fixed header + footer is two thirds of what is left.
+- **The cold wait overruns its budget.** `COLD_BUDGET_MS` is 60, but the first
+  `prepareMemories` of a session blocks 110–160 ms, so synchronous work runs
+  before the race starts.
+
+Lifecycle scenarios, 7/12 pass:
+
+| scenario | result |
+| --- | --- |
+| first message, fast retrieval | pass |
+| retrieval slower than the cold budget | pass |
+| same-topic follow-up (1 judge call) | pass |
+| abrupt topic switch | pass |
+| repeated identical prompt (1 judge call) | pass |
+| memory edited mid-session | **FAIL**: the next request still carries the pre-edit text |
+| memory deleted mid-session | **FAIL**: the deleted memory is still injected |
+| memory superseded | **FAIL**: both the obsolete and the replacement are injected |
+| duplicates competing for budget | **FAIL**: five filler notes out-rank the fact, which loses its body |
+| judge outage | pass (fails closed) |
+| malformed verdict | pass (fails closed) |
+| secret file written outside the writers | **FAIL**: the secret reaches the model-bound block |
+
+## Recall bench: reading the output
 
 The `mode` column says which retrieval path produced the numbers. `fastembed`
 is an optional dependency, so a machine without it benchmarks the **lexical

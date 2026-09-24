@@ -94,6 +94,34 @@ drops alpha — a screenshot is fine, a copied transparent PNG comes back matted
 Chrome and the Snipping Tool also publish a `PNG` clipboard format; preferring
 `GetDataObject().GetData('PNG')` when present would preserve the original bytes.
 
+## Memory injection bugs found by `pnpm bench:inject` (2026-09-25)
+
+Each is a failing lifecycle scenario in `memory/bench/scenarios.ts`, reproduced
+on every bench run. Fix one at a time, add a regression test next to the fixed
+code, and update the scenario table in `memory/bench/README.md`. Spec
+`2026-09-25-memory-efficiency-and-graph-explorer.md` §4.3.
+
+- [ ] **Edited memory keeps its old text.** `MemoryGraphService.onChange`
+      (`memory/graph/index.ts`) updates vectors and the graph but never a
+      session's stash, and a resolved query is not re-fetched, so the pre-edit
+      `MemoryEntry` is injected for the rest of the topic.
+- [ ] **Deleted memory keeps being injected.** Same cause as above.
+- [ ] **Superseded memory injected beside its replacement.** The graph walk
+      treats the `supersedes` edge as a neighbour; the obsolete entry should be
+      excluded from automatic injection (kept inspectable).
+- [ ] **Secret filter misses the model-bound path.** `containsSecret` guards
+      embedding and explorer detail only. A memory file with a key, written
+      outside the normal writers, reaches the prompt through BM25. Filter at
+      render or retrieval.
+- [ ] **Cold wait overruns its budget.** `COLD_BUDGET_MS` is 60, but the first
+      `prepareMemories` per session blocks 110–160 ms, so synchronous work runs
+      before the `Promise.race`. Find it (likely embedding or BM25 build) and
+      move it behind the race.
+- [ ] **Near-duplicates crowd out the relevant fact.** Five filler notes
+      out-rank a directly matching memory, which then loses its body. A ranking
+      question, not a correctness bug: decide duplicate suppression vs
+      accepting it (then record in `docs/DECISIONS.md`).
+
 ## Docs-audit findings (memory, sessions, knowledge graph — 2026-08-23)
 
 Found while writing `apps/docs/app/internals/{memory,sessions,knowledge-graph}`.

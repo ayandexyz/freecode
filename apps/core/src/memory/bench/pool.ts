@@ -20,7 +20,7 @@ import type { BenchQueryResult } from "./metrics.js";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CORPUS_DIR = path.join(HERE, "corpus");
 
-interface CorpusMemory {
+export interface CorpusMemory {
   type: MemoryType;
   name: string;
   description: string;
@@ -87,7 +87,7 @@ export function withTempStore<T>(fn: (store: MemoryStore) => T): T {
   }
 }
 
-function toEntry(m: CorpusMemory): MemoryEntry {
+export function toEntry(m: CorpusMemory): MemoryEntry {
   const now = Date.now();
   return {
     name: m.name,
@@ -130,11 +130,8 @@ export async function buildPool(
     throw new Error(`corpus is invalid:\n  ${problems.join("\n  ")}`);
   }
 
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mem-bench-"));
-  const store = new MemoryStore(dir);
-  const service = new MemoryGraphService(store);
+  const { service, cleanup } = openBenchStore(memories.map(toEntry));
   try {
-    for (const m of memories) store.save(toEntry(m));
 
     const out: BenchQueryResult[] = [];
     for (const q of queries) {
@@ -157,12 +154,38 @@ export async function buildPool(
     }
     return out;
   } finally {
-    service.dispose();
-    fs.rmSync(store.getMemoryDir(), { recursive: true, force: true });
-    fs.rmSync(path.dirname(store.getMemoryDir()), {
-      recursive: true,
-      force: true,
-    });
-    fs.rmSync(dir, { recursive: true, force: true });
+    cleanup();
   }
+}
+
+export interface BenchStore {
+  store: MemoryStore;
+  service: MemoryGraphService;
+  /** Dispose the service and delete every directory the store created. */
+  cleanup: () => void;
+}
+
+/**
+ * A seeded throwaway store plus a production graph service over it. The store
+ * lives under `~/.freecode/projects/<temp path>/`, so cleanup removes that too:
+ * a bench must never leave anything behind in the real home directory.
+ */
+export function openBenchStore(entries: MemoryEntry[]): BenchStore {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mem-bench-"));
+  const store = new MemoryStore(dir);
+  for (const e of entries) store.save(e);
+  const service = new MemoryGraphService(store);
+  return {
+    store,
+    service,
+    cleanup: () => {
+      service.dispose();
+      fs.rmSync(store.getMemoryDir(), { recursive: true, force: true });
+      fs.rmSync(path.dirname(store.getMemoryDir()), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }

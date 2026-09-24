@@ -182,6 +182,33 @@ D12–D14). These are actionable independently of that spec's phases.
   bounds the call rate. jcode treats the *absence* of the judge as a measured
   degradation (`memory_judge_metrics.rs`). Revisit once D14 reports a baseline.
 
+## Memory graph explorer (moved out of the memory-efficiency spec, 2026-09-25)
+
+Presentation only: none of this changes what is injected or what it costs.
+Measured state at audit: 79 nodes, 6 disconnected components (27/16/16/11/6/3),
+68 of 75 edges are cluster memberships.
+
+- [ ] **Layout.** Repulsion `-180`, link distance `60`, strength `0.5`, and
+      `forceCenter` only translates, so components drift apart. Add gentle
+      `forceX`/`forceY` attraction and size-aware component packing; make link
+      distance intentional per edge type, or delete the comment claiming
+      weight-dependent distance (it is not implemented).
+- [ ] **Real fit-to-view.** `fitToView()` recentres and reheats but never fits
+      bounds. Fit after settling and on reset, accounting for the detail
+      panel; handle resize without restarting the layout.
+- [ ] **Navigation.** One/two-hop local view of a selected memory, node/edge
+      filters, labels by zoom/hover/selection, cluster hubs hidden by default
+      with an inspect toggle, keyboard focus states.
+- [ ] **Honest search labels.** Explorer search bypasses the judge, session
+      carry, episode decay, and the byte budget; label results "retrieval
+      candidates", not "what was injected".
+- [ ] **Injection inspector.** Show a recorded request's candidates, judge
+      outcome, rendered subset, and budget drops, read from recorded state
+      only (opening the page must never trigger a paid judge call).
+
+Ships via `graph-ui.tar.gz` + `freecode memory ui-install`; a source-only
+change does not reach installed binaries.
+
 ## Long-running sessions (OpenHands comparison — 2026-09-01)
 
 Found while reading the `OpenHands/OpenHands` Agent Canvas frontend (`ca4024e3a`)
