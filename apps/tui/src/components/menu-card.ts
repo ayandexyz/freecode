@@ -57,6 +57,16 @@ const PAGE = 6;
 const CHROME_ROWS = 4;
 const HINT = " ↑↓ move · → open · ← back · esc ";
 
+// eslint-disable-next-line no-control-regex
+const stripSgr = (text: string): string => text.replace(/\x1b\[[0-9;]*m/g, "");
+
+/**
+ * Clip plain text to `width` with an ellipsis. pi-tui's truncateToWidth
+ * writes a full reset before its ellipsis, which would end the selection
+ * band early, so the codes are stripped — the input carries none.
+ */
+const fit = (text: string, width: number): string => stripSgr(truncateToWidth(text, width));
+
 /**
  * The Omarchy menu, drawn in the terminal — used by the `/` command menu and
  * the /model and /web pickers. A header that reads `<Title>…` until you type,
@@ -204,13 +214,18 @@ export class MenuCard<R extends MenuRow> implements Component {
 
   private renderRow(row: R, selected: boolean, inner: number): string {
     const icon = this.icons ? `${row.icon || " "}  ` : "";
-    const right = `${row.status ? ` ${row.status}` : ""}${row.opens ? " ›" : ""} `;
+    // The selection band is painted over plain text: a pre-painted status
+    // would close the selection foreground mid-row.
+    const status = row.status ? ` ${selected ? stripSgr(row.status) : row.status}` : "";
+    const right = `${status}${row.opens ? " ›" : ""} `;
+    // Fit the label here, not in the card's line clip: that clip appends its
+    // `…` after the paint has closed, so the ellipsis fell outside the band.
+    const left = fit(` ${icon}${row.label}`, Math.max(1, inner - visibleWidth(right)));
     // Descriptions only while searching, as in the desktop menu: browsing is
     // by name, a search result needs to say what it is.
     const detail = this.query && row.description ? `  ${row.description}` : "";
-    const left = ` ${icon}${row.label}`;
     const room = inner - visibleWidth(left) - visibleWidth(right);
-    const desc = room > 3 && detail ? truncateToWidth(detail, room - 1) : "";
+    const desc = room > 3 && detail ? fit(detail, room - 1) : "";
     const gap = " ".repeat(Math.max(0, inner - visibleWidth(left) - visibleWidth(desc) - visibleWidth(right)));
     if (selected) {
       return palette.bgSelection(palette.fgSelection(`${left}${desc}${gap}${right}`));

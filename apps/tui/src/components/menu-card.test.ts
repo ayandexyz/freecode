@@ -131,3 +131,18 @@ test("status stays right-aligned inside the card", () => {
   assert.match(row, /✓ │$/);
   for (const line of card.render(40)) assert.equal(visibleWidth(line), 40);
 });
+
+test("the selection band covers a truncated row to the border, ellipsis included", () => {
+  const rows = [
+    { id: "cf", label: "Cloudflare Workers AI Gateway Extended", status: "\x1b[32mnot configured\x1b[39m" },
+  ];
+  const card = new MenuCard(new ListSource("Provider", rows), () => 30, false);
+  const row = card.render(40).find((l) => plain(l).includes("Cloudflare"))!;
+  // The band opens once and closes once, and everything between the two
+  // borders — ellipsis and status included — sits inside it.
+  const band = row.slice(row.indexOf("\x1b[48;"), row.indexOf("\x1b[49m"));
+  assert.doesNotMatch(band, /\x1b\[0m/);
+  assert.equal(visibleWidth(band), 38);
+  assert.match(plain(band), /\.\.\. not configured $/);
+  assert.equal(visibleWidth(row), 40);
+});
