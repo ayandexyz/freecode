@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { SlashMenu } from "./slash-menu.js";
+import { ListSource, MenuCard } from "./menu-card.js";
 import { SlashMenuModel, type MenuCommand } from "./slash-menu-model.js";
 
 function plain(line: string): string {
@@ -25,9 +25,9 @@ const LEFT = "\x1b[D";
 const BACKSPACE = "\x7f";
 
 function setup() {
-  const menu = new SlashMenu(new SlashMenuModel(COMMANDS), () => 30, false);
+  const menu = new MenuCard(new SlashMenuModel(COMMANDS), () => 30, false);
   const events: string[] = [];
-  menu.onRun = (c) => events.push(`run:${c.name}`);
+  menu.onPick = (r) => events.push(`run:${r.command?.name}`);
   menu.onClose = () => events.push("close");
   menu.onHandBack = (t) => events.push(`back:${t}`);
   return { menu, events, text: () => menu.render(50).map(plain).join("\n") };
@@ -92,4 +92,42 @@ test("enter with no match hands the query back; backspace at root closes", () =>
   const fresh = setup();
   fresh.menu.handleInput(BACKSPACE);
   assert.deepEqual([...events, ...fresh.events], ["back:/zzz", "close"]);
+});
+
+function listSetup() {
+  const rows = [
+    { id: "claude-opus", label: "Claude Opus", status: "✓" },
+    { id: "gpt/5", label: "GPT 5", description: "openai flagship" },
+  ];
+  const card = new MenuCard(new ListSource("Anthropic", rows), () => 30, false);
+  const events: string[] = [];
+  card.onPick = (r) => events.push(`pick:${r.id}`);
+  card.onBack = () => events.push("back");
+  card.onClose = () => events.push("close");
+  return { card, events, text: () => card.render(40).map(plain).join("\n") };
+}
+
+test("a list card titles itself and keeps / and spaces in the query", () => {
+  const { card, events, text } = listSetup();
+  assert.match(text(), /Anthropic…/);
+  for (const ch of "gpt/") card.handleInput(ch);
+  card.handleInput(ENTER);
+  assert.deepEqual(events, ["pick:gpt/5"]);
+});
+
+test("a list card searches descriptions and backs out through onBack", () => {
+  const { card, events, text } = listSetup();
+  for (const ch of "flag") card.handleInput(ch);
+  assert.match(text(), /GPT 5/);
+  assert.doesNotMatch(text(), /Claude Opus/);
+  card.handleInput(ESC);
+  card.handleInput(LEFT);
+  assert.deepEqual(events, ["back"]);
+});
+
+test("status stays right-aligned inside the card", () => {
+  const { card } = listSetup();
+  const row = card.render(40).map(plain).find((l) => l.includes("Claude Opus"))!;
+  assert.match(row, /✓ │$/);
+  for (const line of card.render(40)) assert.equal(visibleWidth(line), 40);
 });

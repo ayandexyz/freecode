@@ -9,7 +9,48 @@ import {
 } from "@earendil-works/pi-tui";
 import { palette } from "../palette.js";
 import { isPrintable } from "./searchable-select-list.js";
-import type { MenuCommand, MenuRow, SlashMenuModel } from "./slash-menu-model.js";
+
+export interface MenuRow {
+  id: string;
+  label: string;
+  icon?: string;
+  /** Opens the submenu `id` instead of being picked. */
+  opens?: boolean;
+  /** Dim text after the label, shown only while searching. */
+  description?: string;
+  /** Right-aligned and always shown, already painted — a provider's status. */
+  status?: string;
+}
+
+/** What a card lists: a root (`null`) with optional submenus, and a search. */
+export interface MenuSource<R extends MenuRow> {
+  title(group: string | null): string;
+  rows(group: string | null): R[];
+  search(query: string): R[];
+}
+
+/** A flat list with a label/description/id substring search. */
+export class ListSource<R extends MenuRow> implements MenuSource<R> {
+  constructor(
+    private readonly heading: string,
+    private readonly items: R[],
+  ) {}
+
+  title(): string {
+    return this.heading;
+  }
+
+  rows(): R[] {
+    return this.items;
+  }
+
+  search(query: string): R[] {
+    const q = query.trim().toLowerCase();
+    return this.items.filter((r) =>
+      [r.label, r.id, r.description ?? ""].some((s) => s.toLowerCase().includes(q)),
+    );
+  }
+}
 
 const PAGE = 6;
 /** Rows the card costs besides the list: borders, header, and the blank under it. */
@@ -17,38 +58,41 @@ const CHROME_ROWS = 4;
 const HINT = " ↑↓ move · → open · ← back · esc ";
 
 /**
- * The `/` menu — the Omarchy menu, drawn in the terminal. A header that reads
- * `Go…` until you type, then shows the query; category rows that open with
- * `›`; a search that flattens every command into one ranked list. Esc clears
- * the query first and closes second, ← / backspace step back out of a
- * category, exactly as the desktop menu does.
+ * The Omarchy menu, drawn in the terminal — used by the `/` command menu and
+ * the /model and /web pickers. A header that reads `<Title>…` until you type,
+ * then shows the query; rows that open a submenu end in `›`; a search
+ * flattens the source into one ranked list. Esc clears the query first and
+ * closes second, ← / backspace step back out, exactly as the desktop menu
+ * does.
  *
- * Typing past what the menu can match hands the text back to the editor:
- * `/home/me/repo fix this` is a prompt, not a command, so a `/` or a space in
- * the query, or Enter with no match, closes the menu and leaves `/<query>` in
- * the composer.
+ * With `onHandBack` set (the `/` menu), typing past what the menu can match
+ * gives the text back to the editor: `/home/me/repo fix this` is a prompt,
+ * not a command, so a `/` or a space in the query, or Enter with no match,
+ * closes the card and leaves `/<query>` in the composer.
  */
-export class SlashMenu implements Component {
+export class MenuCard<R extends MenuRow> implements Component {
   private group: string | null = null;
   private query = "";
   private cursor = 0;
   private scroll = 0;
 
-  /** A leaf was chosen. */
-  onRun?: (command: MenuCommand) => void;
-  /** Closed without running anything. */
+  /** A row without `opens` was chosen. */
+  onPick?: (row: R) => void;
+  /** Closed without picking anything. */
   onClose?: () => void;
+  /** Back out of the root; defaults to closing. */
+  onBack?: () => void;
   /** The query is not a menu search after all — put it in the editor. */
   onHandBack?: (text: string) => void;
 
   constructor(
-    private readonly model: SlashMenuModel,
+    private readonly source: MenuSource<R>,
     private readonly maxRows: () => number,
     private readonly icons: boolean,
   ) {}
 
-  private rows(): MenuRow[] {
-    return this.query ? this.model.search(this.query) : this.model.rows(this.group);
+  private rows(): R[] {
+    return this.query ? this.source.search(this.query) : this.source.rows(this.group);
   }
 
   private setQuery(query: string): void {
@@ -64,7 +108,7 @@ export class SlashMenu implements Component {
 
   private back(): void {
     if (this.group === null) {
-      this.onClose?.();
+      (this.onBack ?? this.onClose)?.();
       return;
     }
     const from = this.group;
@@ -78,8 +122,8 @@ export class SlashMenu implements Component {
       if (this.query) this.onHandBack?.(`/${this.query}`);
       return;
     }
-    if (row.command) this.onRun?.(row.command);
-    else this.open(row.id);
+    if (row.opens) this.open(row.id);
+    else this.onPick?.(row);
   }
 
   private move(delta: number, wrap: boolean): void {
@@ -117,8 +161,8 @@ export class SlashMenu implements Component {
     const kitty = decodeKittyPrintable(data);
     const text = kitty !== undefined ? kitty : isPrintable(data) ? data : undefined;
     if (!text) return;
-    if (/[\s/]/.test(text)) {
-      this.onHandBack?.(`/${this.query}${text}`);
+    if (this.onHandBack && /[\s/]/.test(text)) {
+      this.onHandBack(`/${this.query}${text}`);
       return;
     }
     this.setQuery(this.query + text);
@@ -136,7 +180,7 @@ export class SlashMenu implements Component {
 
     const header = this.query
       ? palette.fgBright(this.query) + palette.accent("▏")
-      : palette.muted(`${this.model.title(this.group)}…`);
+      : palette.muted(`${this.source.title(this.group)}…`);
     const out = [palette.accent("╭" + "─".repeat(inner) + "╮"), line(`  ${header}`), line("")];
 
     const rows = this.rows();
@@ -145,7 +189,10 @@ export class SlashMenu implements Component {
     if (this.cursor >= this.scroll + visible) this.scroll = this.cursor - visible + 1;
     this.scroll = Math.min(this.scroll, Math.max(0, rows.length - visible));
 
-    if (rows.length === 0) out.push(line(palette.muted("  No matching command — enter to send as text")));
+    if (rows.length === 0) {
+      const empty = this.onHandBack ? "No matching command — enter to send as text" : "No match";
+      out.push(line(palette.muted(`  ${empty}`)));
+    }
     rows.slice(this.scroll, this.scroll + visible).forEach((row, i) => {
       out.push(line(this.renderRow(row, this.scroll + i === this.cursor, inner)));
     });
@@ -155,20 +202,19 @@ export class SlashMenu implements Component {
     return out;
   }
 
-  private renderRow(row: MenuRow, selected: boolean, inner: number): string {
+  private renderRow(row: R, selected: boolean, inner: number): string {
     const icon = this.icons ? `${row.icon || " "}  ` : "";
-    const label = row.command?.argHint ? `${row.label} ${row.command.argHint}` : row.label;
-    const trail = row.command ? "" : "›";
-    // Descriptions only while searching, as in the desktop menu: browsing a
-    // category is by name, a search result needs to say what it does.
-    const detail = this.query && row.command ? `  ${row.command.description}` : "";
-    const left = ` ${icon}${label}`;
-    const room = inner - 1 - visibleWidth(left) - trail.length - 1;
-    const desc = room > 3 && detail ? truncateToWidth(detail, room) : "";
-    const gap = " ".repeat(Math.max(1, inner - visibleWidth(left) - visibleWidth(desc) - trail.length - 1));
+    const right = `${row.status ? ` ${row.status}` : ""}${row.opens ? " ›" : ""} `;
+    // Descriptions only while searching, as in the desktop menu: browsing is
+    // by name, a search result needs to say what it is.
+    const detail = this.query && row.description ? `  ${row.description}` : "";
+    const left = ` ${icon}${row.label}`;
+    const room = inner - visibleWidth(left) - visibleWidth(right);
+    const desc = room > 3 && detail ? truncateToWidth(detail, room - 1) : "";
+    const gap = " ".repeat(Math.max(0, inner - visibleWidth(left) - visibleWidth(desc) - visibleWidth(right)));
     if (selected) {
-      return palette.bgSelection(palette.fgSelection(`${left}${desc}${gap}${trail} `));
+      return palette.bgSelection(palette.fgSelection(`${left}${desc}${gap}${right}`));
     }
-    return `${left}${palette.muted(desc)}${gap}${palette.muted(trail)} `;
+    return `${left}${palette.muted(desc)}${gap}${palette.muted(right)}`;
   }
 }

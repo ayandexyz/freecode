@@ -1,12 +1,14 @@
 /**
  * The `/` menu's content, shaped like the Omarchy menu: a root of categories
  * that drill down into commands, plus a search across every command. Pure
- * data — the card that draws it is `slash-menu.ts`.
+ * data — the card that draws it is `menu-card.ts`.
  *
  * Commands are grouped here by name rather than carrying a group field, so a
  * prompt command from core (skills, extensions, user commands) needs no
  * protocol change: anything not listed lands under "Prompts".
  */
+
+import type { MenuRow, MenuSource } from "./menu-card.js";
 
 export interface MenuCommand {
   name: string;
@@ -14,12 +16,8 @@ export interface MenuCommand {
   argHint?: string;
 }
 
-export interface MenuRow {
-  /** Stable key: the group id for a submenu, the command name for a leaf. */
-  id: string;
-  label: string;
-  icon: string;
-  /** Present on a leaf; a row without one opens the group `id`. */
+/** A group row opens its id; a leaf carries the command it runs. */
+export interface SlashRow extends MenuRow {
   command?: MenuCommand;
 }
 
@@ -71,16 +69,17 @@ const LEAF_ICONS: Record<string, string> = {
 
 const GROUPED = new Set(GROUPS.flatMap((g) => g.commands));
 
-function leaf(command: MenuCommand): MenuRow {
+function leaf(command: MenuCommand): SlashRow {
   return {
     id: command.name,
-    label: command.name,
+    label: command.argHint ? `${command.name} ${command.argHint}` : command.name,
     icon: LEAF_ICONS[command.name] ?? "",
+    description: command.description,
     command,
   };
 }
 
-export class SlashMenuModel {
+export class SlashMenuModel implements MenuSource<SlashRow> {
   private readonly byName: Map<string, MenuCommand>;
 
   constructor(private readonly commands: MenuCommand[]) {
@@ -107,11 +106,11 @@ export class SlashMenuModel {
   }
 
   /** Rows of the root (`null`) or of one group. Empty groups are hidden. */
-  rows(groupId: string | null): MenuRow[] {
+  rows(groupId: string | null): SlashRow[] {
     if (groupId !== null) return this.groupCommands(groupId).map(leaf);
     const groups = [...GROUPS, PROMPTS]
       .filter((g) => this.groupCommands(g.id).length > 0)
-      .map((g) => ({ id: g.id, label: g.label, icon: g.icon }));
+      .map((g) => ({ id: g.id, label: g.label, icon: g.icon, opens: true }));
     const leaves = Object.keys(ROOT_LEAVES).flatMap((name) => {
       const c = this.byName.get(name);
       return c ? [leaf(c)] : [];
@@ -124,7 +123,7 @@ export class SlashMenuModel {
    * query, then one that contains it, then a description word that starts with
    * it. Groups are never results — search is a list of things you can run.
    */
-  search(query: string): MenuRow[] {
+  search(query: string): SlashRow[] {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     const score = (c: MenuCommand): number => {
