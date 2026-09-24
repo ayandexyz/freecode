@@ -17,6 +17,7 @@ import { shouldExtract } from "./extract-policy.js";
 import { allowsAuxiliaryCalls } from "../providers/index.js";
 import type { ProviderId } from "../providers/index.js";
 import { logger } from "../utils/logger.js";
+import type { MemoryAuxiliaryObserver } from "./auxiliary.js";
 
 // Matches the loop's own transcript budget: enough to judge durability without
 // paying for a whole session.
@@ -64,6 +65,8 @@ export interface FinalFlushInput {
   projectPath: string;
   provider: string;
   messages: TranscriptMessage[];
+  /** Reports the extraction call as a session-end flush. */
+  onAuxiliaryCall?: MemoryAuxiliaryObserver;
 }
 
 /**
@@ -111,6 +114,8 @@ export async function flushSessionMemory(
       projectPath: input.projectPath,
       provider: input.provider,
       sessionId: input.sessionId,
+      onAuxiliaryCall: (call) =>
+        input.onAuxiliaryCall?.({ ...call, purpose: "final_flush" }),
     });
   } catch (error) {
     logger.debug("[MemoryFlush] failed", { error });

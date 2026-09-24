@@ -23,6 +23,7 @@ import { deriveGraph, graphSignature, memoryId } from "./builder.js";
 import { cascadeRetrieve } from "./cascade.js";
 import { computeClusters } from "./clusters.js";
 import { containsSecret } from "./secret-filter.js";
+import type { MemoryAuxiliaryObserver } from "../auxiliary.js";
 import type { GraphEdge, GraphNode, RetrievalResult } from "./graph-types.js";
 
 const GRAPH_DIR = ".graph";
@@ -50,6 +51,8 @@ export interface JudgeContext {
   model?: string;
   /** Test seam, forwarded to judgeMemories. */
   complete?: (system: string, prompt: string) => Promise<string>;
+  /** Reports real retrieval-judge provider calls to the owning agent loop. */
+  onAuxiliaryCall?: MemoryAuxiliaryObserver;
 }
 
 // Per-session prepared-memory cache (one-turn-behind state).
@@ -710,7 +713,9 @@ export class MemoryGraphService {
 
     if (st.judgedIds) {
       this.lastDecision = "cadence_carry";
-      return candidates.filter((e) => st.judgedIds?.has(memoryId(e.type, e.name)));
+      return candidates.filter((e) =>
+        st.judgedIds?.has(memoryId(e.type, e.name)),
+      );
     }
 
     const { kept, decision } = await judgeMemories({
@@ -719,6 +724,7 @@ export class MemoryGraphService {
       provider: ctx.provider,
       model: ctx.model,
       complete: ctx.complete,
+      onAuxiliaryCall: ctx.onAuxiliaryCall,
     });
     this.lastDecision = decision;
     // Only cache a verdict the judge actually produced. Caching a failure
@@ -771,8 +777,7 @@ export class MemoryGraphService {
       EPISODE_DECAY_FLOOR + 0.15 * Math.log(uses + 1),
     );
     return (
-      score *
-      Math.max(floor, Math.pow(0.5, ageDays / EPISODE_HALF_LIFE_DAYS))
+      score * Math.max(floor, Math.pow(0.5, ageDays / EPISODE_HALF_LIFE_DAYS))
     );
   }
 

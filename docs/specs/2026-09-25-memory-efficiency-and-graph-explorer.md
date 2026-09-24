@@ -97,8 +97,8 @@ All work below is pending unless explicitly marked as audit evidence above.
 
 ### Required changes
 
-- [ ] Introduce a shared core path for metering auxiliary model calls, used by retrieval judging, extraction, final flush, and consolidation.
-- [ ] Record operation purpose, originating session/run where available, call ID, resolved provider/model, auth mode, timing, success/failure, and provider-returned usage.
+- [x] Introduce a shared core path for metering auxiliary model calls, used by retrieval judging, extraction, final flush, and consolidation.
+- [x] Record operation purpose, originating session/run where available, call ID, resolved provider/model, auth mode, timing, success/failure, and provider-returned usage.
 - [ ] Price calls with existing pricing semantics: unknown price remains unknown; cache-read tokens are not added again to inclusive input usage; auth mode is captured on the call.
 - [ ] Include successful retries and any reported usage from failed attempts without double counting. Report unavailable usage explicitly.
 - [ ] Attribute project-wide consolidation once to its originating operation, and report how its cost is amortized across a multi-session experiment.
@@ -109,6 +109,13 @@ All work below is pending unless explicitly marked as audit evidence above.
 - [ ] Expose a memory cost breakdown through existing report/trace mechanisms. Keep external quality-grader spend separate from product runtime spend.
 
 Proposed report categories: main agent, retrieval judge, extraction/final flush, consolidation, and evaluation grader. Final field names and event names must align with rollout/OTLP conventions before implementation.
+
+**Implemented 2026-09-25:** `memory.auxiliary` rollout events now capture the
+purpose, provider/model, auth mode, duration, outcome, and provider-reported
+token/cache usage for retrieval judging, extraction, consolidation, and the
+session-end flush. Event IDs identify calls; the rollout aggregate identifies
+the originating session, with the originating turn attached where available.
+Pricing, report aggregation, and background-drain support remain open.
 
 ### Acceptance criteria
 

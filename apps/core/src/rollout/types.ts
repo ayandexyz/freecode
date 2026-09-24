@@ -42,6 +42,7 @@ export type RolloutEvent =
   | ModelFirstTokenEvent
   | ModelResponseEvent
   | ModelErrorEvent
+  | MemoryAuxiliaryEvent
   | RedirectTriggeredEvent
   | RedirectSkippedEvent
   | PokeTriggeredEvent
@@ -259,6 +260,29 @@ export interface ModelErrorEvent extends BaseEvent {
   error: string;
 }
 
+/**
+ * A provider call made by persistent-memory maintenance or retrieval. It is
+ * deliberately distinct from `model.response`: these calls may complete after
+ * the foreground model turn and must be included in memory cost reports
+ * without changing the turn's prompt/response accounting.
+ */
+export interface MemoryAuxiliaryEvent extends BaseEvent {
+  type: "memory.auxiliary";
+  turnId?: string;
+  purpose: "retrieval_judge" | "extraction" | "consolidation" | "final_flush";
+  provider: string;
+  model?: string;
+  duration_ms: number;
+  outcome: "succeeded" | "failed";
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  /** Auth mode captured when the auxiliary call completed. */
+  authMode?: "oauth";
+}
+
 // ============================================================================
 // Trajectory redirection events
 // (spec 2026-08-26-trajectory-redirection.md, §6)
@@ -409,7 +433,12 @@ export interface CheckpointCapturedEvent extends BaseEvent {
 
 export interface CheckpointSkippedEvent extends BaseEvent {
   type: "checkpoint.skipped";
-  reason: "disabled" | "not_a_git_repo" | "capture_failed" | "subagent" | "synthetic";
+  reason:
+    | "disabled"
+    | "not_a_git_repo"
+    | "capture_failed"
+    | "subagent"
+    | "synthetic";
 }
 
 export interface CheckpointRestoredEvent extends BaseEvent {

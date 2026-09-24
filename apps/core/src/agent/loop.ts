@@ -130,6 +130,7 @@ import { runConsolidationIfDue } from "../memory/consolidate-run.js";
 import { getSessionManager } from "../session/manager.js";
 import type { MemoryEntry } from "../memory/mem-types.js";
 import { extractMemories } from "../memory/extract.js";
+import type { MemoryAuxiliaryCall } from "../memory/auxiliary.js";
 import { loadMemorySettings, shouldExtract } from "../memory/extract-policy.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
 import type { CompactOptions } from "../compaction/service.js";
@@ -1588,11 +1589,13 @@ export class AgentLoop {
       return;
     }
 
+    const turnId = `turn-${this.state.turnCount}`;
     void extractMemories({
       transcript: text,
       projectPath: this.state.projectPath,
       provider,
       sessionId: this.state.sessionId,
+      onAuxiliaryCall: (call) => this.recordMemoryAuxiliary(turnId, call),
       // No model: extraction is a small classification job, so let the provider
       // pick its default rather than billing the session's (possibly large)
       // main model for it.
@@ -1607,6 +1610,7 @@ export class AgentLoop {
   private kickMemoryConsolidation(provider: string): void {
     if (!this.memoryExtraction || this.abort.signal.aborted) return;
 
+    const turnId = `turn-${this.state.turnCount}`;
     void (async () => {
       try {
         const manager = await getSessionManager();
@@ -1622,11 +1626,33 @@ export class AgentLoop {
             lastTurnAt: m.lastTurnAt,
             turnCount: m.turnCount,
           })),
+          onAuxiliaryCall: (call) => this.recordMemoryAuxiliary(turnId, call),
         });
       } catch (error) {
         logger.debug("[MemoryConsolidate] could not start", { error });
       }
     })();
+  }
+
+  private recordMemoryAuxiliary(
+    turnId: string | undefined,
+    call: MemoryAuxiliaryCall,
+  ): void {
+    this.recorder.recordMemoryAuxiliary(turnId, {
+      purpose: call.purpose,
+      provider: call.provider,
+      model: call.model,
+      duration_ms: call.duration_ms,
+      outcome: call.outcome,
+      inputTokens: call.usage?.inputTokens,
+      outputTokens: call.usage?.outputTokens,
+      cacheReadTokens: call.usage?.cacheReadInputTokens,
+      cacheWriteTokens:
+        call.usage?.cacheWriteInputTokens ??
+        call.usage?.cacheCreationInputTokens,
+      reasoningTokens: call.usage?.reasoningTokens,
+      authMode: subscriptionAuth(call.provider),
+    });
   }
 
   private async executeTurn(
@@ -1720,10 +1746,21 @@ export class AgentLoop {
       const judgeEnabled =
         loadMemorySettings(context.projectPath).retrievalJudge &&
         allowsAuxiliaryCalls(provider as ProviderId);
+      // The judge is asynchronous and can finish after later turns begin, so
+      // capture its originating turn rather than reading mutable loop state in
+      // the callback.
+      const memoryTurnId = `turn-${this.state.turnCount}`;
       const retrievedMemories = await memGraph.prepareMemories(
         this.state.sessionId,
         currentUserText,
-        judgeEnabled ? { provider, model } : undefined,
+        judgeEnabled
+          ? {
+              provider,
+              model,
+              onAuxiliaryCall: (call) =>
+                this.recordMemoryAuxiliary(memoryTurnId, call),
+            }
+          : undefined,
       );
       const renderedMemories =
         renderRetrievedMemoriesDetailed(retrievedMemories);

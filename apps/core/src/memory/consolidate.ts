@@ -27,6 +27,7 @@ import {
 import { containsSecret } from "./graph/secret-filter.js";
 import { BusEvents } from "../bus/index.js";
 import { logger } from "../utils/logger.js";
+import type { MemoryAuxiliaryObserver } from "./auxiliary.js";
 
 export const MAX_MERGES = 5;
 export const MAX_PROMOTES = 3;
@@ -103,6 +104,8 @@ export interface ConsolidateInput {
   sessionId?: string;
   /** Test seam. */
   complete?: (system: string, prompt: string) => Promise<string>;
+  /** Reports provider usage when this path makes a real auxiliary call. */
+  onAuxiliaryCall?: MemoryAuxiliaryObserver;
 }
 
 export interface ConsolidationResult {
@@ -155,7 +158,8 @@ export function parsePlan(raw: string): ConsolidationPlan | null {
       const supersedes = Array.isArray(m.supersedes)
         ? m.supersedes.map(str).filter((s): s is string => s !== null)
         : [];
-      if (!into || !description || !content || supersedes.length === 0) continue;
+      if (!into || !description || !content || supersedes.length === 0)
+        continue;
       // Superseding yourself is a no-op that would delete the survivor.
       merges.push({
         into,
@@ -215,14 +219,34 @@ async function oneShot(
 ): Promise<string> {
   const provider = getProvider(input.provider as ProviderId);
   if (!provider) throw new Error("no provider");
-  const result = await provider.execute({
-    prompt,
-    system,
-    model: input.model,
-    quietModelFallback: true,
-    maxTokens: 2048,
-  });
-  return result.content ?? "";
+  const startedAt = Date.now();
+  try {
+    const result = await provider.execute({
+      prompt,
+      system,
+      model: input.model,
+      quietModelFallback: true,
+      maxTokens: 2048,
+    });
+    input.onAuxiliaryCall?.({
+      purpose: "consolidation",
+      provider: input.provider,
+      model: result.model || input.model,
+      duration_ms: Date.now() - startedAt,
+      outcome: "succeeded",
+      usage: result.usage,
+    });
+    return result.content ?? "";
+  } catch (error) {
+    input.onAuxiliaryCall?.({
+      purpose: "consolidation",
+      provider: input.provider,
+      model: input.model,
+      duration_ms: Date.now() - startedAt,
+      outcome: "failed",
+    });
+    throw error;
+  }
 }
 
 /**

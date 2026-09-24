@@ -20,6 +20,7 @@ import { getProvider } from "../providers/index.js";
 import type { ProviderId } from "../providers/index.js";
 import type { MemoryEntry } from "./mem-types.js";
 import { logger } from "../utils/logger.js";
+import type { MemoryAuxiliaryObserver } from "./auxiliary.js";
 
 // The judge reads a list of one-line descriptions and returns the keepers, so
 // its output is bounded by the candidate count however the model misbehaves.
@@ -43,6 +44,8 @@ export interface JudgeInput {
   model?: string;
   /** Test seam; defaults to a one-shot provider call. */
   complete?: (system: string, prompt: string) => Promise<string>;
+  /** Reports provider usage when this path makes a real auxiliary call. */
+  onAuxiliaryCall?: MemoryAuxiliaryObserver;
 }
 
 // Every terminal outcome of a judging attempt. Exhaustive on purpose: a new
@@ -95,14 +98,34 @@ async function oneShot(
 ): Promise<string> {
   const provider = getProvider(input.provider as ProviderId);
   if (!provider) throw new Error("no provider");
-  const result = await provider.execute({
-    prompt,
-    system,
-    model: input.model,
-    quietModelFallback: true,
-    maxTokens: MAX_TOKENS,
-  });
-  return result.content ?? "";
+  const startedAt = Date.now();
+  try {
+    const result = await provider.execute({
+      prompt,
+      system,
+      model: input.model,
+      quietModelFallback: true,
+      maxTokens: MAX_TOKENS,
+    });
+    input.onAuxiliaryCall?.({
+      purpose: "retrieval_judge",
+      provider: input.provider,
+      model: result.model || input.model,
+      duration_ms: Date.now() - startedAt,
+      outcome: "succeeded",
+      usage: result.usage,
+    });
+    return result.content ?? "";
+  } catch (error) {
+    input.onAuxiliaryCall?.({
+      purpose: "retrieval_judge",
+      provider: input.provider,
+      model: input.model,
+      duration_ms: Date.now() - startedAt,
+      outcome: "failed",
+    });
+    throw error;
+  }
 }
 
 /**
@@ -136,7 +159,9 @@ export async function judgeMemories(input: JudgeInput): Promise<JudgeResult> {
 
     const keep = parseKeepIndices(raw, candidates.length);
     if (keep === null) {
-      logger.debug("[MemoryJudge] unparseable verdict", { raw: raw.slice(0, 200) });
+      logger.debug("[MemoryJudge] unparseable verdict", {
+        raw: raw.slice(0, 200),
+      });
       return { kept: [], decision: "unparseable" };
     }
     // Preserve the incoming (cascade) order rather than the model's, so the

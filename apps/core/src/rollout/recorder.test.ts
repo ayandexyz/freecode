@@ -120,6 +120,34 @@ test("model.error records the stall kind", () => {
   }
 });
 
+test("memory auxiliary calls retain usage separately from model responses", () => {
+  const dir = mkdtempSync(join(tmpdir(), "freecode-rollout-"));
+  try {
+    const recorder = new RolloutRecorder("s1", { rolloutDir: dir });
+    recorder.recordMemoryAuxiliary("turn-4", {
+      purpose: "retrieval_judge",
+      provider: "anthropic",
+      model: "claude-haiku",
+      duration_ms: 321,
+      outcome: "succeeded",
+      inputTokens: 123,
+      outputTokens: 4,
+      cacheReadTokens: 100,
+      authMode: "oauth",
+    });
+
+    const [event] = readEvents(dir) as Array<Record<string, unknown>>;
+    assert.equal(event.type, "memory.auxiliary");
+    assert.equal(event.turnId, "turn-4");
+    assert.equal(event.purpose, "retrieval_judge");
+    assert.equal(event.inputTokens, 123);
+    assert.equal(event.cacheReadTokens, 100);
+    assert.equal(event.authMode, "oauth");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("function.denied records the tool, the gate, and the reason", () => {
   const dir = mkdtempSync(join(tmpdir(), "freecode-rollout-"));
   try {
