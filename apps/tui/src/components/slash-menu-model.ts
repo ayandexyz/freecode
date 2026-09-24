@@ -53,10 +53,14 @@ const LEAF_ICONS: Record<string, string> = {
   web: "\u{f059f}",
   effort: "\u{f04c5}",
   resume: "\u{f46a}",
+  tree: "\u{f062c}", // md-source_branch
   rewind: "\u{f0453}",
   fork: "\u{f018f}",
+  compact: "\u{f084d}", // md-arrow_collapse_vertical
   clear: "\u{f0b4c}",
   context: "\u{ea74}",
+  cost: "\u{f01c1}", // md-currency_usd
+  graph: "\u{f1049}", // md-graph
   usage: "\u{f02ca}",
   shells: "\u{f489}",
   agents: "\u{f06a9}",
@@ -67,13 +71,16 @@ const LEAF_ICONS: Record<string, string> = {
   ...ROOT_LEAVES,
 };
 
+/** Any command without its own glyph — prompt commands from core. md-message_text. */
+const DEFAULT_LEAF_ICON = "\u{f0369}";
+
 const GROUPED = new Set(GROUPS.flatMap((g) => g.commands));
 
 function leaf(command: MenuCommand): SlashRow {
   return {
     id: command.name,
     label: command.argHint ? `${command.name} ${command.argHint}` : command.name,
-    icon: LEAF_ICONS[command.name] ?? "",
+    icon: LEAF_ICONS[command.name] ?? DEFAULT_LEAF_ICON,
     description: command.description,
     command,
   };
