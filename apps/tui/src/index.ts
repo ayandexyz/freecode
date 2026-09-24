@@ -22,7 +22,7 @@ import { Input, type Component } from "@earendil-works/pi-tui";
 import { Loader, Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { palette, refreshPalette } from "./palette.js";
-import { watchOmarchyTheme } from "./utils/omarchy-theme.js";
+import { omarchyPalette, watchOmarchyTheme } from "./utils/omarchy-theme.js";
 import { defaultEditorTheme, MODE_COLORS } from "./themes.js";
 import {
   getRandomElapsedPhrase,
@@ -156,6 +156,8 @@ import { AgentsPanel } from "./components/agents-panel.js";
 import { AgentViewer } from "./components/agent-viewer.js";
 import { Transcript } from "./components/transcript.js";
 import { SearchableSelectList } from "./components/searchable-select-list.js";
+import { SlashMenu } from "./components/slash-menu.js";
+import { SlashMenuModel } from "./components/slash-menu-model.js";
 import { QuestionModal } from "./components/question-modal.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
 import { EffortPicker } from "./components/effort-picker.js";
@@ -1469,6 +1471,43 @@ function showEffortPicker(): void {
   });
   tui.requestRender();
 }
+
+// ---------------------------------------------------------------------------
+// `/` menu — the Omarchy menu, in the terminal. Opened by `/` on an empty
+// composer; typed `/name args` still goes through onSubmit unchanged.
+// ---------------------------------------------------------------------------
+function showSlashMenu(): void {
+  let overlay: OverlayHandle | null = null;
+  const close = (editorText?: string) => {
+    overlay?.hide();
+    overlay = null;
+    if (editorText !== undefined) editor.setText(editorText);
+    tui.setFocus(focusTarget());
+    tui.requestRender();
+  };
+
+  const menu = new SlashMenu(
+    new SlashMenuModel(commandRegistry.getAll()),
+    () => Math.max(8, terminal.rows - 6),
+    // Nerd Font glyphs only where Omarchy's fonts are known to be installed.
+    omarchyPalette !== null,
+  );
+  menu.onClose = () => close();
+  menu.onHandBack = (text) => close(text);
+  menu.onRun = (command) => {
+    // A command that takes arguments is left in the composer to finish.
+    if (command.argHint) return close(`/${command.name} `);
+    close();
+    void editor.onSubmit?.(`/${command.name}`);
+  };
+
+  overlay = tui.showOverlay(menu, {
+    anchor: "center",
+    width: Math.min(40, Math.max(28, terminal.columns - 4)),
+  });
+  tui.requestRender();
+}
+editor.onSlashMenu = showSlashMenu;
 
 /**
  * Prompt for a provider's credential — an API key for /model, whatever the web

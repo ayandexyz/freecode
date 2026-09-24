@@ -1,0 +1,95 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { SlashMenu } from "./slash-menu.js";
+import { SlashMenuModel, type MenuCommand } from "./slash-menu-model.js";
+
+function plain(line: string): string {
+  // eslint-disable-next-line no-control-regex
+  return line.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+const COMMANDS: MenuCommand[] = [
+  { name: "help", description: "Show available commands" },
+  { name: "model", description: "Select an API model" },
+  { name: "effort", description: "Set reasoning effort" },
+  { name: "resume", description: "Resume a previous session" },
+  { name: "review", description: "Review the diff", argHint: "[focus]" },
+  { name: "exit", description: "Exit FreeCode" },
+];
+
+const ENTER = "\r";
+const ESC = "\x1b";
+const DOWN = "\x1b[B";
+const LEFT = "\x1b[D";
+const BACKSPACE = "\x7f";
+
+function setup() {
+  const menu = new SlashMenu(new SlashMenuModel(COMMANDS), () => 30, false);
+  const events: string[] = [];
+  menu.onRun = (c) => events.push(`run:${c.name}`);
+  menu.onClose = () => events.push("close");
+  menu.onHandBack = (t) => events.push(`back:${t}`);
+  return { menu, events, text: () => menu.render(50).map(plain).join("\n") };
+}
+
+test("root lists non-empty groups, unknown commands under Prompts, then root leaves", () => {
+  const rows = new SlashMenuModel(COMMANDS).rows(null).map((r) => r.label);
+  assert.deepEqual(rows, ["Model", "Session", "Prompts", "help", "exit"]);
+});
+
+test("search ranks name prefix over description word", () => {
+  const rows = new SlashMenuModel(COMMANDS).search("re").map((r) => r.id);
+  assert.deepEqual(rows.slice(0, 2), ["resume", "review"]);
+  assert.ok(rows.includes("effort"), "description word 'reasoning' matches");
+});
+
+test("header reads Go… at root and the group title inside it", () => {
+  const { menu, text } = setup();
+  assert.match(text(), /Go…/);
+  menu.handleInput(ENTER); // Model
+  assert.match(text(), /Model…/);
+  assert.match(text(), /effort/);
+});
+
+test("every row is exactly the requested width", () => {
+  const { menu } = setup();
+  for (const line of menu.render(50)) assert.equal(visibleWidth(line), 50);
+});
+
+test("enter on a leaf runs it; left steps back to the group row", () => {
+  const { menu, events, text } = setup();
+  menu.handleInput(DOWN); // Session
+  menu.handleInput(ENTER);
+  menu.handleInput(LEFT);
+  assert.match(text(), /Go…/);
+  menu.handleInput(ENTER); // cursor restored onto Session
+  menu.handleInput(ENTER); // resume
+  assert.deepEqual(events, ["run:resume"]);
+});
+
+test("typing searches; esc clears the query before closing", () => {
+  const { menu, events, text } = setup();
+  for (const ch of "eff") menu.handleInput(ch);
+  assert.match(text(), /effort\s+Set reasoning effort/);
+  menu.handleInput(ESC);
+  assert.match(text(), /Go…/);
+  menu.handleInput(ESC);
+  assert.deepEqual(events, ["close"]);
+});
+
+test("a path or a space hands the text back to the editor", () => {
+  const { menu, events } = setup();
+  for (const ch of "home") menu.handleInput(ch);
+  menu.handleInput("/");
+  assert.deepEqual(events, ["back:/home/"]);
+});
+
+test("enter with no match hands the query back; backspace at root closes", () => {
+  const { menu, events } = setup();
+  for (const ch of "zzz") menu.handleInput(ch);
+  menu.handleInput(ENTER);
+  const fresh = setup();
+  fresh.menu.handleInput(BACKSPACE);
+  assert.deepEqual([...events, ...fresh.events], ["back:/zzz", "close"]);
+});
