@@ -68,6 +68,14 @@ interface SessionMemory {
   // Lets prepareMemories be called on every turn without re-fetching: once
   // resolved, callers just read `stash` instead of re-kicking retrieve().
   resolved: boolean;
+  lastDecision: JudgeDecision | "cadence_carry" | "not_configured";
+}
+
+export type MemoryPreparationState = "fresh" | "carried" | "pending" | "empty";
+
+export interface MemoryPreparation {
+  state: MemoryPreparationState;
+  judgeDecision: JudgeDecision | "cadence_carry" | "not_configured";
 }
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -593,6 +601,7 @@ export class MemoryGraphService {
       inflight: null,
       resolved: false,
       judgedIds: null,
+      lastDecision: "not_configured",
     };
     this.sessions.set(sessionId, st);
     while (this.sessions.size > MAX_SESSIONS) {
@@ -608,6 +617,21 @@ export class MemoryGraphService {
   // judge call or move the one-turn-behind stash the next real turn depends on.
   peekMemories(sessionId: string): MemoryEntry[] {
     return this.sessions.get(sessionId)?.stash ?? [];
+  }
+
+  /** Metadata for the most recent preparation, with no memory text or ids. */
+  preparationFor(sessionId: string): MemoryPreparation {
+    const st = this.sessions.get(sessionId);
+    if (!st || st.stash.length === 0) {
+      return {
+        state: st?.inflight ? "pending" : "empty",
+        judgeDecision: st?.lastDecision ?? "not_configured",
+      };
+    }
+    return {
+      state: st.resolved ? "fresh" : "carried",
+      judgeDecision: st.lastDecision,
+    };
   }
 
   // Prepare the memories to inject for `sessionId`'s current context and return
@@ -709,10 +733,14 @@ export class MemoryGraphService {
     candidates: MemoryEntry[],
   ): Promise<MemoryEntry[]> {
     const ctx = st.judge;
-    if (!ctx || candidates.length === 0) return candidates;
+    if (!ctx || candidates.length === 0) {
+      st.lastDecision = !ctx ? "not_configured" : "no_candidates";
+      return candidates;
+    }
 
     if (st.judgedIds) {
       this.lastDecision = "cadence_carry";
+      st.lastDecision = "cadence_carry";
       return candidates.filter((e) =>
         st.judgedIds?.has(memoryId(e.type, e.name)),
       );
@@ -727,6 +755,7 @@ export class MemoryGraphService {
       onAuxiliaryCall: ctx.onAuxiliaryCall,
     });
     this.lastDecision = decision;
+    st.lastDecision = decision;
     // Only cache a verdict the judge actually produced. Caching a failure
     // would carry one transport error across a whole topic — and a verdict for
     // a query the session has already moved past must not become the new

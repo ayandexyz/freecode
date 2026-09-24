@@ -128,6 +128,12 @@ actually present. Preparation freshness, judge outcome, unique-turn rollups,
 and a bounded background drain are still required before the corresponding
 checklist items can be marked complete.
 
+**In progress 2026-09-25:** exposure records now also carry the per-session
+preparation state (`fresh`, `carried`, `pending`, or `empty`) and the matching
+judge decision. This allows an evaluator to separate a no-memory request from
+a cold request whose background work had not landed yet, without recording
+queries, memory identities, or content.
+
 ### Acceptance criteria
 
 Controlled provider tests reconcile report totals with returned usage across success, retries, failure, and late background completion. A request with no injected memory records zero memory-block bytes. A ten-request tool loop records all ten exposures if the block was sent ten times. Unknown cost cannot produce a definitive savings verdict.

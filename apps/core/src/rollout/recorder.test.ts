@@ -158,6 +158,8 @@ test("memory exposure records every provider-request measurement", () => {
       candidateCount: 8,
       renderedCount: 3,
       injected: true,
+      preparation: "fresh",
+      judgeDecision: "judge_ran",
     });
 
     const [event] = readEvents(dir) as Array<Record<string, unknown>>;
@@ -168,6 +170,8 @@ test("memory exposure records every provider-request measurement", () => {
     assert.equal(event.candidateCount, 8);
     assert.equal(event.renderedCount, 3);
     assert.equal(event.injected, true);
+    assert.equal(event.preparation, "fresh");
+    assert.equal(event.judgeDecision, "judge_ran");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

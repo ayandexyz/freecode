@@ -487,6 +487,18 @@ export class AgentLoop {
   // Candidate count remains distinct from rendered count: the byte budget can
   // omit a relevant candidate, and only the latter reaches a provider request.
   private lastMemoryCandidateCount = 0;
+  private lastMemoryPreparation: {
+    state: "fresh" | "carried" | "pending" | "empty";
+    judgeDecision:
+      | "judge_ran"
+      | "disabled"
+      | "no_candidates"
+      | "no_provider"
+      | "unparseable"
+      | "failed"
+      | "cadence_carry"
+      | "not_configured";
+  } = { state: "empty", judgeDecision: "not_configured" };
   // User text a memory_injected notice was last emitted for — dedupes the
   // stream event across the many inner-loop turns of one user request.
   private lastMemoryEmittedFor: string | undefined = undefined;
@@ -1768,6 +1780,9 @@ export class AgentLoop {
       const renderedMemories =
         renderRetrievedMemoriesDetailed(retrievedMemories);
       this.lastMemoryCandidateCount = retrievedMemories.length;
+      this.lastMemoryPreparation = memGraph.preparationFor(
+        this.state.sessionId,
+      );
       this.lastMemoryBlock = renderedMemories.text;
       const memoryBlock = this.lastMemoryBlock;
       // UI visibility for the otherwise-silent auto-injection path: fire once
@@ -2339,6 +2354,8 @@ export class AgentLoop {
       candidateCount: this.lastMemoryCandidateCount,
       renderedCount: injected ? this.lastInjectedMemories.length : 0,
       injected,
+      preparation: this.lastMemoryPreparation.state,
+      judgeDecision: this.lastMemoryPreparation.judgeDecision,
     });
     this.recorder.recordModelRequest(turnId, {
       provider,

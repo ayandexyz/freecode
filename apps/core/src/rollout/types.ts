@@ -300,6 +300,16 @@ export interface MemoryExposureEvent extends BaseEvent {
   candidateCount: number;
   renderedCount: number;
   injected: boolean;
+  preparation: "fresh" | "carried" | "pending" | "empty";
+  judgeDecision:
+    | "judge_ran"
+    | "disabled"
+    | "no_candidates"
+    | "no_provider"
+    | "unparseable"
+    | "failed"
+    | "cadence_carry"
+    | "not_configured";
 }
 
 // ============================================================================

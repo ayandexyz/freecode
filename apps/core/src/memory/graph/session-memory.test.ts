@@ -62,6 +62,10 @@ test("cold turn returns freshly retrieved memories within budget", async () => {
   try {
     const first = await service.prepareMemories("S", "database schema");
     assert.deepEqual(names(first), ["database schema"]);
+    assert.deepEqual(service.preparationFor("S"), {
+      state: "fresh",
+      judgeDecision: "not_configured",
+    });
   } finally {
     cleanup();
   }
@@ -86,10 +90,12 @@ test("slow retrieval: cold turn is empty, next turn is one-turn-behind filled", 
   try {
     const cold = await service.prepareMemories("S", "slow topic");
     assert.deepEqual(names(cold), [], "cold turn returns empty when retrieval exceeds budget");
+    assert.equal(service.preparationFor("S").state, "pending");
 
     await sleep(300); // let the background retrieval land
     const warm = await service.prepareMemories("S", "slow topic");
     assert.deepEqual(names(warm), ["slow topic"], "next turn injects the now-ready set");
+    assert.equal(service.preparationFor("S").state, "fresh");
   } finally {
     cleanup();
   }
