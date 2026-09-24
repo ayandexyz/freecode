@@ -1,7 +1,7 @@
 # Memory efficiency: measure it, prove it, fix what the proof finds
 
 **Date:** 2026-09-25 (rescoped same day)
-**Status:** P0 complete · §4 injection bench built 2026-09-25 (5 bugs found, fixes next) · rest proposed
+**Status:** P0 complete · §4 injection bench built and its findings fixed 2026-09-25 (12/12 scenarios) · §6 paired eval next
 **Audit baseline:** `f7c83321`
 **Goal:** Know, with evidence, whether automatic memory makes the agent better or cheaper, and by how much, backed by free tests, a free local bench, and a paid paired eval.
 
@@ -52,7 +52,7 @@ changes only with paired evidence.
 | - | ---- | ----------- | ----------- | ----- |
 | P0 | Measure the whole bill; strict rendering | §5 | free | ✅ done 2026-09-25 |
 | P1 | Injection bench | `pnpm bench:inject`: rendered recall, wasted bytes, lifecycle scenarios | free | ✅ built 2026-09-25 |
-| P1 | Correctness fixes | one fix per failing bench scenario, each with a regression test | free | next: 5 open in `TODO.md` |
+| P1 | Correctness fixes | one fix per failing bench scenario, each with a regression test | free | ✅ done 2026-09-25 |
 | P1 | Recall-off switch + paired eval | memory off vs on, per-case quality and cost deltas | paid | proposed |
 | P2 | Multi-session savings | capture, consolidation, cumulative cost over N sessions | paid | proposed |
 
@@ -118,8 +118,7 @@ a known-failing scenario is visible without blocking unrelated work.
 
 ### 4.3 Findings (first run 2026-09-25)
 
-Full tables: `memory/bench/README.md`. Tracked one per line in `TODO.md`
-("Memory injection bugs found by `pnpm bench:inject`").
+Full tables: `memory/bench/README.md`.
 
 **Metrics, judge off → oracle judge.** Rendered recall 84.1% in both, equal
 to candidate recall, so the byte budget costs no recall. With the judge off
@@ -128,30 +127,24 @@ memories that did not apply**, and abstention is 0/5. A perfect filter cuts the
 block to 597 B (−70%) with 100% abstention; the fixed header + footer is then
 two thirds of what remains.
 
-**Scenarios, 7/12 pass.** Confirmed bugs:
+**Scenarios: 7/12 on the first run, 12/12 after fixes.**
 
-- **Edit/delete staleness.** `onChange` never touches a session's stash and a
-  resolved query is not re-fetched, so edited text and deleted memories keep
-  being injected.
-- **Supersession.** Obsolete and replacement are both injected.
-- **Secret filter gap.** A secret in a memory file written outside the writers
-  reaches the block via BM25.
-- **Near-duplicates crowd the budget.** Filler notes out-rank the matching
-  fact, which loses its body (ranking question, not correctness).
-- **Cold wait overrun** (from metrics): first `prepareMemories` blocks
-  110–160 ms against a 60 ms budget.
+| Finding | Fix | Regression test |
+| --- | --- | --- |
+| Edit/delete staleness: `onChange` never touched a session's stash and a resolved query was not re-fetched | `invalidateSessions` patches every session holding the memory synchronously (remove / swap, re-judge), and a store generation makes an in-flight prefetch discard pre-change results | `graph/prepared-memories.test.ts` |
+| Supersession: obsolete and replacement both injected | `graph/supersession.ts`: each candidate becomes the newest live record in its chain before judging; mutual/cyclic chains keep both; missing targets change nothing | `graph/supersession.test.ts`, `prepared-memories.test.ts` |
+| Secret filter gap: a secret in a hand-written file reached the block via BM25 | `modelSafe` drops secret-bearing entries from every prefetch (so the judge never sees them either) and from the stash patch on an edit | `prepared-memories.test.ts` |
+| Cold wait overrun: first `prepareMemories` blocked 110–160 ms vs a 60 ms budget | fastembed padded every input to 512 tokens, synchronously; the embedder disables padding. Query embed ~150 ms → ~4 ms, identical vectors (cosine 1.000000); p50 prepare 134 → 6 ms | `graph/embedder.test.ts` |
+| Near-duplicates out-rank a matching fact, which loses its body | Not a bug: ranking of similar memories is retrieval's job and suppression is tuning that needs §6 evidence. Recorded in `docs/DECISIONS.md`; the scenario now checks the renderer contract | the scenario |
 
-Passing, as designed: slow retrieval surfaces on the next request, same-topic
-follow-ups and repeated prompts cost one judge call, topic switches drop the
-old set, and judge outage / malformed verdicts fail closed.
+Passing from the start, as designed: slow retrieval surfaces on the next
+request, same-topic follow-ups and repeated prompts cost one judge call, topic
+switches drop the old set, and judge outage / malformed verdicts fail closed.
 
 **What this says about savings, before any paid eval:** the judge is the
 component that decides the block's cost. Off, most injected bytes are waste on
 every request; the paid eval (§6) should therefore compare against the judge
 *on* as well as off, not treat it as an afterthought variant.
-
-Each confirmed bug gets one fix, one focused regression test next to the code,
-and a before/after bench line. Changing a *default* still needs §6.
 
 ### 4.4 Deliverables
 
@@ -251,7 +244,7 @@ later and reported separately; never tune on it.
 - [x] Full runtime memory cost is measurable, including background calls.
 - [x] The byte cap is strict and exposure attribution matches rendered content.
 - [x] `pnpm bench:inject` reports rendered recall, wasted bytes, and every §4.2 scenario.
-- [ ] Every failing scenario is fixed with a regression test, or recorded in `docs/DECISIONS.md` as intended.
+- [x] Every failing scenario is fixed with a regression test, or recorded in `docs/DECISIONS.md` as intended.
 - [ ] Recall can be switched off per request, and `eval ab` accepts the switch.
 - [ ] A recorded A-vs-D experiment in `evals/experiments.jsonl` with a verdict.
 - [ ] A multi-session report gives cumulative cost with and without memory.

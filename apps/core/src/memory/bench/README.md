@@ -51,7 +51,7 @@ request of the turn. `headers + footer` is the fixed framing.
 | **bytes on non-gold** | **62.5%** | 0.0% |
 | headers + footer | 27.6% | 67.5% |
 | gold dropped by budget | 0 | 0 |
-| prepare p50 / max | 134 / 155 ms | 112 / 161 ms |
+| prepare p50 / max | 134 / 155 ms → **6 / 9 ms** after the padding fix | 112 / 161 ms |
 | cold misses | 0 | 0 |
 
 - **The budget is not what loses recall.** Rendered recall equals candidate
@@ -61,26 +61,30 @@ request of the turn. `headers + footer` is the fixed framing.
   nearly every request, and 62.5% of those bytes are memories that did not
   apply. A perfect filter cuts the block by 70% (1962 → 597 B), and then the
   fixed header + footer is two thirds of what is left.
-- **The cold wait overruns its budget.** `COLD_BUDGET_MS` is 60, but the first
-  `prepareMemories` of a session blocks 110–160 ms, so synchronous work runs
-  before the race starts.
+- **The cold wait overran its budget: fixed.** `COLD_BUDGET_MS` is 60, but
+  the first `prepareMemories` blocked 110–160 ms: fastembed padded every input
+  to 512 tokens and ran synchronously. With padding off (same vectors), p50 is
+  now **6 ms** (max 9), and this whole bench runs in 1.4 s instead of 14.6 s.
 
-Lifecycle scenarios, 7/12 pass:
+Lifecycle scenarios, **12/12 pass** after the 2026-09-25 fixes (7/12 before):
 
-| scenario | result |
-| --- | --- |
-| first message, fast retrieval | pass |
-| retrieval slower than the cold budget | pass |
-| same-topic follow-up (1 judge call) | pass |
-| abrupt topic switch | pass |
-| repeated identical prompt (1 judge call) | pass |
-| memory edited mid-session | **FAIL**: the next request still carries the pre-edit text |
-| memory deleted mid-session | **FAIL**: the deleted memory is still injected |
-| memory superseded | **FAIL**: both the obsolete and the replacement are injected |
-| duplicates competing for budget | **FAIL**: five filler notes out-rank the fact, which loses its body |
-| judge outage | pass (fails closed) |
-| malformed verdict | pass (fails closed) |
-| secret file written outside the writers | **FAIL**: the secret reaches the model-bound block |
+| scenario | before | after | fix |
+| --- | --- | --- | --- |
+| first message, fast retrieval | pass | pass | |
+| retrieval slower than the cold budget | pass | pass | |
+| same-topic follow-up (1 judge call) | pass | pass | |
+| abrupt topic switch | pass | pass | |
+| repeated identical prompt (1 judge call) | pass | pass | |
+| memory edited mid-session | FAIL | pass | store changes patch session stashes (`invalidateSessions`) |
+| memory deleted mid-session | FAIL | pass | same |
+| memory superseded | FAIL | pass | `graph/supersession.ts` before judging |
+| memories competing for budget | FAIL | pass | scenario re-pointed at the renderer contract; ranking of similar memories is a recorded decision (`docs/DECISIONS.md`) |
+| judge outage | pass | pass | |
+| malformed verdict | pass | pass | |
+| secret file written outside the writers | FAIL | pass | `modelSafe` filter on the prefetch and stash patch |
+
+The corpus metrics above are unchanged by the fixes (they are about ranking and
+the judge, not staleness), apart from prepare latency.
 
 ## Recall bench: reading the output
 

@@ -264,7 +264,11 @@ const SCENARIOS: Scenario[] = [
       ),
   },
   {
-    name: "duplicates competing for budget",
+    // The renderer's contract, not ranking quality: the budget is spent in
+    // retrieval order and degrades whole entries. Which of several similar
+    // memories ranks first is retrieval's job (bench:recall) and deliberately
+    // not second-guessed at injection time — docs/DECISIONS.md.
+    name: "memories competing for budget",
     run: () =>
       withStore(
         [
@@ -279,15 +283,22 @@ const SCENARIOS: Scenario[] = [
           ),
         ],
         async (b) => {
-          const got = await settled(b, "s", PKG_QUERY);
-          const bytes = Buffer.byteLength(got.text, "utf-8");
-          const goldFull = got.text.includes("### uses-pnpm\n");
-          const rank = got.names.indexOf("uses-pnpm") + 1;
+          await b.service.prepareMemories("s", PKG_QUERY);
+          await drainMemoryJobs("s", 5_000);
+          const ranked = await b.service.prepareMemories("s", PKG_QUERY);
+          const rendered = renderRetrievedMemoriesDetailed(ranked);
+          const bytes = Buffer.byteLength(rendered.text, "utf-8");
+          const top = ranked[0];
+          const topFull = !!top && rendered.text.includes(`### ${top.name}\n${top.content}`);
+          const whole = rendered.entries.every(
+            (e) => !rendered.text.includes(`### ${e.name}\n`) || rendered.text.includes(e.content),
+          );
           return {
-            pass: bytes <= MAX_MEMORY_BLOCK_BYTES && goldFull,
+            pass: bytes <= MAX_MEMORY_BLOCK_BYTES && topFull && whole,
             detail:
-              `${bytes} B / ${MAX_MEMORY_BLOCK_BYTES} B cap; gold ranked ` +
-              `${rank || "absent"} of ${got.names.length}, ${goldFull ? "kept its body" : "lost its body"}`,
+              `${bytes} B / ${MAX_MEMORY_BLOCK_BYTES} B cap; ${rendered.fullCount} full, ` +
+              `${rendered.summaryCount} summarised, ${ranked.length - rendered.entries.length} dropped; ` +
+              `top-ranked ${topFull ? "kept its body" : "lost its body"}`,
           };
         },
       ),

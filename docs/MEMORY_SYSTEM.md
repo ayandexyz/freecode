@@ -212,6 +212,23 @@ changed system byte re-sends the whole conversation).
 instantly and refreshes in the background; the loop never blocks. A cold turn
 (session's first message, or right after a topic change cleared the set) waits
 `COLD_BUDGET_MS = 60` for the fresh result, then falls back to background.
+The budget is only enforceable because the query embedding no longer blocks
+the event loop: fastembed padded every input to 512 tokens (~150 ms,
+synchronous); the embedder disables that padding, so a query embeds in ~4 ms
+with identical vectors (2026-09-25).
+
+**The prepared set follows the store.** A save or delete synchronously patches
+every session holding that memory: a delete removes it, an edit swaps in the
+saved version, and the session re-judges it (the carried verdict was about the
+old text). A prefetch already in flight when the store changed discards its
+result and retries, so it cannot publish pre-change entries. Sessions not
+holding the memory are untouched, so an unrelated save costs no judge call.
+
+**Supersession before judging.** Each retrieved candidate is replaced by the
+newest live record in its `supersedes` chain (`graph/supersession.ts`), so the
+model never sees obsolete guidance beside, or instead of, its replacement. A
+mutual or cyclic chain keeps both; a missing target changes nothing. Search and
+the explorer still show the old record.
 
 **Per session, not per project.** The graph and vectors are shared per project,
 but the surfaced set is keyed by `sessionId` so two sessions never clobber each
@@ -311,7 +328,7 @@ byte-identical regardless of store contents.
 `sk-ant-*`, `sk-*`, `AKIA*`/`ASIA*`, `ghp_*`, `github_pat_*`, `xox[baprs]-*`,
 `AIza*`, `glpat-*`, and `key=value` assignments of secret-looking names.
 
-It is enforced at **two** points, and the second one was a real hole:
+It is enforced at **four** points:
 
 1. **Before embedding** (`graph/index.ts`, `onChange` + `syncVectors`; both also prune a pre-existing vector when content turns secret-bearing) — original behaviour.
 2. **Before writing**, in the tool, the extractor, consolidation, and the
@@ -323,8 +340,15 @@ It is enforced at **two** points, and the second one was a real hole:
    (`nodeDetailForExplorer`) — a secret-bearing file that reached disk by any
    other route (hand-edit, older binary) is redacted, never served over the
    localhost HTTP API.
+4. **Before anything model-bound** — the judge prompt and the injected block
+   (`modelSafe` in `graph/index.ts`, applied to every prefetch result and to
+   the stash patch on an edit). Before 2026-09-25 a secret-bearing file that
+   bypassed the writers was never embedded but still reached the prompt through
+   BM25; `pnpm bench:inject` found it.
 
-Vectors never leave the machine. There is no network call anywhere in retrieval.
+Vectors never leave the machine. Retrieval itself makes no network call; the
+optional retrieval judge sends candidate *descriptions* (never a secret-bearing
+memory's) to the session's provider.
 
 ---
 

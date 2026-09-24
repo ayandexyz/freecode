@@ -22,6 +22,13 @@ Grouped by subsystem. Open bugs are in `TODO.md`; unbuilt features in
   duplication; it is the reason compaction can trim history without destroying the
   record of what happened.
 - **Cascade skips `Contradicts`; tag/cluster nodes relay but never score.**
+- **Similar memories are not suppressed at injection time.** `pnpm bench:inject`
+  showed five on-topic filler notes out-ranking a directly matching fact, which
+  then lost its body to the byte budget (2026-09-25). The renderer spends the
+  budget in retrieval order by design; how similar memories rank is retrieval's
+  job (scored by `bench:recall`), and merging duplicates is consolidation's.
+  Adding a suppression pass is a tuning change and needs the paired eval in spec
+  `2026-09-25-memory-efficiency-and-graph-explorer.md` §6 first.
 - **Compaction fires on a cost target (120K), not on window fit.** Fit-only left a
   1M-window session re-sending 270K every turn — 48.1M input tokens in one
   7-message session. Raising `FREECODE_COMPACT_TARGET_TOKENS` reverts that.

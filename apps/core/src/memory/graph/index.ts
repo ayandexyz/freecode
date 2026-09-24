@@ -23,6 +23,7 @@ import { deriveGraph, graphSignature, memoryId } from "./builder.js";
 import { cascadeRetrieve } from "./cascade.js";
 import { computeClusters } from "./clusters.js";
 import { containsSecret } from "./secret-filter.js";
+import { resolveSupersession } from "./supersession.js";
 import type { MemoryAuxiliaryObserver } from "../auxiliary.js";
 import { trackMemoryJob } from "../background-jobs.js";
 import type { GraphEdge, GraphNode, RetrievalResult } from "./graph-types.js";
@@ -118,6 +119,13 @@ function embedText(e: MemoryEntry): string {
   return `${e.name}\n${e.description}\n${e.content}`;
 }
 
+// Whether a memory may be sent to a model at all — the judge prompt or the
+// injected block. The write path screens secrets, but a file edited by hand or
+// by another tool never passes through it, and BM25 would still surface it.
+function modelSafe(e: MemoryEntry): boolean {
+  return !containsSecret(embedText(e));
+}
+
 function hashOf(text: string): string {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
@@ -171,6 +179,10 @@ export class MemoryGraphService {
   // in the same project never clobber each other's surfaced set. Bounded by an
   // LRU cap; each entry is tiny (a few entry refs + a query string).
   private sessions = new Map<string, SessionMemory>();
+  // Bumped on every store change. A prefetch that started under an older
+  // generation read entries that may no longer exist in that form, so it
+  // discards its result and retries instead of publishing it.
+  private storeGeneration = 0;
   // Unregisters this service's onMemoryChange listener; called by dispose() so
   // an evicted/replaced service doesn't leak a listener into the change bus.
   private unsubscribe: () => void;
@@ -183,6 +195,7 @@ export class MemoryGraphService {
     this.usage = new UsageStore(dir);
     this.unsubscribe = onMemoryChange((change) => {
       if (change.store.getMemoryDir() === this.store.getMemoryDir()) {
+        this.invalidateSessions(change);
         void this.onChange(change);
       }
     });
@@ -230,6 +243,34 @@ export class MemoryGraphService {
       () => {},
     );
     return run;
+  }
+
+  /**
+   * Keep every session's prepared set consistent with a store change, right
+   * away and synchronously — before the next request can read the stash.
+   *
+   * A session holding the changed memory gets it removed (delete) or swapped
+   * for the saved version (edit), is marked unresolved so the next
+   * `prepareMemories` refetches, and loses its carried judge verdict: that
+   * verdict was about the old text. Sessions not holding it are untouched, so
+   * an unrelated save (extraction writes often) costs no judge call anywhere.
+   */
+  private invalidateSessions(change: MemoryChange): void {
+    this.storeGeneration++;
+    const changed = change.deleted ?? change.entry;
+    if (!changed) return;
+    const id = memoryId(changed.type, changed.name);
+    const matches = (e: MemoryEntry) => memoryId(e.type, e.name) === id;
+    for (const st of this.sessions.values()) {
+      if (!st.stash.some(matches) && !st.judgedIds?.has(id)) continue;
+      st.stash = change.deleted
+        ? st.stash.filter((e) => !matches(e))
+        : st.stash
+            .map((e) => (matches(e) ? change.entry! : e))
+            .filter(modelSafe);
+      st.resolved = false;
+      st.judgedIds = null;
+    }
   }
 
   // Incremental vector update on save/delete — fire-and-forget, never throws.
@@ -698,13 +739,23 @@ export class MemoryGraphService {
     st.inflight = (async () => {
       try {
         for (let q = st.lastQuery; ; q = st.lastQuery) {
-          const results = await this.retrieve(q);
+          const generation = this.storeGeneration;
+          // Never offer obsolete guidance to the judge or the model: each
+          // superseded candidate becomes its newest live replacement.
+          // Secret-bearing entries are dropped before the judge sees them.
+          const results = resolveSupersession(
+            await this.retrieve(q),
+            this.store.list(),
+          ).filter(modelSafe);
           if (q !== st.lastQuery) continue;
-          const judged = await this.applyJudge(st, q, results);
+          const judged = await this.applyJudge(st, q, results, generation);
           // applyJudge can await a multi-second model call; a topic change
           // during it must not pin the old topic's memories (or its verdict)
-          // onto the new one.
-          if (q !== st.lastQuery) continue;
+          // onto the new one — and neither may a store edit or delete, whose
+          // stale pre-change entries would overwrite invalidateSessions' work.
+          if (q !== st.lastQuery || generation !== this.storeGeneration) {
+            continue;
+          }
           st.stash = judged;
           st.resolved = true;
           return;
@@ -737,6 +788,7 @@ export class MemoryGraphService {
     st: SessionMemory,
     query: string,
     candidates: MemoryEntry[],
+    generation: number,
   ): Promise<MemoryEntry[]> {
     const ctx = st.judge;
     if (!ctx || candidates.length === 0) {
@@ -766,7 +818,12 @@ export class MemoryGraphService {
     // would carry one transport error across a whole topic — and a verdict for
     // a query the session has already moved past must not become the new
     // topic's cadence carry.
-    if (decision === "judge_ran" && query === st.lastQuery) {
+    // Nor a verdict about entries the store has since changed.
+    if (
+      decision === "judge_ran" &&
+      query === st.lastQuery &&
+      generation === this.storeGeneration
+    ) {
       st.judgedIds = new Set(kept.map((e) => memoryId(e.type, e.name)));
     }
     return kept;
