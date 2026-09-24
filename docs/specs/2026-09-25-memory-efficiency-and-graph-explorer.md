@@ -103,8 +103,8 @@ All work below is pending unless explicitly marked as audit evidence above.
 - [ ] Include successful retries and any reported usage from failed attempts without double counting. Report unavailable usage explicitly.
 - [ ] Attribute project-wide consolidation once to its originating operation, and report how its cost is amortized across a multi-session experiment.
 - [ ] Record per-model-request memory bytes, estimated tokens, selected count, rendered count, rendering mode, retrieval outcome, judge outcome, and whether preparation was fresh, carried, pending, or empty.
-- [ ] Keep estimated memory-block tokens separate from actual provider usage. The total provider input already includes the block; never add the estimate to that total again.
-- [ ] Retain separate counters for unique user-turn exposures and repeated model-request exposures. Repeated exposure is relevant to cost even when the UI notice is deduplicated.
+- [x] Keep estimated memory-block tokens separate from actual provider usage. The total provider input already includes the block; never add the estimate to that total again.
+- [x] Retain separate counters for unique user-turn exposures and repeated model-request exposures. Repeated exposure is relevant to cost even when the UI notice is deduplicated.
 - [ ] Give evaluation runs a bounded way to drain background memory jobs. Pending work or unknown spend makes the full-cost result incomplete; a timeout must not silently look like savings.
 - [x] Expose a memory cost breakdown through existing report/trace mechanisms. Keep external quality-grader spend separate from product runtime spend.
 
@@ -133,6 +133,11 @@ preparation state (`fresh`, `carried`, `pending`, or `empty`) and the matching
 judge decision. This allows an evaluator to separate a no-memory request from
 a cold request whose background work had not landed yet, without recording
 queries, memory identities, or content.
+
+**Implemented 2026-09-25:** trace and OTLP rollups now expose request
+exposures, distinct turn exposures, memory-block bytes, and a diagnostic token
+estimate. The estimate is deliberately never merged into provider input usage;
+the provider's inclusive token count remains the only billing input.
 
 ### Acceptance criteria
 

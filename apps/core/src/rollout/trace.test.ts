@@ -81,6 +81,34 @@ test("folds memory calls separately and includes them in total cost", () => {
   assert.match(renderTrace(trace), /memory.*retrieval_judge/);
 });
 
+test("counts repeated memory exposure separately from unique turns", () => {
+  const exposure = (timestamp: number, turnId: string) =>
+    event("memory.exposure", timestamp, {
+      turnId,
+      blockBytes: 200,
+      estimatedTokens: 50,
+      candidateCount: 2,
+      renderedCount: 1,
+      injected: true,
+      preparation: "fresh",
+      judgeDecision: "judge_ran",
+    });
+  const trace = buildTrace("s1", [
+    exposure(1, "turn-0"),
+    exposure(2, "turn-0"),
+    exposure(3, "turn-1"),
+  ]);
+  assert.equal(trace.memoryExposures, 3);
+  assert.equal(trace.memoryExposureTurns, 2);
+  assert.equal(trace.memoryExposureBytes, 600);
+  assert.equal(trace.memoryEstimatedTokens, 150);
+  assert.equal(
+    trace.inputTokens,
+    0,
+    "estimates must not become provider usage",
+  );
+});
+
 test("an unterminated request is a hang, aged against the clock", () => {
   // The bug this whole subsystem exists for: a request goes out, nothing ever
   // comes back, and the log simply stops.

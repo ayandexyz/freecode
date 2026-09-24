@@ -152,6 +152,14 @@ export interface Trace {
   memoryInputTokens: number;
   memoryOutputTokens: number;
   memoryCacheReadTokens: number;
+  /** Provider requests that actually contained the dynamic memory block. */
+  memoryExposures: number;
+  /** Distinct agent turns among those exposures. */
+  memoryExposureTurns: number;
+  /** UTF-8 bytes sent in the dynamic memory block across all exposures. */
+  memoryExposureBytes: number;
+  /** Local estimate only; it is never added to provider token usage. */
+  memoryEstimatedTokens: number;
   /** A request open longer than `HANG_THRESHOLD_MS` — genuinely stuck. */
   hung: boolean;
   /** A request open but still within budget — normal during `--follow`. */
@@ -197,6 +205,10 @@ export function buildTrace(
   let redirectsSkipped = 0;
   let compactions = 0;
   let compactedTokens = 0;
+  let memoryExposures = 0;
+  let memoryExposureBytes = 0;
+  let memoryEstimatedTokens = 0;
+  const memoryExposureTurns = new Set<string>();
   // Two indexes over the same pending calls. `byId` is exact; `byTool` is the
   // fallback for logs written before `callId` existed, and pops OLDEST-FIRST so
   // two concurrent calls to the same tool still yield ascending call order.
@@ -329,6 +341,14 @@ export function buildTrace(
           ...(event.authMode ? { authMode: event.authMode } : {}),
         });
         break;
+      case "memory.exposure":
+        if (event.injected) {
+          memoryExposures++;
+          memoryExposureTurns.add(event.turnId);
+          memoryExposureBytes += event.blockBytes;
+          memoryEstimatedTokens += event.estimatedTokens;
+        }
+        break;
       case "redirect.triggered":
         redirects++;
         break;
@@ -379,6 +399,10 @@ export function buildTrace(
     memoryInputTokens: sum(auxiliarySpans, "inputTokens"),
     memoryOutputTokens: sum(auxiliarySpans, "outputTokens"),
     memoryCacheReadTokens: sum(auxiliarySpans, "cacheReadTokens"),
+    memoryExposures,
+    memoryExposureTurns: memoryExposureTurns.size,
+    memoryExposureBytes,
+    memoryEstimatedTokens,
     // Only spans past the threshold count. An in-flight request is not a hang.
     hung: open.some((s) => s.status === "hung"),
     inFlight: open.some((s) => s.status === "in_flight"),

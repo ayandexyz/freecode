@@ -166,6 +166,13 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
       `  memory  ${formatDuration(trace.memory_ms).padStart(8)}  ${pct(trace.memory_ms, trace.wall_ms)}  ${dim(`${trace.auxiliarySpans.length} calls`)}`,
     );
   }
+  if (trace.memoryExposures > 0) {
+    out.push(
+      dim(
+        `  memory context  ${count(trace.memoryExposureBytes)} bytes, ~${count(trace.memoryEstimatedTokens)} tokens; ${trace.memoryExposures} request exposures across ${trace.memoryExposureTurns} turns`,
+      ),
+    );
+  }
   const denied = trace.deniedSpans.length;
   out.push(
     `  tools   ${formatDuration(trace.tool_ms).padStart(8)}  ${pct(trace.tool_ms, trace.wall_ms)}  ${dim(`${trace.toolSpans.length} calls${denied ? `, ${denied} denied` : ""}`)}`,
