@@ -28,7 +28,11 @@ import type {
   HookContext,
   AgentMode,
 } from "./types.js";
-import type { SystemBlock, ExecuteUsage, ExecuteOptions } from "../providers/types.js";
+import type {
+  SystemBlock,
+  ExecuteUsage,
+  ExecuteOptions,
+} from "../providers/types.js";
 import { subscriptionAuth } from "../providers/config.js";
 import {
   getCacheWarmer,
@@ -78,7 +82,12 @@ import { logger } from "../utils/logger.js";
 import { envInt } from "../utils/env.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
-import { getTodos, isOpenTodo, renderTodoPromptBlock, type TodoItem } from "../tools/todo.js";
+import {
+  getTodos,
+  isOpenTodo,
+  renderTodoPromptBlock,
+  type TodoItem,
+} from "../tools/todo.js";
 import {
   MAX_TRUNCATED_TOOL_RETRIES,
   repeatedCallReminder,
@@ -115,7 +124,7 @@ import { ensureWatching } from "../context/tree-watcher.js";
 import { MemoryService } from "../compaction/index.js";
 import { getMaxTurnTokens } from "../compaction/tokens.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
-import { renderRetrievedMemories } from "../memory/mem-prompt.js";
+import { renderRetrievedMemoriesDetailed } from "../memory/mem-prompt.js";
 import { CitationStreamFilter, parseCitations } from "../memory/citations.js";
 import { runConsolidationIfDue } from "../memory/consolidate-run.js";
 import { getSessionManager } from "../session/manager.js";
@@ -965,7 +974,10 @@ export class AgentLoop {
             const last = this.recentToolCalls[this.recentToolCalls.length - 1];
             if (last) {
               this.pendingReminders.push(
-                repeatedCallReminder(last.tool, this.state.loopHealth.repeatedTools + 1),
+                repeatedCallReminder(
+                  last.tool,
+                  this.state.loopHealth.repeatedTools + 1,
+                ),
               );
             }
           }
@@ -1713,21 +1725,23 @@ export class AgentLoop {
         currentUserText,
         judgeEnabled ? { provider, model } : undefined,
       );
-      this.lastMemoryBlock = renderRetrievedMemories(retrievedMemories);
+      const renderedMemories =
+        renderRetrievedMemoriesDetailed(retrievedMemories);
+      this.lastMemoryBlock = renderedMemories.text;
       const memoryBlock = this.lastMemoryBlock;
       // UI visibility for the otherwise-silent auto-injection path: fire once
       // per user message that gets a hit (not every inner-loop turn — the
       // dedup key is the query text, so repeat calls with an unchanged
       // request don't spam the notice).
       if (
-        retrievedMemories.length > 0 &&
+        renderedMemories.entries.length > 0 &&
         currentUserText !== this.lastMemoryEmittedFor
       ) {
         this.lastMemoryEmittedFor = currentUserText;
         this.citedThisInjection.clear();
         BusEvents.stream(this.state.sessionId, {
           type: "memory_injected",
-          memories: retrievedMemories.map((e) => ({
+          memories: renderedMemories.entries.map((e) => ({
             type: e.type,
             name: e.name,
           })),
@@ -1735,11 +1749,11 @@ export class AgentLoop {
         // Usage attribution (spec D12) counts *shows*, not inner-loop turns —
         // it shares the once-per-user-message key above so injectedCount stays
         // a denominator you can divide useCount by.
-        memGraph.recordInjected(retrievedMemories);
+        memGraph.recordInjected(renderedMemories.entries);
       }
       // What was on screen when the model answered, so a citation in the reply
       // can be checked against it rather than trusted (D12).
-      this.lastInjectedMemories = retrievedMemories;
+      this.lastInjectedMemories = renderedMemories.entries;
       // Persistent task list: re-rendered from the todo store every turn (not
       // from history), so the plan survives context compaction and a process
       // restart / session.resume. The model never loses remaining work.
@@ -2516,14 +2530,16 @@ export class AgentLoop {
           inputTokens: u?.inputTokens,
           outputTokens: u?.outputTokens,
           cacheReadTokens: u?.cacheReadInputTokens,
-          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
+          cacheWriteTokens:
+            u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
           authMode: subscriptionAuth(r.provider),
         });
         recordDailyUsage({
           inputTokens: u?.inputTokens ?? 0,
           outputTokens: u?.outputTokens ?? 0,
           cacheReadTokens: u?.cacheReadInputTokens ?? 0,
-          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens ?? 0,
+          cacheWriteTokens:
+            u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens ?? 0,
         });
         // The cold-cache warning keys off the last send; a refresh is one.
         noteSendAndCheckCold(sessionId, r.provider);
@@ -2532,10 +2548,12 @@ export class AgentLoop {
           state: "warm",
           message: `Prompt cache refreshed (${r.phase}, ~$${r.decision.warmCostUsd.toFixed(3)})`,
           cacheReadTokens: u?.cacheReadInputTokens,
-          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
+          cacheWriteTokens:
+            u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
         });
       },
-      onStopped: (reason) => logger.debug(`[CacheWarmer] ${sessionId}: ${reason}`),
+      onStopped: (reason) =>
+        logger.debug(`[CacheWarmer] ${sessionId}: ${reason}`),
     });
   }
 
@@ -3213,14 +3231,20 @@ export class AgentLoop {
     if (settings.confidenceGate.enabled && spikes.length > 0) {
       this.pendingReminders.push(
         confidenceSpikeReminder(
-          spikes as Extract<(typeof signals)[number], { kind: "confidence_spike" }>[],
+          spikes as Extract<
+            (typeof signals)[number],
+            { kind: "confidence_spike" }
+          >[],
         ),
       );
     }
     if (settings.hillClimbGate.enabled && lows.length > 0) {
       this.pendingReminders.push(
         hillClimbReminder(
-          lows as Extract<(typeof signals)[number], { kind: "hill_climb_low" }>[],
+          lows as Extract<
+            (typeof signals)[number],
+            { kind: "hill_climb_low" }
+          >[],
           settings.hillClimbGate.threshold,
         ),
       );
@@ -3260,7 +3284,9 @@ export class AgentLoop {
   private async drainSteers(): Promise<boolean> {
     if (this.pendingSteers.length === 0) return false;
     const all = process.env.FREECODE_STEERING_MODE === "all";
-    const batch = all ? this.pendingSteers.splice(0) : this.pendingSteers.splice(0, 1);
+    const batch = all
+      ? this.pendingSteers.splice(0)
+      : this.pendingSteers.splice(0, 1);
     const turnId = `turn-${this.state.turnCount}`;
     // The user changed the task, so the last poke's "no progress"
     // fingerprint no longer describes this list — an unchanged list after a
@@ -3347,7 +3373,11 @@ export class AgentLoop {
     // keep working (or silently give up on an open list).
     const notice = pokeNotice(decision, remaining, max, this.pokeState.pokes);
     if (notice) {
-      BusEvents.stream(this.state.sessionId, { type: "notice", level: "info", content: notice });
+      BusEvents.stream(this.state.sessionId, {
+        type: "notice",
+        level: "info",
+        content: notice,
+      });
       logger.debug(`[AgentLoop] Auto-poke: ${notice}`);
     }
     return decision.poke;
@@ -3589,7 +3619,10 @@ export class AgentLoop {
    * checkpoint is a convenience, and failing to take one must not fail the
    * turn it was taken for (spec §4.1).
    */
-  private async captureCheckpoint(entryId: string, prompt: string): Promise<void> {
+  private async captureCheckpoint(
+    entryId: string,
+    prompt: string,
+  ): Promise<void> {
     if (!this.checkpointsEnabled) {
       this.recorder.recordCheckpointSkipped("subagent");
       return;

@@ -8,6 +8,7 @@ import {
   buildMemoryGuidanceBlock,
   MAX_MEMORY_BLOCK_BYTES,
   renderRetrievedMemories,
+  renderRetrievedMemoriesDetailed,
 } from "./mem-prompt.js";
 import type { MemoryEntry } from "./mem-types.js";
 
@@ -137,4 +138,36 @@ test("the cap never truncates mid-memory", () => {
       assert.equal(xs.length, 1_500, "a rendered body is whole");
     }
   }
+});
+
+test("the detailed result counts only entries represented in the prompt", () => {
+  const kept = sized("kept", 100);
+  const dropped = {
+    ...sized("dropped", 10_000),
+    description: "y".repeat(MAX_MEMORY_BLOCK_BYTES),
+  };
+
+  const rendered = renderRetrievedMemoriesDetailed([kept, dropped]);
+  assert.deepEqual(rendered.entries, [kept]);
+  assert.ok(rendered.text.includes("### kept"));
+  assert.ok(!rendered.text.includes("dropped"));
+});
+
+test("the strict cap includes headings, footer, and multibyte text", () => {
+  const entries = [
+    {
+      ...sized("first", 800),
+      content: "🧠".repeat(200),
+    },
+    {
+      ...sized("second", 10_000),
+      description: "é".repeat(MAX_MEMORY_BLOCK_BYTES),
+    },
+  ];
+  const rendered = renderRetrievedMemoriesDetailed(entries);
+  assert.ok(
+    Buffer.byteLength(rendered.text, "utf-8") <= MAX_MEMORY_BLOCK_BYTES,
+    `block was ${Buffer.byteLength(rendered.text, "utf-8")} bytes`,
+  );
+  assert.deepEqual(rendered.entries, [entries[0]]);
 });
