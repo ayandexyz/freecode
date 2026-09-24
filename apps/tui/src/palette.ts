@@ -332,3 +332,14 @@ export function refreshPalette(load: () => OmarchyPalette | null = loadOmarchyPa
   applyPalette(omarchyThemedPalette(next));
   return true;
 }
+
+/**
+ * The bare opening SGR sequence of a paint, for renderers that must open a
+ * colour, pad, and reset exactly once per line (a nested paint's own close
+ * code would end a background band mid-row). Resolved at call time, so it
+ * follows a live theme switch like the paint itself.
+ */
+export function sgrOpen(paint: Paint): string {
+  const painted = paint("\u0000");
+  return painted.slice(0, painted.indexOf("\u0000"));
+}
