@@ -41,6 +41,8 @@ const MAX_RETRYABLE_FAILURES = 3;
 
 interface EmbeddingModel {
   embed: (texts: string[], batch?: number) => AsyncIterable<Float32Array[]>;
+  /** fastembed's tokenizer; not part of its typed API, so optional. */
+  tokenizer?: { disablePadding?: () => void };
 }
 
 interface FastembedModule {
@@ -73,10 +75,17 @@ async function getModel(): Promise<EmbeddingModel> {
         broken = true; // never recoverable in-process → keyword fallback
         throw err;
       }
-      return mod.FlagEmbedding.init({
+      const model = await mod.FlagEmbedding.init({
         model: mod.EmbeddingModel.AllMiniLML6V2,
         cacheDir: MODELS_DIR,
       });
+      // fastembed pads every input to 512 tokens so texts can be batched. We
+      // always embed one text at a time, so the padding is pure cost: a short
+      // query took ~150 ms instead of ~4 ms, synchronously, which blocked the
+      // event loop past the 60 ms cold budget. Measured identical vectors
+      // (cosine 1.000000), so stored vectors stay valid.
+      model.tokenizer?.disablePadding?.();
+      return model;
     })().catch((err) => {
       // Drop the memoized rejection so a retryable failure (the download) gets
       // a fresh attempt. Nothing to reset once `broken` latched.
