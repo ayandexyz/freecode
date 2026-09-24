@@ -22,7 +22,7 @@ import { Input, type Component } from "@earendil-works/pi-tui";
 import { Loader, Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { palette, refreshPalette } from "./palette.js";
-import { watchOmarchyTheme } from "./utils/omarchy-theme.js";
+import { omarchyPalette, watchOmarchyTheme } from "./utils/omarchy-theme.js";
 import { defaultEditorTheme, MODE_COLORS } from "./themes.js";
 import {
   getRandomElapsedPhrase,
@@ -147,8 +147,9 @@ import { checkForUpdate } from "./utils/update-check.js";
 import { ContextBox } from "./components/context-box.js";
 import { ModeLine } from "./components/mode-line.js";
 import {
-  createProviderSelector,
-  createModelSelector,
+  isCredentialRow,
+  modelRows,
+  providerRows,
 } from "./components/model-picker.js";
 import { createMcpSelector } from "./components/mcp-picker.js";
 import { ShellsPanel } from "./components/shells-panel.js";
@@ -156,6 +157,8 @@ import { AgentsPanel } from "./components/agents-panel.js";
 import { AgentViewer } from "./components/agent-viewer.js";
 import { Transcript } from "./components/transcript.js";
 import { SearchableSelectList } from "./components/searchable-select-list.js";
+import { ListSource, MenuCard, type MenuRow } from "./components/menu-card.js";
+import { SlashMenuModel } from "./components/slash-menu-model.js";
 import { QuestionModal } from "./components/question-modal.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
 import { EffortPicker } from "./components/effort-picker.js";
@@ -289,8 +292,8 @@ let streamedChars = 0;
 let renderedTextThisRun = false;
 let modeLine: ModeLine;
 
-let modelSelector: SearchableSelectList | null = null;
-let providerSelector: SearchableSelectList | null = null;
+/** The /model or /web card (provider list, then that provider's models). */
+let modelMenu: OverlayHandle | null = null;
 let effortPicker: EffortPicker | null = null;
 let resumeSelector: ResumePicker | null = null;
 let mcpSelector: SearchableSelectList | null = null;
@@ -578,19 +581,29 @@ function showNextPermission(): void {
 }
 
 function hideModelSelector(): void {
-  removeSelector(modelSelector);
-  removeSelector(providerSelector);
-  modelSelector = null;
-  providerSelector = null;
-  // Focus goes back to the editor HERE, not at each call site. The selector was
-  // just spliced out of tui.children, so whatever held focus is no longer in
-  // the tree and every keystroke lands on a detached component — the input
-  // looks dead until restart. The cancel paths each remembered to restore it;
-  // picking a model did not, which is the path everyone actually takes.
-  // Callers that want focus elsewhere (the provider list, the model list, the
-  // credential prompt) set it immediately after this returns.
+  modelMenu?.hide();
+  modelMenu = null;
+  // Focus goes back HERE, not at each call site: picking a model is the path
+  // everyone takes, and it used to leave focus on a component no longer in
+  // the tree, so the input looked dead until restart. Callers that want focus
+  // elsewhere (the next card, the credential prompt) set it right after.
   tui.setFocus(focusTarget());
   tui.requestRender();
+}
+
+// Omarchy-menu cards (`/` menu, /model, /web) share one size and icon rule:
+// narrow like the desktop menu, and Nerd Font glyphs only where Omarchy's
+// fonts are known to be installed.
+const menuIcons = omarchyPalette !== null;
+const menuMaxRows = () => Math.max(8, terminal.rows - 6);
+
+function openMenuCard<R extends MenuRow>(card: MenuCard<R>): OverlayHandle {
+  const overlay = tui.showOverlay(card, {
+    anchor: "center",
+    width: Math.min(40, Math.max(28, terminal.columns - 4)),
+  });
+  tui.requestRender();
+  return overlay;
 }
 
 function hideTreeSelector(): void {
@@ -997,26 +1010,17 @@ async function showProviderSelector(
       return;
     }
 
-    providerSelector = createProviderSelector(
-      providers,
-      {
-        onSelect: async (providerId: string) => {
-          const provider = providers.find((p) => p.id === providerId);
-          if (provider) await showModelSelector(provider);
-        },
-        onCancel: () => {
-          hideModelSelector();
-          tui.setFocus(editor);
-          tui.requestRender();
-        },
-      },
-      defaultSelectListTheme,
+    const card = new MenuCard(
+      new ListSource(kind === "web" ? "Web provider" : "Provider", providerRows(providers)),
+      menuMaxRows,
+      false, // no glyphs to show; don't reserve the column
     );
-
-    const editorIdx = tui.children.indexOf(editor);
-    tui.children.splice(editorIdx + 1, 0, providerSelector);
-    tui.setFocus(providerSelector);
-    tui.requestRender();
+    card.onPick = async (row) => {
+      const provider = providers.find((p) => p.id === row.id);
+      if (provider) await showModelSelector(provider, kind);
+    };
+    card.onClose = hideModelSelector;
+    modelMenu = openMenuCard(card);
   } catch (err) {
     showMessage(`**Error:** Failed to load providers: ${err}`);
   }
@@ -1358,7 +1362,10 @@ async function showMcpPicker(): Promise<void> {
   }
 }
 
-async function showModelSelector(provider: ProviderInfo): Promise<void> {
+async function showModelSelector(
+  provider: ProviderInfo,
+  kind: "api" | "web" = "api",
+): Promise<void> {
   hideModelSelector();
 
   const providerId = provider.id;
@@ -1381,46 +1388,42 @@ async function showModelSelector(provider: ProviderInfo): Promise<void> {
     const credentialLabel =
       provider.kind === "web" ? provider.credential?.label : "API key";
 
-    modelSelector = createModelSelector(
-      models,
-      {
-        onSelect: async (modelId: string) => {
-          currentProvider = providerId;
-          currentModel = modelId;
-
-          hideModelSelector();
-          if (needsCredential) {
-            await showCredentialInput(provider, modelId);
-          } else {
-            await setCurrentModel(providerId, modelId);
-            updateModelDisplay();
-            showMessage(`**Model changed to:** ${providerId}/${modelId}`);
-          }
-        },
-        onCancel: () => {
-          hideModelSelector();
-          tui.setFocus(editor);
-          tui.requestRender();
-        },
-        // Offered whenever the provider takes a credential at all, including
-        // the optional cookie that upgrades an already-working web session.
-        ...(!needsCredential &&
-          credentialLabel && {
-            credentialLabel,
-            credentialMissing,
-            onUpdateCredential: async () => {
-              hideModelSelector();
-              await showCredentialInput(provider);
-            },
-          }),
-      },
-      defaultSelectListTheme,
+    // The credential entry is offered whenever the provider takes one at all,
+    // including the optional cookie that upgrades a working web session.
+    const card = new MenuCard(
+      new ListSource(
+        provider.name,
+        modelRows(
+          models,
+          !needsCredential && credentialLabel
+            ? { label: credentialLabel, missing: credentialMissing }
+            : undefined,
+        ),
+      ),
+      menuMaxRows,
+      false, // no glyphs to show; don't reserve the column
     );
-
-    const editorIdx = tui.children.indexOf(editor);
-    tui.children.splice(editorIdx + 1, 0, modelSelector);
-    tui.setFocus(modelSelector);
-    tui.requestRender();
+    card.onPick = async (row) => {
+      hideModelSelector();
+      if (isCredentialRow(row)) {
+        await showCredentialInput(provider);
+        return;
+      }
+      const modelId = row.id;
+      currentProvider = providerId;
+      currentModel = modelId;
+      if (needsCredential) {
+        await showCredentialInput(provider, modelId);
+      } else {
+        await setCurrentModel(providerId, modelId);
+        updateModelDisplay();
+        showMessage(`**Model changed to:** ${providerId}/${modelId}`);
+      }
+    };
+    card.onClose = hideModelSelector;
+    // ← at the top of the model list returns to the providers, like a submenu.
+    card.onBack = () => void showProviderSelector(kind);
+    modelMenu = openMenuCard(card);
   } catch (err) {
     showMessage(`**Error:** Failed to load models: ${err}`);
   }
@@ -1469,6 +1472,35 @@ function showEffortPicker(): void {
   });
   tui.requestRender();
 }
+
+// ---------------------------------------------------------------------------
+// `/` menu — the Omarchy menu, in the terminal. Opened by `/` on an empty
+// composer; typed `/name args` still goes through onSubmit unchanged.
+// ---------------------------------------------------------------------------
+function showSlashMenu(): void {
+  let overlay: OverlayHandle | null = null;
+  const close = (editorText?: string) => {
+    overlay?.hide();
+    overlay = null;
+    if (editorText !== undefined) editor.setText(editorText);
+    tui.setFocus(focusTarget());
+    tui.requestRender();
+  };
+
+  const menu = new MenuCard(new SlashMenuModel(commandRegistry.getAll()), menuMaxRows, menuIcons);
+  menu.onClose = () => close();
+  menu.onHandBack = (text) => close(text);
+  menu.onPick = ({ command }) => {
+    if (!command) return;
+    // A command that takes arguments is left in the composer to finish.
+    if (command.argHint) return close(`/${command.name} `);
+    close();
+    void editor.onSubmit?.(`/${command.name}`);
+  };
+
+  overlay = openMenuCard(menu);
+}
+editor.onSlashMenu = showSlashMenu;
 
 /**
  * Prompt for a provider's credential — an API key for /model, whatever the web
@@ -2928,7 +2960,7 @@ tui.addInputListener((data) => {
       tui.requestRender();
       return { consume: true };
     }
-    if (modelSelector || providerSelector) {
+    if (modelMenu) {
       hideModelSelector();
       tui.setFocus(editor);
       tui.requestRender();

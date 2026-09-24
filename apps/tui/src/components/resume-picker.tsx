@@ -28,24 +28,27 @@ import type {
   SerializedMessage,
   SessionMeta,
 } from "@thisisayande/freecode-shared";
+import { palette, sgrOpen } from "../palette.js";
 
 // -----------------------------------------------------------------------------
-// Theme — every TUI modal keeps its own tiny theme; no shared theme module.
+// Theme — the shared palette, so the card follows the Omarchy theme (live).
 // -----------------------------------------------------------------------------
 
-// Raw SGR codes, for lines that must open a colour, pad, then reset exactly
-// once. Nesting the wrapper helpers below emits a reset mid-line, which drops
-// the background across everything that follows it.
-const ACCENT_CODE = "\u001b[36m"; // cyan
-const BG_CARD_CODE = "\u001b[48;5;236m"; // dark gray
-const BG_SEL_CODE = "\u001b[48;5;60m"; // blue-gray
-const FG_PINK_CODE = "\u001b[38;5;205m"; // pink
+// Raw opening codes, for lines that must open a colour, pad, then reset
+// exactly once. Nesting paints emits a close code mid-line, which drops the
+// background across everything that follows it. Functions, not constants:
+// they resolve against the palette in force when the frame is drawn.
+const ACCENT_CODE = (): string => sgrOpen(palette.accent);
+const BG_CARD_CODE = (): string => sgrOpen(palette.bgSurface);
+const BG_SEL_CODE = (): string => sgrOpen(palette.bgSelection);
+const TITLE_CODE = (): string => sgrOpen(palette.magenta);
+const META_CODE = (): string => sgrOpen(palette.muted);
+const META_SEL_CODE = (): string => sgrOpen(palette.fgSelection);
 
-const ACCENT = (text: string): string => `${ACCENT_CODE}${text}\u001b[0m`; // cyan
-const DIM = (text: string): string => `\u001b[2m${text}\u001b[0m`; // dim
-const BG_CARD = (text: string): string => `${BG_CARD_CODE}${text}\u001b[0m`; // dark gray
-const TITLE_BG = (text: string): string =>
-  `\u001b[30;46m${text}\u001b[0m`; // black on cyan
+const ACCENT = (text: string): string => palette.accent(text);
+const DIM = (text: string): string => palette.muted(text);
+const BG_CARD = (text: string): string => `${BG_CARD_CODE()}${text}${RESET}`;
+const TITLE_BG = (text: string): string => palette.bgAccent(palette.onAccent(text));
 const RESET = "\u001b[0m";
 
 const markdownTheme = {
@@ -125,7 +128,7 @@ function padRight(s: string, width: number): string {
  */
 function cardRow(styled: string, width: number): string {
   const pad = Math.max(0, width - visibleWidth(styled));
-  return BG_CARD_CODE + styled + BG_CARD_CODE + " ".repeat(pad) + RESET;
+  return BG_CARD_CODE() + styled + BG_CARD_CODE() + " ".repeat(pad) + RESET;
 }
 
 /**
@@ -732,7 +735,7 @@ export class ResumePicker implements Component {
     rowIdx: number,
     width: number,
   ): string {
-    const bg = isSel ? BG_SEL_CODE : BG_CARD_CODE;
+    const bg = isSel ? BG_SEL_CODE() : BG_CARD_CODE();
     const prefix = isSel ? "\u203a " : "  ";
     // Every row carries a 2-char prefix, so the text budget is `width - 2`.
     const budget = Math.max(0, width - 2);
@@ -741,11 +744,11 @@ export class ResumePicker implements Component {
 
     if (rowIdx === 0) {
       const title = s.title.trim() === "" ? "(untitled)" : s.title;
-      return row(FG_PINK_CODE, `${title} \u00b7 ${s.turnCount} turns`);
+      return row(TITLE_CODE(), `${title} \u00b7 ${s.turnCount} turns`);
     }
-    if (rowIdx === 1) return row(ACCENT_CODE, s.projectPath);
-    // Bright white vs dim, so the selected row's metadata stays readable.
-    const metaColor = isSel ? "\u001b[37m" : "\u001b[2m";
+    if (rowIdx === 1) return row(ACCENT_CODE(), s.projectPath);
+    // Selection foreground vs muted, so the selected row's metadata stays readable.
+    const metaColor = isSel ? META_SEL_CODE() : META_CODE();
     if (rowIdx === 2) return row(metaColor, "Closed " + relativeTime(s.lastTurnAt));
     if (rowIdx === 3) {
       return row(metaColor, "Created " + relativeTime(s.createdAt));

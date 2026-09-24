@@ -1,4 +1,3 @@
-import type { SelectItem, SelectListTheme } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { palette } from "../palette.js";
 import type {
@@ -6,7 +5,7 @@ import type {
   ProviderStatus,
 } from "@thisisayande/freecode-shared";
 import type { ModelInfo } from "../ipc/client.js";
-import { SearchableSelectList } from "./searchable-select-list.js";
+import type { MenuRow } from "./menu-card.js";
 
 const UPDATE_CREDENTIAL = "__update_credential__";
 
@@ -32,60 +31,43 @@ function statusLabel(provider: ProviderInfo): string {
   }
 }
 
-export function createProviderSelector(
-  providers: ProviderInfo[],
-  callbacks: {
-    onSelect: (providerId: string) => void;
-    onCancel: () => void;
-  },
-  theme: SelectListTheme,
-): SearchableSelectList {
-  const providerItems: SelectItem[] = providers.map((p) => ({
+/** Provider rows for the /model and /web card; the row id is the provider id. */
+export function providerRows(providers: ProviderInfo[]): MenuRow[] {
+  return providers.map((p) => ({
+    id: p.id,
     label: p.name,
-    value: p.id,
-    description: statusLabel(p),
+    description: p.id,
+    status: statusLabel(p),
   }));
-
-  const maxVisible = Math.min(providerItems.length, 10);
-  const selector = new SearchableSelectList(providerItems, maxVisible, theme);
-
-  selector.onSelect = (item: SelectItem) => {
-    callbacks.onSelect(item.value);
-  };
-
-  selector.onCancel = () => {
-    callbacks.onCancel();
-  };
-
-  return selector;
 }
 
-export function createModelSelector(
+/** Whether a picked model row is the credential entry rather than a model. */
+export function isCredentialRow(row: MenuRow): boolean {
+  return row.id === UPDATE_CREDENTIAL;
+}
+
+/** Model rows for one provider; the row id is the model id. */
+export function modelRows(
   models: ModelInfo[],
-  callbacks: {
-    onSelect: (modelId: string) => void;
-    onCancel: () => void;
-    /** Shown as an extra entry when the provider's credential can be changed. */
-    onUpdateCredential?: () => void;
-    /** Wording for that entry — "API key" for /model, "cookie" for /web. */
-    credentialLabel?: string;
+  credential?: {
+    /** Wording for the entry — "API key" for /model, "cookie" for /web. */
+    label: string;
     /** True when nothing is on file yet, so the entry offers rather than replaces. */
-    credentialMissing?: boolean;
+    missing: boolean;
   },
-  theme: SelectListTheme,
-): SearchableSelectList {
-  const modelItems: SelectItem[] = models.map((m: ModelInfo) => ({
+): MenuRow[] {
+  const rows: MenuRow[] = models.map((m: ModelInfo) => ({
+    id: m.id,
     label: m.name || m.id,
-    value: m.id,
     description: m.description || m.id,
   }));
 
-  if (callbacks.onUpdateCredential) {
-    const noun = callbacks.credentialLabel ?? "API key";
-    const entry: SelectItem = {
-      label: callbacks.credentialMissing ? `Add ${noun}` : `Update ${noun}`,
-      value: UPDATE_CREDENTIAL,
-      description: callbacks.credentialMissing
+  if (credential) {
+    const noun = credential.label;
+    const entry: MenuRow = {
+      id: UPDATE_CREDENTIAL,
+      label: credential.missing ? `Add ${noun}` : `Update ${noun}`,
+      description: credential.missing
         ? `Store a ${noun} for this provider`
         : `Replace the saved ${noun} for this provider`,
     };
@@ -94,24 +76,8 @@ export function createModelSelector(
     // credential prompt when the user came to pick a model — and for an
     // anonymous web session that credential is not even needed. Replacing one
     // that already exists stays first, which is where /model has always put it.
-    if (callbacks.credentialMissing) modelItems.push(entry);
-    else modelItems.unshift(entry);
+    if (credential.missing) rows.push(entry);
+    else rows.unshift(entry);
   }
-
-  const maxVisible = Math.min(modelItems.length, 10);
-  const selector = new SearchableSelectList(modelItems, maxVisible, theme);
-
-  selector.onSelect = (item: SelectItem) => {
-    if (item.value === UPDATE_CREDENTIAL) {
-      callbacks.onUpdateCredential?.();
-    } else {
-      callbacks.onSelect(item.value);
-    }
-  };
-
-  selector.onCancel = () => {
-    callbacks.onCancel();
-  };
-
-  return selector;
+  return rows;
 }

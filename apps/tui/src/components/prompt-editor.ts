@@ -1,4 +1,4 @@
-import { Editor, getKeybindings, matchesKey, type TUI } from "@earendil-works/pi-tui";
+import { Editor, decodeKittyPrintable, getKeybindings, matchesKey, type TUI } from "@earendil-works/pi-tui";
 import type { EditorTheme } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { palette } from "../palette.js";
@@ -338,6 +338,16 @@ export class PromptEditor extends Editor {
       (this as unknown as { submitValue(): void }).submitValue();
       return;
     }
+    // `/` on an empty composer opens the command menu instead of typing.
+    // A `/` anywhere else is text (paths, `a/b`), and so is a pasted one.
+    if (
+      this.onSlashMenu &&
+      this.getText() === "" &&
+      (data === "/" || decodeKittyPrintable(data) === "/")
+    ) {
+      this.onSlashMenu();
+      return;
+    }
     if (this.isBackspace(data)) {
       const token = this.tokenBeforeCursor();
       if (token) {
@@ -347,6 +357,9 @@ export class PromptEditor extends Editor {
     }
     super.handleInput(data);
   }
+
+  /** Opens the `/` menu; unset keeps `/` as plain text with inline completion. */
+  onSlashMenu?: () => void;
 
   private submitBehavior: "steer" | "followUp" = "steer";
 

@@ -7,6 +7,7 @@ import type {
   SessionMeta,
 } from "@thisisayande/freecode-shared";
 import { ResumePicker } from "./resume-picker.js";
+import { palette, sgrOpen } from "../palette.js";
 
 const WIDTH = 100;
 // `render` derives the list column width from the card width, and the card
@@ -60,23 +61,39 @@ function longTranscript(): SerializedMessage[] {
  * its padding on the default background, which is invisible to a width
  * assertion but shows up as a highlight band that stops at the text.
  */
-function backgroundPerColumn(row: string): (number | null)[] {
-  const out: (number | null)[] = [];
-  let bg: number | null = null;
+/**
+ * The background in force at each visible column, as its SGR parameters
+ * ("48;2;r;g;b", "48;5;n", "43"), or null for the terminal default.
+ */
+function backgroundPerColumn(row: string): (string | null)[] {
+  const out: (string | null)[] = [];
+  let bg: string | null = null;
   for (let i = 0; i < row.length; i++) {
     if (row[i] === "\x1b" && row[i + 1] === "[") {
       const end = row.indexOf("m", i);
       if (end === -1) break;
       const params = row.slice(i + 2, end).split(";");
-      if (params.includes("0") || params[0] === "") bg = null;
-      const at = params.indexOf("48");
-      if (at !== -1 && params[at + 1] === "5") bg = Number(params[at + 2]);
+      for (let k = 0; k < params.length; k++) {
+        const n = Number(params[k]);
+        if (params[k] === "" || n === 0 || n === 49) bg = null;
+        else if (n === 48) {
+          const len = params[k + 1] === "2" ? 5 : 3;
+          bg = params.slice(k, k + len).join(";");
+          k += len - 1;
+        } else if (n === 38) k += params[k + 1] === "2" ? 4 : 2;
+        else if ((n >= 40 && n <= 47) || (n >= 100 && n <= 107)) bg = params[k];
+      }
       i = end;
       continue;
     }
     out.push(bg);
   }
   return out;
+}
+
+/** The background a palette paint sets, in `backgroundPerColumn`'s terms. */
+function backgroundOf(paint: (s: string) => string): string | null {
+  return backgroundPerColumn(sgrOpen(paint) + "x")[0] ?? null;
 }
 
 test("every card row is the same width at any terminal size", () => {
@@ -121,9 +138,13 @@ test("every row of a session spans the list column with one background", () => {
   // Row 0 = top border, 1 = blank, 2 = title; the list starts at row 3, and
   // the cursor sits on the first session, so rows 3..7 are the selected entry
   // and rows 8..12 are the next (unselected) one.
+  // Both backgrounds come from the palette, so the card follows the theme.
+  const card = backgroundOf(palette.bgSurface);
+  const selection = backgroundOf(palette.bgSelection);
+  assert.ok(card && selection && card !== selection);
   for (const [label, rows, expected] of [
-    ["selected", [3, 4, 5, 6, 7], 60],
-    ["unselected", [8, 9, 10, 11, 12], 236],
+    ["selected", [3, 4, 5, 6, 7], selection],
+    ["unselected", [8, 9, 10, 11, 12], card],
   ] as const) {
     for (const r of rows) {
       const bg = backgroundPerColumn(frame[r]);
@@ -136,7 +157,7 @@ test("every row of a session spans the list column with one background", () => {
         LIST_WIDTH - 1,
         `${label} row ${r} is only ${cols.length} columns wide`,
       );
-      assert.equal(bg[LIST_WIDTH], 236, `${label} row ${r}: gutter background`);
+      assert.equal(bg[LIST_WIDTH], card, `${label} row ${r}: gutter background`);
       const wrong = cols.findIndex((c) => c !== expected);
       assert.equal(
         wrong,

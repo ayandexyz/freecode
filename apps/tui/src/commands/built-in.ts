@@ -28,6 +28,7 @@ const helpCommand: Command = {
 - **/graph** - Open the memory knowledge graph in your browser
 - **/exit** - Exit FreeCode
 
+Press **/** on an empty prompt to open the command menu.
 Use **PgUp/PgDn** to scroll the message history.
 Just type your prompt to start chatting!`);
   },

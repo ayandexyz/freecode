@@ -96,7 +96,7 @@ export class SearchableSelectList implements Component {
   }
 }
 
-function isPrintable(data: string): boolean {
+export function isPrintable(data: string): boolean {
   if (data.length === 0) return false;
   return [...data].every((ch) => {
     const code = ch.charCodeAt(0);
