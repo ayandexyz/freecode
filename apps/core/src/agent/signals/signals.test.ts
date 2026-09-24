@@ -114,7 +114,38 @@ test("a completed item is never asked to reframe", () => {
 
 // --- auto-poke --------------------------------------------------------------
 
-const open = [item({ id: "1", status: "completed" }), item({ id: "2", status: "pending" })];
+const open = [item({ id: "1", status: "completed" }), item({ id: "2", status: "in_progress" })];
+
+test("a completed audit with pending implementation suggestions never pokes", () => {
+  const todos = [
+    item({ id: "report", content: "Report what is done and left", status: "completed" }),
+    item({ id: "seed", content: "Implement tenant seed", status: "pending" }),
+    item({ id: "retry", content: "Add retry endpoint", status: "pending" }),
+  ];
+  assert.deepEqual(
+    decidePoke({ enabled: true, maxPerRun: 3, todos, state: initialPokeState() }),
+    { poke: false, skip: "no_active_work" },
+  );
+  // A pure plan and a plan waiting on a decision are also valid stopping points.
+  for (const plan of [todos.slice(1), [...todos.slice(1), item({ id: "approval", status: "blocked" })]]) {
+    assert.deepEqual(
+      decidePoke({ enabled: true, maxPerRun: 3, todos: plan, state: initialPokeState() }),
+      { poke: false, skip: "no_active_work" },
+    );
+  }
+});
+
+test("a poke names active work without promoting pending follow-ups", () => {
+  const active = item({ id: "report", content: "Finish the requested report", status: "in_progress" });
+  const pending = item({ id: "seed", content: "Implement suggested seed" });
+  const decision = decidePoke({ enabled: true, maxPerRun: 3, todos: [active, pending], state: initialPokeState() });
+  assert.ok(decision.poke);
+  assert.deepEqual(decision.remaining, [active]);
+  const message = pokeMessage([active, pending], 1, 3);
+  assert.match(message, /Finish the requested report/);
+  assert.ok(!message.includes(pending.content));
+  assert.match(message, /do not implement suggested fixes/);
+});
 
 test("disabled is the reason even when nothing is open", () => {
   const d = decidePoke({ enabled: false, maxPerRun: 3, todos: [], state: initialPokeState() });
@@ -142,13 +173,13 @@ test("pokes while items are open, up to the cap", () => {
   state = notePoke(state, first.fingerprint);
 
   // The model made progress (list changed) — poke again.
-  const moved = [item({ id: "2", status: "in_progress" }), item({ id: "3" })];
+  const moved = [item({ id: "2", status: "completed" }), item({ id: "3", status: "in_progress" })];
   const second = decidePoke({ enabled: true, maxPerRun: 2, todos: moved, state });
   assert.equal(second.poke, true);
   if (!second.poke) return;
   state = notePoke(state, second.fingerprint);
 
-  const third = decidePoke({ enabled: true, maxPerRun: 2, todos: [item({ id: "9" })], state });
+  const third = decidePoke({ enabled: true, maxPerRun: 2, todos: [item({ id: "9", status: "in_progress" })], state });
   assert.deepEqual(third, { poke: false, skip: "cap_reached" });
 });
 
@@ -185,7 +216,10 @@ test("a poke answered with prose and no tool call is re-poked once, harder, then
   assert.equal(again.retry, true);
   const msg = pokeMessage(again.remaining, 2, 3, { retry: true });
   assert.match(msg, /no tool call/);
-  assert.match(msg, /must be a tool call/);
+  assert.ok(!msg.includes("must be a tool call"));
+  assert.match(msg, /not a new user request/);
+  assert.match(msg, /do not authorize new work/);
+  assert.match(msg, /If the request is complete, stop/);
   // The retry is spent on that fingerprint: a third identical stop is no
   // progress even if the model bounced again, and so is the same list after
   // a new run (nextRunPokeState keeps the flag with the fingerprint).
@@ -200,7 +234,7 @@ test("a poke answered with prose and no tool call is re-poked once, harder, then
     { poke: false, skip: "no_progress" },
   );
   // A list that moved gets a normal poke and a fresh retry.
-  const moved = [item({ id: "1", status: "completed" }), item({ id: "2", status: "in_progress" })];
+  const moved = [item({ id: "2", status: "completed" }), item({ id: "3", status: "in_progress" })];
   const fresh = decidePoke({ enabled: true, maxPerRun: 3, todos: moved, state: spent, actedSincePoke: false });
   assert.equal(fresh.poke && fresh.retry, false);
   assert.equal(notePoke(spent, todoFingerprint(moved)).retried, false);
@@ -241,12 +275,12 @@ test("a list whose open items are all blocked is not poked", () => {
   );
   // One actionable item among blocked ones is still poked for, and the poke
   // names only that one.
-  const mixed = [...parked, item({ id: "4", content: "write the changelog" })];
+  const mixed = [...parked, item({ id: "4", content: "write the changelog", status: "in_progress" })];
   const d = decidePoke({ enabled: true, maxPerRun: 3, todos: mixed, state: initialPokeState() });
   assert.equal(d.poke, true);
   if (!d.poke) return;
   const msg = pokeMessage(d.remaining, 1, 3);
-  assert.match(msg, /1 todo item still open/);
+  assert.match(msg, /1 todo item still in progress/);
   assert.match(msg, /"write the changelog"/);
   assert.ok(!msg.includes("push tag"));
   assert.ok(!msg.includes("[ ]"), "one line of names, not a checklist");
@@ -254,16 +288,17 @@ test("a list whose open items are all blocked is not poked", () => {
 
 test("the poke names at most six items, truncated, on one line", () => {
   const many = Array.from({ length: 9 }, (_, i) =>
-    item({ id: String(i), content: `item ${i} ${"x".repeat(100)}` }),
+    item({ id: String(i), content: `item ${i} ${"x".repeat(100)}`, status: "in_progress" }),
   );
   const msg = pokeMessage(many, 2, 3);
   const [head, tail] = msg.split("\n");
-  assert.match(head!, /9 todo items still open \(poke 2 of 3\)/);
+  assert.match(head!, /9 todo items still in progress \(poke 2 of 3\)/);
   assert.equal((head!.match(/"item \d/g) ?? []).length, 6);
   assert.match(head!, /\+3 more/);
   assert.ok(!head!.includes("x".repeat(90)), "long content is cut");
-  // Action first; `blocked` is the last word, not the offered exit.
-  assert.match(tail!, /^Pick the next open item and do it now\./);
+  // A nudge preserves scope; it is not a new user instruction.
+  assert.match(head!, /not a new user request/);
+  assert.match(tail!, /^Continue only unfinished work within the user's actual request\./);
   assert.ok(tail!.indexOf("cancelled") < tail!.indexOf("blocked"));
 });
 
@@ -277,7 +312,7 @@ test("a new run re-arms the cap but keeps the fingerprint", () => {
     { poke: false, skip: "no_progress" },
   );
   // The list moved: poke as normal.
-  const moved = [item({ id: "1", status: "completed" }), item({ id: "2", status: "in_progress" })];
+  const moved = [item({ id: "2", status: "completed" }), item({ id: "3", status: "in_progress" })];
   assert.equal(decidePoke({ enabled: true, maxPerRun: 3, todos: moved, state: next }).poke, true);
 });
 

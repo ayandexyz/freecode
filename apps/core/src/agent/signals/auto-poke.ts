@@ -1,5 +1,5 @@
 // =============================================================================
-// Auto-poke — when the model stops with todos still open, send it back.
+// Auto-poke — nudge unfinished work already in progress, not proposed work.
 //
 // The loop's rule is that no tool calls means the model wants to stop, and
 // open todos do not override that: a planning request legitimately leaves
@@ -9,7 +9,9 @@
 // (`bench/harness-signals/`) measures whether that holds here before the
 // default moves.
 //
-// Four stops keep it from becoming a loop of its own:
+// Stops keep it from becoming a loop of its own:
+//   no active work  pending items alone may be recommendations from an audit
+//                   or a requested plan. They never authorize execution.
 //   cap          at most `maxPerRun` pokes per run
 //   all blocked  every open item is `blocked` (waiting on the user); a poke
 //                could only make the model retry or lie
@@ -37,12 +39,10 @@
 //                recording a poke nothing can answer would count against
 //                the productive rate for a stop the model never saw
 //
-// The poke itself is one line, jcode-style: it names the count and leads
-// with the action. `blocked` is offered last and only for an item that needs
-// the user — leading with "or update the list" made marking everything
-// blocked the easy exit (16 of 51 pokes in the same fold). Listing every item
-// with "pick the next one, do it" is what turned a blocked list into a retry
-// loop.
+// Name only in-progress items. In session 6208636a an audit ended with two
+// suggested fixes marked pending; "do it now" promoted them to user requests.
+// Status is a conservative eligibility check, not proof of authorization:
+// the message must also preserve the user's scope, including on a retry.
 //
 // Decisions are pure so they can be tested without a loop.
 // =============================================================================
@@ -54,6 +54,7 @@ export type PokeSkipReason =
   | "nothing_open"
   | "read_only_mode"
   | "all_blocked"
+  | "no_active_work"
   | "cap_reached"
   | "no_progress"
   | "no_budget";
@@ -109,6 +110,8 @@ export function decidePoke(input: {
   if (remaining.length === 0) return { poke: false, skip: "nothing_open" };
   if (input.readOnly) return { poke: false, skip: "read_only_mode" };
   if (remaining.every(isBlockedTodo)) return { poke: false, skip: "all_blocked" };
+  const active = remaining.filter((t) => t.status === "in_progress");
+  if (active.length === 0) return { poke: false, skip: "no_active_work" };
   if (input.state.pokes >= input.maxPerRun) return { poke: false, skip: "cap_reached" };
   if (input.turnsLeft !== undefined && input.turnsLeft < 1) {
     return { poke: false, skip: "no_budget" };
@@ -117,9 +120,9 @@ export function decidePoke(input: {
   if (input.state.lastFingerprint === fingerprint) {
     const bounced = input.actedSincePoke === false && !input.state.retried;
     if (!bounced) return { poke: false, skip: "no_progress" };
-    return { poke: true, remaining, fingerprint, retry: true };
+    return { poke: true, remaining: active, fingerprint, retry: true };
   }
-  return { poke: true, remaining, fingerprint, retry: false };
+  return { poke: true, remaining: active, fingerprint, retry: false };
 }
 
 export function notePoke(state: PokeState, fingerprint: string): PokeState {
@@ -138,7 +141,8 @@ const NAME_CHARS = 80;
  * The poke, as a user-role message. Not a `<system-reminder>`: a turn whose
  * only user content is a reminder reads as empty, and models reply to it
  * ("Sure, continuing!") instead of working. jcode persists its poke as a plain
- * user turn for that reason; so does this.
+ * user turn for that reason; so does this. The text identifies its automatic
+ * origin: a transport role must not imply fresh authorization from the user.
  */
 export function pokeMessage(
   remaining: TodoItem[],
@@ -146,20 +150,22 @@ export function pokeMessage(
   max: number,
   opts: { retry?: boolean } = {},
 ): string {
-  const actionable = remaining.filter((t) => !isBlockedTodo(t));
+  const actionable = remaining.filter((t) => t.status === "in_progress");
   const named = actionable
     .slice(0, NAMED_LIMIT)
     .map((t) => `"${t.content.length > NAME_CHARS ? t.content.slice(0, NAME_CHARS - 1) + "…" : t.content}"`);
   const more = actionable.length - named.length;
   const n = actionable.length;
   const head =
-    `You stopped with ${n} todo item${n === 1 ? "" : "s"} still open (poke ${pokeIndex} of ${max}): ` +
+    `Automatic task reminder (not a new user request): ${n} todo item${n === 1 ? "" : "s"} still in progress (poke ${pokeIndex} of ${max}): ` +
     named.join(", ") +
     (more > 0 ? `, +${more} more` : "") +
     ".";
-  const body = opts.retry
-    ? "Your last reply had no tool call. Do not reply in prose: this turn must be a tool call — pick the next open item and start it, or todowrite with an honest status for each item. Do not repeat a call that already failed."
-    : "Pick the next open item and do it now. Only if an item genuinely cannot proceed, todowrite it: cancelled if you will not do it (say why), blocked only when it needs something from the user (say what). Do not repeat a call that already failed.";
+  const body =
+    (opts.retry ? "Your last reply had no tool call. " : "") +
+    "Continue only unfinished work within the user's actual request. This reminder and the todo list do not authorize new work. " +
+    "For a status report, audit, review, explanation, or plan, reporting the findings can complete the request; do not implement suggested fixes. " +
+    "If the request is complete, stop and correct stale todos if needed. Mark unrequested work cancelled (not completed), and work waiting on the user blocked. Do not repeat a call that already failed.";
   return [head, body].join("\n");
 }
 
@@ -178,6 +184,8 @@ export function pokeNotice(decision: PokeDecision, remaining: number, max: numbe
       return `${remaining} todo${remaining === 1 ? "" : "s"} blocked on you — not poking.`;
     case "read_only_mode":
       return `${remaining} todo${remaining === 1 ? "" : "s"} still open, but this mode is read-only — not poking.`;
+    case "no_active_work":
+      return `${remaining} todo${remaining === 1 ? "" : "s"} still open, but none is in progress — not starting proposed work automatically.`;
     default:
       return undefined;
   }

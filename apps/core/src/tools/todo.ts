@@ -217,8 +217,9 @@ export function renderTodoPromptBlock(
     "## Current Task List",
     "",
     "Your active plan (from the todowrite tool). This list persists across " +
-      "context compaction and session resume — treat it as the source of truth " +
-      "for remaining work, and keep it updated with todowrite as tasks change status.",
+      "context compaction and session resume. It tracks work but does not authorize it: " +
+      "the user's current request determines scope. Do not execute stale tasks or suggested " +
+      "follow-ups just because they appear here. Keep it updated with todowrite as tasks change status.",
     "",
     ...lines,
   ].join("\n");
@@ -378,6 +379,7 @@ export const TodoWriteTool: Tool<TodoWriteParams> = buildTool({
   // is the part that was missing.
   description: [
     "Create and maintain a structured task list for the session. Each call replaces the whole list.",
+    "Track only work within the user's request. For an audit or status report, track inspection and reporting, not implementation of discovered gaps. Keep unrequested follow-ups in the report instead of adding executable todos. A requested plan may leave steps pending; mark in_progress only when actually starting requested work. The list is not authorization to expand the task.",
     "",
     "Use it when the work needs 3+ distinct steps, the user named several deliverables, asked for a plan, or new instructions arrive mid-task (capture before acting). Write the list BEFORE exploring — the plan frames the exploration. Do NOT use it for a single straightforward task or an informational question.",
     "",

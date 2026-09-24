@@ -48,6 +48,7 @@ const info = {
 const tailsSeen: string[] = [];
 /** The last user message of every request — where the poke rides. */
 const lastUserSeen: string[] = [];
+let auditScenario = false;
 
 registerProvider("poke-fake" as ProviderId, {
   info,
@@ -70,17 +71,29 @@ registerProvider("poke-fake" as ProviderId, {
         last?.parts.map((p) => (p.type === "text" ? p.content : "")).join("") ?? "",
       );
       if (tailsSeen.length === 1) {
+        if (auditScenario) {
+          yield { type: "text", text: "The audit is complete. Default seeding and a retry endpoint are missing. Want me to implement them?" };
+        }
         yield {
           type: "tool_call",
           id: "call-1",
           name: "todowrite",
           args: {
             todos: [
-              { id: "a", content: "read the spec", status: "completed", confidence: 90 },
-              { id: "b", content: "make it faster", status: "pending", confidence: 30, hillClimbability: 40 },
+              { id: "a", content: "read the spec and report what is done", status: "completed", confidence: 90 },
+              ...(auditScenario
+                ? [
+                    { id: "seed", content: "Implement tenant seed", status: "pending" },
+                    { id: "retry", content: "Add retry endpoint", status: "pending" },
+                  ]
+                : [{ id: "b", content: "make it faster", status: "in_progress", confidence: 30, hillClimbability: 40 }]),
             ],
           },
         };
+      } else if (auditScenario && lastUserSeen.at(-1)?.includes("poke 1 of")) {
+        // Reproduce the failure: the model implements if the harness tells it
+        // to continue. The guard must prevent this request from ever happening.
+        yield { type: "tool_call", id: "unrequested-write", name: "write", args: { filePath: "unrequested.ts", content: "// unsolicited implementation" } };
       } else {
         yield { type: "text", text: "All done." };
       }
@@ -103,7 +116,9 @@ async function runLoop(
   signals: Record<string, unknown>,
   runs = 1,
   agentMode: "build" | "plan" = "build",
+  audit = false,
 ) {
+  auditScenario = audit;
   clearTodos(sessionId);
   tailsSeen.length = 0;
   lastUserSeen.length = 0;
@@ -148,7 +163,7 @@ async function runLoop(
   for (let i = 0; i < runs; i++) {
     result = await loop.run({
       agentMode,
-      prompt: "Make it faster",
+      prompt: audit ? "what all left? is everything done? BACKEND: Create a tenant db and seed the tenant tables" : "Make it faster",
       sessionId,
       provider: "poke-fake",
       projectPath,
@@ -158,11 +173,25 @@ async function runLoop(
   await runtime.dispose();
   const events = readEvents(rolloutDir);
   const stored = await store.getMessages(sessionId, projectPath);
+  const unrequestedFileExists = existsSync(join(projectPath, "unrequested.ts"));
   rmSync(rolloutDir, { recursive: true, force: true });
   rmSync(projectPath, { recursive: true, force: true });
   clearTodos(sessionId);
-  return { result, events, turns: tailsSeen.length, notices, stored };
+  return { result, events, turns: tailsSeen.length, notices, stored, unrequestedFileExists };
 }
+
+test("a build-mode audit ends after the report even if the model adds pending fixes", async () => {
+  const { events, turns, stored, notices, unrequestedFileExists } = await runLoop(
+    "audit-pending-fixes", { autoPoke: { enabled: true, maxPerRun: 3 } }, 1, "build", true,
+  );
+  assert.equal(turns, 2, "report and todo update, then stop; no implementation turn");
+  assert.equal(events.filter((e) => e.type === "poke.triggered").length, 0);
+  assert.deepEqual(events.filter((e) => e.type === "poke.skipped").map((e) => e.reason), ["no_active_work"]);
+  assert.ok(!stored.some((m) => m.synthetic === "auto_poke"));
+  assert.equal(unrequestedFileExists, false);
+  assert.ok(!events.some((e) => e.type === "function.call" && e.tool === "write"));
+  assert.ok(notices.some((n) => n.includes("not starting proposed work automatically")));
+});
 
 test("a stop with open todos is poked, a prose-only reply is re-poked once, then no progress ends the run", async () => {
   const { events, turns } = await runLoop("poke-on", {
@@ -193,14 +222,14 @@ test("a stop with open todos is poked, a prose-only reply is re-poked once, then
 
   // The poke is the next turn's last USER message — a real turn with content,
   // not a reminder-only tail — naming the open item.
-  const poked = lastUserSeen.filter((t) => t.includes("still open"));
+  const poked = lastUserSeen.filter((t) => t.includes("still in progress"));
   assert.equal(poked.length, 2);
   assert.match(poked[0]!, /"make it faster"/);
   assert.match(poked[0]!, /poke 1 of 3/);
   assert.match(poked[1]!, /poke 2 of 3/);
   assert.match(poked[1]!, /no tool call/);
   assert.ok(!poked[0]!.includes("<system-reminder>"));
-  assert.ok(!tailsSeen.some((t) => t.includes("still open")));
+  assert.ok(!tailsSeen.some((t) => t.includes("still in progress")));
 
   // The low hill-climb rating was recorded and, with its gate on, nudged.
   const signals = events.filter((e) => e.type === "todo.signal");
@@ -239,7 +268,7 @@ test("the poke is persisted as a synthetic user message, so the transcript alter
     "assistant",
   ]);
   const poke = stored.find((m) => m.synthetic === "auto_poke")!;
-  assert.match(poke.parts[0]!.content!, /still open/);
+  assert.match(poke.parts[0]!.content!, /still in progress/);
 });
 
 test("the fingerprint survives a run: a second prompt on an unchanged list is not re-poked", async () => {
@@ -282,7 +311,7 @@ test("with the gate off, the stop is recorded as disabled and nothing is poked",
   const skipped = events.filter((e) => e.type === "poke.skipped");
   assert.deepEqual(skipped.map((e) => e.reason), ["disabled"]);
   assert.equal(turns, 2, "plan, then stop — exactly as before the gate existed");
-  assert.ok(!lastUserSeen.some((t) => t.includes("still open")));
+  assert.ok(!lastUserSeen.some((t) => t.includes("still in progress")));
   // The signal is still recorded — gated: false — so the bench can compare.
   const signals = events.filter((e) => e.type === "todo.signal");
   assert.equal(signals.length, 1);

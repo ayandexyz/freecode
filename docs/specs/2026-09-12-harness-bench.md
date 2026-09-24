@@ -54,10 +54,12 @@ Every signal → `todo.signal` in the rollout log, `gated: true/false`. Gate on
 
 **At the stop** (no tool calls, after the verify and verifier gates):
 `decidePoke`. Reasons, in order: `disabled`, `nothing_open` (every item
-`completed` or `cancelled`), `cap_reached` (3/run — state is reset per
-`run()`, i.e. per prompt), `no_budget` (the iteration cap would end the run
-before the poked turn), `no_progress` (the open items are byte-identical to
-the last poke's). A poke is a **user-role message** listing the open items, persisted
+`completed` or `cancelled`), `read_only_mode`, `all_blocked`, `no_active_work`
+(no item is `in_progress`), `cap_reached` (3/run — the counter resets per
+prompt), `no_budget` (the iteration cap would end the run before the poked
+turn), `no_progress` (the open ids/statuses match the last poke's; one
+prose-only bounce retry is allowed). The fingerprint survives across runs.
+A poke is a **user-role message** listing only in-progress items, persisted
 with `synthetic: "auto_poke"` — not a `<system-reminder>` on the ephemeral
 tail. jcode's reason, adopted here: a turn whose only user content is a
 reminder reads as empty and the model answers it ("Continuing!") instead of
@@ -70,6 +72,18 @@ reach the frontend as a `notice` — the user must not watch the model say
 "done" and then silently keep going. Every stop with a list present writes `poke.triggered` or
 `poke.skipped` — `disabled` included, which is what lets the fold tell
 "never looked" from "looked and declined". Subagents never poke.
+
+**Scope correction (2026-09-24):** session `6208636a` answered an audit,
+then added two suggested fixes as pending todos. The old "do it now" poke
+turned those suggestions into apparent user authorization. Pending todos
+alone now never trigger a poke, even in build mode. The message identifies
+itself as automatic, preserves the actual request, and permits stopping
+after a completed report; the bounce retry no longer demands a tool call.
+The todo prompt and tool description keep unrequested suggestions in the
+report rather than the executable task list. A requested plan can remain
+pending. This deliberately gives up auto-starting an all-pending plan.
+`in_progress` is a model-supplied eligibility signal, not proof of user
+authorization; read-only modes remain the enforced boundary against edits.
 
 Why `no_progress` and not just the cap: jcode's fingerprint rule. A model that
 cannot finish an item will re-declare victory with the same list; poking it

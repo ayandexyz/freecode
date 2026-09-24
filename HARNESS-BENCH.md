@@ -35,7 +35,7 @@ on, so the bench can compare across the flip.
 
 | Gate | What it does when on | Setting (`~/.freecode/settings.json` or `<project>/.freecode/settings.json`) | Env |
 | --- | --- | --- | --- |
-| Auto-poke | model stops with open todos → one **user-role message** (persisted, `synthetic: "auto_poke"`; not a `<system-reminder>` — a reminder-only turn reads as empty and models answer it instead of working) sends it back; cap 3/run (a run is one prompt); stops when the list is byte-identical to the last poke's; skipped when the run's turn limit would land first. A `cancelled` todo is closed, not open. Each poke and each stop is a `notice` the frontend shows | `"signals": { "autoPoke": { "enabled": true, "maxPerRun": 3 } }` | `FREECODE_AUTO_POKE=1` |
+| Auto-poke | model stops with an **in-progress** todo → an explicitly automatic user-role reminder (`synthetic: "auto_poke"`) nudges only work within the user's request. Pending plans/suggestions alone never trigger it. Cap 3/run; unchanged open ids/statuses stop it after at most one prose-only retry; read-only modes, blocked lists and exhausted turn budgets skip it. Notices explain pokes and stops. Todo status is not authorization. | `"signals": { "autoPoke": { "enabled": true, "maxPerRun": 3 } }` | `FREECODE_AUTO_POKE=1` |
 | Confidence gate | an item completed with confidence +40 or more in ONE call → reminder to go verify | `"signals": { "confidenceGate": { "enabled": true, "spike": 40 } }` | `FREECODE_CONFIDENCE_GATE=1` |
 | Hill-climb gate | an item rated below 90 → reminder to reframe into something with a check | `"signals": { "hillClimbGate": { "enabled": true, "threshold": 90 } }` | `FREECODE_HILLCLIMB_GATE=1` |
 
