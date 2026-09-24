@@ -130,6 +130,7 @@ import { runConsolidationIfDue } from "../memory/consolidate-run.js";
 import { getSessionManager } from "../session/manager.js";
 import type { MemoryEntry } from "../memory/mem-types.js";
 import { extractMemories } from "../memory/extract.js";
+import { trackMemoryJob } from "../memory/background-jobs.js";
 import type { MemoryAuxiliaryCall } from "../memory/auxiliary.js";
 import { loadMemorySettings, shouldExtract } from "../memory/extract-policy.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
@@ -1605,16 +1606,19 @@ export class AgentLoop {
     }
 
     const turnId = `turn-${this.state.turnCount}`;
-    void extractMemories({
-      transcript: text,
-      projectPath: this.state.projectPath,
-      provider,
-      sessionId: this.state.sessionId,
-      onAuxiliaryCall: (call) => this.recordMemoryAuxiliary(turnId, call),
-      // No model: extraction is a small classification job, so let the provider
-      // pick its default rather than billing the session's (possibly large)
-      // main model for it.
-    }).catch(() => {
+    void trackMemoryJob(
+      this.state.sessionId,
+      extractMemories({
+        transcript: text,
+        projectPath: this.state.projectPath,
+        provider,
+        sessionId: this.state.sessionId,
+        onAuxiliaryCall: (call) => this.recordMemoryAuxiliary(turnId, call),
+        // No model: extraction is a small classification job, so let the provider
+        // pick its default rather than billing the session's (possibly large)
+        // main model for it.
+      }),
+    ).catch(() => {
       // extractMemories already swallows; this guards the promise itself.
     });
   }
@@ -1626,27 +1630,30 @@ export class AgentLoop {
     if (!this.memoryExtraction || this.abort.signal.aborted) return;
 
     const turnId = `turn-${this.state.turnCount}`;
-    void (async () => {
-      try {
-        const manager = await getSessionManager();
-        const metas = await manager.list({
-          projectPath: this.state.projectPath,
-        });
-        await runConsolidationIfDue({
-          projectPath: this.state.projectPath,
-          provider,
-          sessionId: this.state.sessionId,
-          sessions: metas.map((m) => ({
-            id: m.id,
-            lastTurnAt: m.lastTurnAt,
-            turnCount: m.turnCount,
-          })),
-          onAuxiliaryCall: (call) => this.recordMemoryAuxiliary(turnId, call),
-        });
-      } catch (error) {
-        logger.debug("[MemoryConsolidate] could not start", { error });
-      }
-    })();
+    void trackMemoryJob(
+      this.state.sessionId,
+      (async () => {
+        try {
+          const manager = await getSessionManager();
+          const metas = await manager.list({
+            projectPath: this.state.projectPath,
+          });
+          await runConsolidationIfDue({
+            projectPath: this.state.projectPath,
+            provider,
+            sessionId: this.state.sessionId,
+            sessions: metas.map((m) => ({
+              id: m.id,
+              lastTurnAt: m.lastTurnAt,
+              turnCount: m.turnCount,
+            })),
+            onAuxiliaryCall: (call) => this.recordMemoryAuxiliary(turnId, call),
+          });
+        } catch (error) {
+          logger.debug("[MemoryConsolidate] could not start", { error });
+        }
+      })(),
+    );
   }
 
   private recordMemoryAuxiliary(

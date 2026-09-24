@@ -105,7 +105,7 @@ All work below is pending unless explicitly marked as audit evidence above.
 - [ ] Record per-model-request memory bytes, estimated tokens, selected count, rendered count, rendering mode, retrieval outcome, judge outcome, and whether preparation was fresh, carried, pending, or empty.
 - [x] Keep estimated memory-block tokens separate from actual provider usage. The total provider input already includes the block; never add the estimate to that total again.
 - [x] Retain separate counters for unique user-turn exposures and repeated model-request exposures. Repeated exposure is relevant to cost even when the UI notice is deduplicated.
-- [ ] Give evaluation runs a bounded way to drain background memory jobs. Pending work or unknown spend makes the full-cost result incomplete; a timeout must not silently look like savings.
+- [x] Give evaluation runs a bounded way to drain background memory jobs. Pending work or unknown spend makes the full-cost result incomplete; a timeout must not silently look like savings.
 - [x] Expose a memory cost breakdown through existing report/trace mechanisms. Keep external quality-grader spend separate from product runtime spend.
 
 Proposed report categories: main agent, retrieval judge, extraction/final flush, consolidation, and evaluation grader. Final field names and event names must align with rollout/OTLP conventions before implementation.
@@ -138,6 +138,12 @@ queries, memory identities, or content.
 exposures, distinct turn exposures, memory-block bytes, and a diagnostic token
 estimate. The estimate is deliberately never merged into provider input usage;
 the provider's inclusive token count remains the only billing input.
+
+**Implemented 2026-09-25:** background extraction and consolidation jobs are
+tracked per session. The evaluation runner drains them for up to
+`FREECODE_EVAL_MEMORY_DRAIN_TIMEOUT_MS` (10 seconds by default); if work is
+still pending, it reports that count and leaves `costUsd` unavailable rather
+than presenting an incomplete total as savings.
 
 ### Acceptance criteria
 

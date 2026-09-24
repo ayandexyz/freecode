@@ -251,6 +251,10 @@ export interface TrialResult {
    * would silently read as a saving.
    */
   costUsd?: number;
+  /** False when background memory work outlived the evaluation drain budget. */
+  memoryCostComplete?: boolean;
+  /** Unfinished memory jobs mean the full runtime cost is unknown. */
+  memoryJobsPending?: number;
   /**
    * The session this trial ran in. Carried so an exported score can LINK to
    * the trace it graded (spec §12.4) — without it, scores and runs land in the

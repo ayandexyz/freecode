@@ -16,6 +16,7 @@ import { echoedModels } from "./model-echo.js";
 import { scoreOutcome } from "./scorers/outcome.js";
 import { scoreTrajectory } from "./scorers/trajectory.js";
 import { envInt } from "../utils/env.js";
+import { drainMemoryJobs } from "../memory/background-jobs.js";
 
 export interface RunnerConfig {
   provider: string;
@@ -37,6 +38,11 @@ const TRIAL_TIMEOUT_MS = envInt("FREECODE_EVAL_TRIAL_TIMEOUT_MS", 300_000, {
   // can give. An empty variable used to produce exactly that.
   min: 1_000,
 });
+const MEMORY_DRAIN_TIMEOUT_MS = envInt(
+  "FREECODE_EVAL_MEMORY_DRAIN_TIMEOUT_MS",
+  10_000,
+  { min: 1 },
+);
 
 /** Boots providers + MCP once for the whole suite, not once per case. */
 export async function initRunner(
@@ -204,6 +210,7 @@ async function runTrialIn(
   };
 
   const startedAt = Date.now();
+  let memoryJobsPending = 0;
   try {
     const loop = await getAppRuntime().runPromise(
       createAgentLoopEffect(sessionId),
@@ -247,6 +254,9 @@ async function runTrialIn(
         timer.unref?.();
       }),
     ]);
+    memoryJobsPending = (
+      await drainMemoryJobs(sessionId, MEMORY_DRAIN_TIMEOUT_MS)
+    ).pending;
   } catch (err) {
     // An infrastructure failure is a failed trial, not a crashed suite: one
     // dead case must not cost the other nineteen.
@@ -373,7 +383,9 @@ async function runTrialIn(
     durationMs: Date.now() - startedAt,
     inputTokens: trace.inputTokens,
     outputTokens: trace.outputTokens,
-    costUsd: traceCost(trace)?.usd,
+    costUsd: memoryJobsPending === 0 ? traceCost(trace)?.usd : undefined,
+    memoryCostComplete: memoryJobsPending === 0,
+    ...(memoryJobsPending > 0 ? { memoryJobsPending } : {}),
     turns: trace.modelSpans.length,
     repeatedCalls: countRepeatedCalls(trace),
     redirects: trace.redirects,
