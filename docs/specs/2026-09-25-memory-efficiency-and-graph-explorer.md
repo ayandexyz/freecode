@@ -1,7 +1,7 @@
 # Memory efficiency: measure it, prove it, fix what the proof finds
 
 **Date:** 2026-09-25 (rescoped same day)
-**Status:** P0 complete · §4 bench built and findings fixed · §6 first paired run done 2026-09-25 (recall pays; judge does not yet) · §7 proposed
+**Status:** P0 complete · §4 bench built and findings fixed · §6 paired runs done 2026-09-25 (recall pays: 24/24 vs 13/24, −45% cost per task; judge neutral) · §7 proposed
 **Audit baseline:** `f7c83321`
 **Goal:** Know, with evidence, whether automatic memory makes the agent better or cheaper, and by how much, backed by free tests, a free local bench, and a paid paired eval.
 
@@ -104,7 +104,7 @@ a known-failing scenario is visible without blocking unrelated work.
 | Scenario | Pass means |
 | --- | --- |
 | first message, fast retrieval | gold injected on the first request |
-| retrieval slower than the 60 ms cold budget | first request empty (`pending`); next request carries gold |
+| judge slower than the 60 ms cold budget | first request carries retrieval's candidates (`unjudged`); the verdict governs the next (changed 2026-09-25, §6.2) |
 | same-topic follow-up | set carried, no new judge call |
 | abrupt topic switch | old topic's memories are not injected |
 | repeated identical prompt | one judge call total |
@@ -268,6 +268,45 @@ it, or fix both judge problems (serve unjudged candidates on the cold path and
 judge on the next request; give the judge a body excerpt) and re-run §6
 before deciding. Tracked in `TODO.md`. Caveats: one model, 8 cases, 3 trials,
 a hand-written suite; the controls are only two.
+
+### 6.2 Results — judge fixed, second run (2026-09-25, MiniMax-M3, 3 trials)
+
+Both §6.1 judge problems fixed (commit "make the retrieval judge usable on
+the first request"): on a cold miss the prefetch serves retrieval's candidates
+(`unjudged`) and the verdict governs the next request; the judge sees a
+160-char body excerpt and is told that conventions, forbidden commands,
+formats, units, and past decisions count. Ledger `2026-09-25-memory-1`
+(kept) and `2026-09-25-memory-2` (inconclusive, recorded as rejected).
+
+**Memory vs no memory (fixed judge):**
+
+| | recall off | recall on, fixed judge |
+| --- | ---: | ---: |
+| tasks passed | 13/24 | **24/24** |
+| tokens | 1.99M | 1.61M (**−19%**) |
+| turns | 113 | 92 (−19%) |
+| suite cost | $0.1778 | $0.1791 (+0.7%) |
+| **cost per passed task** | $0.0137 | **$0.0075 (−45%)** |
+| first request carried memory | — | 24/24 (was 0/24) |
+| memory-case trials with no memory | — | 0/18 (was 5/18) |
+
+**Judge off vs fixed judge, head to head:**
+
+| | judge off | fixed judge |
+| --- | ---: | ---: |
+| tasks passed | 23/24 | 22/24 (no case changed by majority) |
+| tokens / cost | 1.56M / $0.164 | 1.74M / $0.173 |
+| block per request (all / controls) | 796 B / 830 B | 619 B / 237 B |
+| judge spend | — | $0.0010 |
+
+**Verdicts.** Automatic recall pays: +11 tasks out of 24, 19% fewer tokens
+and 45% lower cost per passed task, with no negative transfer on the
+controls. It held across four independent runs (12–13/24 off, 23–24/24 on).
+The fixed judge is no longer harmful, but it is not measurably better or
+cheaper: it trims a few hundred bytes a request, below run-to-run noise at
+this block size. It would matter with a larger store, where judge-off fills
+the 2 KB cap with memories that do not apply (`bench:inject`: 62.5% of the
+block). The default is a product decision recorded in `TODO.md`.
 
 ## 7. P2: multi-session savings
 
