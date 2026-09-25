@@ -308,6 +308,14 @@ export interface TrialResult {
    * `sessions`, where it is how much the earlier sessions taught.
    */
   memoriesCaptured?: number;
+  /**
+   * Memories in the trial's store at trial end. Reported for any case that
+   * had a store (seeded `memories` or earlier `sessions`), so a
+   * consolidation-comparison case can show the post-pass store size on both
+   * arms — without this, "candidate −4.7%" cost is the only signal that the
+   * merge actually changed anything.
+   */
+  storeSize?: number;
   /** Result of the controlled pre-final consolidation, when requested. */
   consolidation?: {
     ran: boolean;

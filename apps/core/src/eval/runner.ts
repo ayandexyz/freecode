@@ -547,6 +547,9 @@ async function runTrialIn(
     ...(kase.sessions && sandbox
       ? { memoriesCaptured: countMemories(sandbox.dir) }
       : {}),
+    ...(sandbox && (kase.memories || kase.sessions)
+      ? { storeSize: countMemories(sandbox.dir) }
+      : {}),
     ...(kase.consolidateBeforeFinal
       ? {
           consolidation: consolidation
