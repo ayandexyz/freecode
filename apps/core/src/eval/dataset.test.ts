@@ -821,7 +821,16 @@ test("the shipped consolidation comparison suite is valid", () => {
   const previous = process.env.FREECODE_EVALS_DIR;
   process.env.FREECODE_EVALS_DIR = dir;
   try {
-    assert.equal(loadSuite("memory-consolidation").length, 1);
+    // Two cases: the production-endpoint merge fixture and the
+    // stale-then-corrected supersede fixture. They share the suite name so the
+    // runner groups them but pair them in two A/B runs (one per case id).
+    const cases = loadSuite("memory-consolidation");
+    assert.equal(cases.length, 2);
+    const ids = cases.map((c) => c.id).sort();
+    assert.deepEqual(ids, [
+      "consolidate-production-endpoint",
+      "consolidate-stale-then-corrected",
+    ]);
   } finally {
     if (previous === undefined) delete process.env.FREECODE_EVALS_DIR;
     else process.env.FREECODE_EVALS_DIR = previous;
