@@ -333,4 +333,4 @@ later and reported separately; never tune on it.
 - [x] Recall can be switched off per request, and `eval ab` accepts the switch.
 - [x] A recorded A-vs-D experiment in `evals/experiments.jsonl` with a verdict (judge off and on).
 - [ ] A multi-session report gives cumulative cost with and without memory.
-- [ ] `MEMORY_SYSTEM.md`, bench README, `EVAL.md`, `TRACE.md` match shipped behaviour.
+- [x] `MEMORY_SYSTEM.md`, bench README, `EVAL.md`, `TRACE.md` match shipped behaviour (checked 2026-09-25).

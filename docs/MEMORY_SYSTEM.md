@@ -13,7 +13,10 @@
 > write side `specs/2026-08-09-memory-write-path.md` ·
 > viewer `specs/2026-08-04-memory-graph-explorer-design.md`
 >
-> Last updated 2026-08-23 — consolidation, episodes, the retrieval judge, the
+> Last updated 2026-09-25 — memory cost accounting, the injection bench,
+> store-consistent injection, the recall switch, and the paired memory eval
+> (spec `specs/2026-09-25-memory-efficiency-and-graph-explorer.md`). Earlier,
+> 2026-08-23: consolidation, episodes, the retrieval judge, the
 > citation loop, and the recall benchmark all landed. Spec:
 > `specs/2026-08-23-memory-consolidation.md`; results and method:
 > `apps/core/src/memory/bench/README.md`.
@@ -268,6 +271,23 @@ a property of bi-encoder similarity between short texts, not a bad constant. The
 judge runs on the background prefetch (no added loop latency) behind a cadence
 carry (fires on topic change, not per message) and **fails closed**.
 
+Because it is a network call it never fits the 60 ms cold budget, so on a
+cold miss the request carries retrieval's candidates unjudged (`preparation:
+"unjudged"`) and the verdict governs from the next request; a judged stash is
+never swapped for unjudged candidates. The judge sees each candidate's
+description plus a 160-char body excerpt, and is told that conventions,
+forbidden commands, formats, units, and past decisions a task could run into
+are relevant. Both changes came from the paired eval (below): before them the
+first request never carried memory and the judge dropped rules like "never
+run npm install".
+
+**Does memory pay?** Measured with `pnpm eval ab memory` (EVAL.md) on
+MiniMax-M3: recall on passed 23–24/24 tasks vs 12–13/24 with recall off,
+across four runs; with the fixed judge, tokens −19% and cost per passed task
+−45% at the same total spend, and the control tasks were unaffected. The judge
+itself is neutral head to head (23/24 off vs 22/24 on, within noise); its
+default is an open decision in `TODO.md`. Spec §6.1–6.2 has the tables.
+
 **`RetrievalOutcome`** names every path — `fused`, `lexical_only`,
 `empty_by_floor`, `empty_query`, `empty_store`, `error` — so a silent fallback is
 a countable event. That discipline is what defect 3 was a case of.
@@ -353,8 +373,8 @@ It is enforced at **four** points:
    BM25; `pnpm bench:inject` found it.
 
 Vectors never leave the machine. Retrieval itself makes no network call; the
-optional retrieval judge sends candidate *descriptions* (never a secret-bearing
-memory's) to the session's provider.
+optional retrieval judge sends candidate descriptions and 160-char body
+excerpts (never a secret-bearing memory's) to the session's provider.
 
 ---
 
@@ -451,11 +471,14 @@ and `tools/memory.ts` are over it too and would decompose cleanly if they grow.
 3. **Consolidation is unmeasured in the field.** Its value claim — better recall
    at constant token cost — is testable with `pnpm bench:recall` and has not been
    tested against a real store.
-4. **The benchmark corpus is self-written.** It catches regressions and proves
-   little about absolute quality. LongMemEval-S is the intended external corpus
+4. **The benchmark corpus and the memory eval suite are self-written.** They
+   catch regressions and prove little about absolute quality. LongMemEval-S is the intended external corpus
    and is not wired up.
-5. **The judge's real-model accuracy is unknown.** Every judge figure in the spec
-   comes from `--judge=oracle`, a perfect reader, and is therefore a ceiling.
+5. **The judge's per-memory accuracy is unmeasured.** The retrieval benches use
+   `--judge=oracle`, a perfect reader, so their judge figures are a ceiling.
+   Its end-to-end effect *is* measured (the paired memory eval: neutral against
+   no judge), but only on an 8-case suite with a small store, where the block
+   rarely fills; its value with a large store is untested.
 6. **Citation is self-reported** and therefore biased — a model may credit a
    memory it ignored. It ranks and retains; nothing deletes on it alone.
 7. **Consolidation-side tuning values are guesses.** `minHours 24`,
