@@ -222,6 +222,17 @@ export interface EvalCase {
    * are summed across all of them. Requires `files`.
    */
   sessions?: string[];
+  /** Extra prompts in each earlier session. Used when an evaluation needs the
+   * production scheduler's minimum completed-turn gate to be meaningful. */
+  sessionFollowUps?: string[][];
+  /**
+   * Run the production consolidation path once after `sessions` and before the
+   * scored prompt. This is deliberately a fixture-only eval mechanism: the
+   * case supplies a protected project-local settings file that makes the pass
+   * due, while a paired A/B side can still disable it with
+   * `FREECODE_DISABLE_MEMORY_CONSOLIDATION=1`.
+   */
+  consolidateBeforeFinal?: boolean;
   /** Shell command run in the sandbox after the turn; exit code is the score. */
   verify?: string;
   /**
@@ -297,6 +308,15 @@ export interface TrialResult {
    * `sessions`, where it is how much the earlier sessions taught.
    */
   memoriesCaptured?: number;
+  /** Result of the controlled pre-final consolidation, when requested. */
+  consolidation?: {
+    ran: boolean;
+    merged?: number;
+    promoted?: number;
+    episodes?: number;
+    deleted?: number;
+    ok?: boolean;
+  };
   /**
    * The session this trial ran in. Carried so an exported score can LINK to
    * the trace it graded (spec §12.4) — without it, scores and runs land in the

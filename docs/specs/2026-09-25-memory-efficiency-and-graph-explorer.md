@@ -354,6 +354,23 @@ after 5 sessions, so never inside a trial), the savings curve over many more
 sessions, and an external corpus. Those need a long-horizon harness and are
 left in `ROADMAP.md`.
 
+### 7.2 Consolidation comparison harness (2026-09-26)
+
+`evals/memory-consolidation.jsonl` uses identical isolated stores on both
+sides, a protected per-project schedule (`1` eligible two-turn session, `0`
+hours), and the production scheduler between teaching and the scored task.
+`FREECODE_DISABLE_MEMORY_CONSOLIDATION=1` is the off arm. The scheduler result
+and auxiliary-call cost are recorded on the final session trace; a skipped pass
+is an invalid candidate, not a zero-cost result.
+
+The first valid three-trial run (`2026-09-25-memory-consolidation-4`,
+MiniMax-M3) passed the endpoint task 3/3 on both arms. Consolidation ran 3/3:
+two passes merged one duplicate and deleted one superseded memory; one was a
+successful no-op. The call cost $0.00076–$0.00087 per candidate trial. Total
+candidate cost was 4.7% lower, within a sample too small and narrow to claim a
+benefit. The harness still needs rendered-recall, irrelevant-byte, and
+store-size metrics before the roadmap experiment is complete.
+
 ## 8. Completion checklist
 
 - [x] Full runtime memory cost is measurable, including background calls.

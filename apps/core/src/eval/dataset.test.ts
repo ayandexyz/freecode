@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as path from "path";
-import { DatasetError, parseSuite, staleUnmeasured } from "./dataset.js";
+import { DatasetError, loadSuite, parseSuite, staleUnmeasured } from "./dataset.js";
 import { FAILURE_CATEGORIES } from "./types.js";
 import type { EvalCase, FailureCategory } from "./types.js";
 
@@ -776,5 +776,54 @@ test("sessions must be a non-empty array of non-empty strings", () => {
       DatasetError,
       bad,
     );
+  }
+});
+
+// -- controlled consolidation comparison fixtures ---------------------------
+
+const CONSOLIDATION_SETTINGS =
+  `".freecode/settings.json":"{\\"memory\\":{\\"autoConsolidate\\":true,` +
+  `\\"consolidateMinSessions\\":1,\\"consolidateMinHours\\":0}}"`;
+
+test("a consolidation comparison fixture requires the real scheduler settings", () => {
+  const [c] = parseSuite(
+    `{"id":"c","prompt":"p",${REQUIRED},"expectTool":"read",` +
+      `"files":{"a.txt":"x",${CONSOLIDATION_SETTINGS}},` +
+      `"immutable":[".freecode/settings.json"],"memories":[${MEM}],` +
+      `"sessions":["teach"],"sessionFollowUps":[["confirm"]],"consolidateBeforeFinal":true}`,
+  );
+  assert.equal(c.consolidateBeforeFinal, true);
+  assert.deepEqual(c.sessionFollowUps, [["confirm"]]);
+});
+
+test("a consolidation comparison fixture rejects a private force shape", () => {
+  const base =
+    `{"id":"c","prompt":"p",${REQUIRED},${SANDBOXED},` +
+    `"memories":[${MEM}],"sessions":["teach"],"sessionFollowUps":[["confirm"]],"consolidateBeforeFinal":true}`;
+  assert.throws(() => parseSuite(base), /requires immutable/);
+  assert.throws(
+    () =>
+      parseSuite(
+        `{"id":"c","prompt":"p",${REQUIRED},"expectTool":"read",` +
+          `"files":{"a.txt":"x",${CONSOLIDATION_SETTINGS}},` +
+          `"immutable":[".freecode/settings.json"],"memories":[${MEM}],` +
+          `"sessions":["teach"],"sessionFollowUps":[["confirm"]],"consolidateBeforeFinal":false}`,
+      ),
+    /must be true/,
+  );
+});
+
+test("the shipped consolidation comparison suite is valid", () => {
+  // `loadSuite` resolves through `evalsDir()`, which is CWD-relative unless
+  // `FREECODE_EVALS_DIR` points at the repo's `evals/` — same setup the
+  // shipped-suite loops above use, kept inline so this test stays hermetic.
+  const dir = path.resolve(import.meta.dirname, "../../../../evals");
+  const previous = process.env.FREECODE_EVALS_DIR;
+  process.env.FREECODE_EVALS_DIR = dir;
+  try {
+    assert.equal(loadSuite("memory-consolidation").length, 1);
+  } finally {
+    if (previous === undefined) delete process.env.FREECODE_EVALS_DIR;
+    else process.env.FREECODE_EVALS_DIR = previous;
   }
 });

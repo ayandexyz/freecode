@@ -24,6 +24,10 @@ import {
   seedMemories,
 } from "./memory-fixture.js";
 import { trackMemoryJob } from "../memory/background-jobs.js";
+import { RolloutRecorder } from "../rollout/recorder.js";
+import { runConsolidationIfDue } from "../memory/consolidate-run.js";
+import type { ConsolidationResult } from "../memory/consolidate.js";
+import { subscriptionAuth } from "../providers/config.js";
 
 export interface RunnerConfig {
   provider: string;
@@ -100,16 +104,29 @@ export async function runTrial(
   // Safe because `suite.ts` awaits each trial in turn — a parallel runner would
   // have to carry this into the loop's own configuration instead.
   const restoreEnv = applyEnv(kase.env);
+  // Captured after case-local env, before a consolidation fixture freezes the
+  // gate; this is the A/B variant value we restore for its controlled pass.
+  const originalConsolidationGate =
+    process.env.FREECODE_DISABLE_MEMORY_CONSOLIDATION;
   // A memory case measures recall over a frozen corpus: seed it into the
   // sandbox's own store and stop anything writing to it for the trial.
   // `dataset.ts` guarantees `memories` implies a sandbox.
-  const restoreMemoryEnv = kase.memories ? applyEnv(FROZEN_MEMORY_ENV) : () => {};
+  // Fixtures freeze automatic writers. Consolidation cases release only that
+  // one gate after their teaching sessions, then call the production scheduler
+  // explicitly once; extraction stays disabled throughout.
+  const restoreMemoryEnv = kase.memories
+    ? applyEnv(
+        kase.consolidateBeforeFinal
+          ? { FREECODE_DISABLE_MEMORY_EXTRACTION: "1", FREECODE_DISABLE_MEMORY_CONSOLIDATION: "1" }
+          : FROZEN_MEMORY_ENV,
+      )
+    : () => {};
   let removeMemories = () => {};
   try {
     if (kase.memories && sandbox) {
       removeMemories = await seedMemories(sandbox.dir, kase.memories);
     }
-    return await runTrialIn(kase, config, sandbox);
+    return await runTrialIn(kase, config, sandbox, originalConsolidationGate);
   } finally {
     removeMemories();
     // A multi-session case writes into the sandbox's store as it learns.
@@ -144,6 +161,7 @@ async function runTrialIn(
   kase: EvalCase,
   config: RunnerConfig,
   sandbox: Sandbox | undefined,
+  originalConsolidationGate: string | undefined,
 ): Promise<TrialResult> {
   const { getAppRuntime } = await import("../effect/runtime.js");
   const { createAgentLoopEffect } = await import("../agent/loop.js");
@@ -176,6 +194,7 @@ async function runTrialIn(
   // are collected so the prompt handlers below answer for them too, and so
   // their cost is summed into the trial.
   const earlierSessionIds: string[] = [];
+  let consolidation: ConsolidationResult | null | undefined;
   const ownsSession = (id: string | undefined) =>
     id === undefined || id === sessionId || earlierSessionIds.includes(id);
 
@@ -254,7 +273,7 @@ async function runTrialIn(
       // way the daemon ends one, session-end flush included. The flush is
       // tracked and drained, so its cost is in the trial and what it learned
       // is in the store before the next session starts.
-      for (const earlier of kase.sessions ?? []) {
+      for (const [sessionIndex, earlier] of (kase.sessions ?? []).entries()) {
         const sid = await manager.start(projectPath, provider);
         earlierSessionIds.push(sid);
         const earlierLoop = await getAppRuntime().runPromise(
@@ -270,6 +289,18 @@ async function runTrialIn(
             agentMode,
           }),
         );
+        for (const followUp of kase.sessionFollowUps?.[sessionIndex] ?? []) {
+          await getAppRuntime().runPromise(
+            earlierLoop.runEffect({
+              prompt: followUp,
+              sessionId: sid,
+              provider,
+              model,
+              projectPath,
+              agentMode,
+            }),
+          );
+        }
         const flush = sessionMemoryFlush({
           sessionId: sid,
           projectPath,
@@ -283,6 +314,47 @@ async function runTrialIn(
         memoryJobsPending += (
           await drainMemoryJobs(sid, MEMORY_DRAIN_TIMEOUT_MS)
         ).pending;
+      }
+      if (kase.consolidateBeforeFinal) {
+        // `runTrial` temporarily set this gate to keep automatic background
+        // consolidation out of the teaching sessions. Restore the A/B side's
+        // value before the controlled pass: `=1` is the real off arm.
+        const frozen = process.env.FREECODE_DISABLE_MEMORY_CONSOLIDATION;
+        const external = originalConsolidationGate;
+        if (external === undefined) delete process.env.FREECODE_DISABLE_MEMORY_CONSOLIDATION;
+        else process.env.FREECODE_DISABLE_MEMORY_CONSOLIDATION = external;
+        try {
+          const metas = await manager.list({ projectPath });
+          const recorder = new RolloutRecorder(sessionId);
+          consolidation = await runConsolidationIfDue({
+            projectPath,
+            provider,
+            sessionId,
+            sessions: metas.map((m) => ({
+              id: m.id,
+              lastTurnAt: m.lastTurnAt,
+              turnCount: m.turnCount,
+            })),
+            onAuxiliaryCall: (call) =>
+              recorder.recordMemoryAuxiliary(undefined, {
+                purpose: call.purpose,
+                provider: call.provider,
+                model: call.model,
+                duration_ms: call.duration_ms,
+                outcome: call.outcome,
+                inputTokens: call.usage?.inputTokens,
+                outputTokens: call.usage?.outputTokens,
+                cacheReadTokens: call.usage?.cacheReadInputTokens,
+                cacheWriteTokens:
+                  call.usage?.cacheWriteInputTokens ?? call.usage?.cacheCreationInputTokens,
+                authMode: subscriptionAuth(call.provider),
+              }),
+          });
+        } finally {
+          // The final agent loop must still see the fixture's frozen state.
+          if (frozen === undefined) delete process.env.FREECODE_DISABLE_MEMORY_CONSOLIDATION;
+          else process.env.FREECODE_DISABLE_MEMORY_CONSOLIDATION = frozen;
+        }
       }
       for (const prompt of prompts) {
         response = "";
@@ -474,6 +546,20 @@ async function runTrialIn(
     turns: billed.modelSpans.length,
     ...(kase.sessions && sandbox
       ? { memoriesCaptured: countMemories(sandbox.dir) }
+      : {}),
+    ...(kase.consolidateBeforeFinal
+      ? {
+          consolidation: consolidation
+            ? {
+                ran: true,
+                merged: consolidation.merged,
+                promoted: consolidation.promoted,
+                episodes: consolidation.episodes,
+                deleted: consolidation.deleted,
+                ok: consolidation.ok,
+              }
+            : { ran: false },
+        }
       : {}),
     repeatedCalls: countRepeatedCalls(trace),
     redirects: trace.redirects,

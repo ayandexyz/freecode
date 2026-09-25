@@ -191,7 +191,21 @@ function validate(raw: unknown, where: string): EvalCase {
   const files = validateFiles(o.files, where);
   const memories = validateMemories(o.memories, files, where);
   const sessions = validateSessions(o.sessions, files, where);
+  const sessionFollowUps = validateSessionFollowUps(
+    o.sessionFollowUps,
+    sessions,
+    where,
+  );
   const immutable = validateOutcome(o, files, where);
+  const consolidateBeforeFinal = validateConsolidationFixture(
+    o.consolidateBeforeFinal,
+    files,
+    memories,
+    sessions,
+    sessionFollowUps,
+    immutable,
+    where,
+  );
   const rubric = validateRubric(o.rubric, where);
 
   // A case with no `files` has no sandbox, so it runs against the real working
@@ -242,10 +256,68 @@ function validate(raw: unknown, where: string): EvalCase {
     files,
     memories,
     sessions,
+    sessionFollowUps,
+    consolidateBeforeFinal,
     verify: typeof o.verify === "string" ? o.verify : undefined,
     immutable,
     rubric,
   };
+}
+
+/**
+ * A consolidation comparison must exercise the real scheduler, rather than a
+ * private test-only force flag. The fixture makes exactly one completed
+ * teaching session eligible and protects that schedule from the final agent.
+ */
+function validateConsolidationFixture(
+  raw: unknown,
+  files: Record<string, string> | undefined,
+  memories: EvalMemory[] | undefined,
+  sessions: string[] | undefined,
+  sessionFollowUps: string[][] | undefined,
+  immutable: string[] | undefined,
+  where: string,
+): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (raw !== true) {
+    throw new DatasetError(`${where}: 'consolidateBeforeFinal' must be true`);
+  }
+  if (!files || !memories || !sessions) {
+    throw new DatasetError(
+      `${where}: 'consolidateBeforeFinal' requires files, memories, and sessions`,
+    );
+  }
+  if (!sessions.every((_session, index) => (sessionFollowUps?.[index]?.length ?? 0) >= 1)) {
+    throw new DatasetError(
+      `${where}: 'consolidateBeforeFinal' requires one or more 'sessionFollowUps' ` +
+        "for every teaching session so the production two-turn gate is met",
+    );
+  }
+  const settingsPath = ".freecode/settings.json";
+  if (!immutable?.includes(settingsPath)) {
+    throw new DatasetError(
+      `${where}: 'consolidateBeforeFinal' requires immutable '${settingsPath}'`,
+    );
+  }
+  try {
+    const parsed = JSON.parse(files[settingsPath] ?? "") as {
+      memory?: Record<string, unknown>;
+    };
+    const memory = parsed.memory;
+    if (
+      memory?.autoConsolidate !== true ||
+      memory.consolidateMinSessions !== 1 ||
+      memory.consolidateMinHours !== 0
+    ) {
+      throw new Error("schedule mismatch");
+    }
+  } catch {
+    throw new DatasetError(
+      `${where}: '${settingsPath}' must enable consolidation with ` +
+        "consolidateMinSessions: 1 and consolidateMinHours: 0",
+    );
+  }
+  return true;
 }
 
 /**
@@ -548,6 +620,32 @@ function validateSessions(
     );
   }
   return raw as string[];
+}
+
+function validateSessionFollowUps(
+  raw: unknown,
+  sessions: string[] | undefined,
+  where: string,
+): string[][] | undefined {
+  if (raw === undefined) return undefined;
+  if (!sessions || !Array.isArray(raw) || raw.length !== sessions.length) {
+    throw new DatasetError(
+      `${where}: 'sessionFollowUps' must have one array for every session`,
+    );
+  }
+  const followUps: string[][] = [];
+  for (const [index, value] of raw.entries()) {
+    if (
+      !Array.isArray(value) ||
+      value.some((prompt) => typeof prompt !== "string" || !prompt.trim())
+    ) {
+      throw new DatasetError(
+        `${where}: sessionFollowUps[${index}] must be an array of non-empty strings`,
+      );
+    }
+    followUps.push(value as string[]);
+  }
+  return followUps;
 }
 
 function validateFiles(

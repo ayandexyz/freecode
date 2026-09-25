@@ -189,6 +189,37 @@ persist across a trial's sessions, so a fact written to disk would be findable
 without memory. Consolidation cannot fire inside a trial (one run per project
 per day, after 5 sessions), so this measures capture and recall, not merging.
 
+### Does consolidation help? — the `memory-consolidation` suite
+
+`evals/memory-consolidation.jsonl` seeds the same isolated memory fixture on
+both sides, performs a two-turn teaching session, then has the candidate
+run the production consolidation scheduler before the final scored task. Its
+fixture pins the scheduler to one eligible session and zero hours, and locks
+that project-local setting. Extraction remains off, so the store is identical
+until the consolidation pass. The baseline disables it through the usual
+per-call environment gate.
+
+```bash
+pnpm eval ab memory-consolidation \
+  --baseline env:FREECODE_DISABLE_MEMORY_CONSOLIDATION=1 \
+  --candidate env:FREECODE_DISABLE_MEMORY_CONSOLIDATION= --trials 3 \
+  --hypothesis "..."
+```
+
+The candidate's `TrialResult.consolidation` says whether a pass actually ran
+and how many entries it merged, promoted, created, or deleted. Its
+`costByOperation.consolidation` contains the merge call's cost. A skipped,
+failed, or partially priced pass is evidence of an incomplete experiment, not
+a zero-cost consolidation result.
+
+The first valid run, `2026-09-25-memory-consolidation-4` on MiniMax-M3, kept
+the endpoint task at 3/3 on both sides. Consolidation ran in every candidate
+trial: two merged one duplicate and deleted one superseded memory; one made no
+change. Its calls cost $0.00076–$0.00087 each. Candidate total cost was 4.7%
+lower in this three-trial sample, which is too small and narrow to establish a
+benefit. The three earlier records in the ledger are invalid harness attempts:
+their candidate `consolidation.ran` is false and they must not be used.
+
 ## 3. Grow the suite — `freecode eval add <session-id>`
 
 ```bash

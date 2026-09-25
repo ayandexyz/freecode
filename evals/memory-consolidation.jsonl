@@ -1,0 +1,11 @@
+// Consolidation comparison — evaluates one real production consolidation pass
+// between a frozen memory fixture and the scored final session. Run paired:
+//
+// pnpm eval ab memory-consolidation \
+//   --baseline env:FREECODE_DISABLE_MEMORY_CONSOLIDATION=1 \
+//   --candidate env:FREECODE_DISABLE_MEMORY_CONSOLIDATION= --trials 3
+//
+// The suite itself freezes extraction. The candidate releases consolidation for
+// exactly one scheduler-governed pass after the teaching session; its auxiliary
+// call and outcome appear on the final session trace and in the A/B artifact.
+{"id":"consolidate-production-endpoint","prompt":"Set BASE_URL in client.mjs to the production API endpoint. Keep the exported constant and use the exact configured URL.","failureCategory":"memory-recall","whyModelBacked":"The endpoint is present only in two near-duplicate memory records; whether merging them improves the final agent's use of a constrained memory block requires a real model turn and retrieval path.","files":{"client.mjs":"export const BASE_URL = 'http://localhost:8080';\n",".freecode/settings.json":"{\"memory\":{\"autoConsolidate\":true,\"consolidateMinSessions\":1,\"consolidateMinHours\":0}}\n"},"immutable":[".freecode/settings.json"],"memories":[{"type":"project","name":"production-api-host","description":"Production API host","content":"The production API host is api.v2.acme.invalid. Use HTTPS; localhost is development only.","tags":["api","production"]},{"type":"project","name":"production-api-url","description":"Production client endpoint","content":"Configured production clients use https://api.v2.acme.invalid. Do not use the retired v1 host or localhost.","tags":["api","production"]},{"type":"reference","name":"staging-api-url","description":"Staging endpoint","content":"Staging uses https://api.staging.acme.invalid. It is not the production endpoint.","tags":["api","staging"]}],"sessions":["Please inspect client.mjs and tell me what it currently exports. Do not edit files."],"sessionFollowUps":[["Please confirm the exported constant name only. Do not edit files."]],"consolidateBeforeFinal":true,"verify":"node --input-type=module -e \"import {BASE_URL} from './client.mjs'; import assert from 'node:assert'; assert.equal(BASE_URL, 'https://api.v2.acme.invalid'); console.log('ok');\"","expectMaxTurns":12}

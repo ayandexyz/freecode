@@ -136,17 +136,11 @@ profiles, either complete that map or replace it with a per-subagent tool
 allowlist that rides the existing rules evaluation rather than sitting beside
 it.
 
-## Effect/Layer DI
-
-**Status:** Skipped - requires significant architectural change using Effect framework
-
-**Reference:** opencode's `packages/opencode/src/effect/` directory for `makeRuntime<I, S, E>()` pattern
-
 ## Memory: knowledge-graph roadmap (docs audit 2026-08-23)
 
-- [ ] **Consolidation / episodic → semantic promotion.** `rollout/` has every past
-      turn on disk; nothing mines it. Extraction only ever sees the live transcript,
-      so a fact that only becomes clear on the fifth repetition is never learned.
+- [ ] **Learning from archived sessions.** Extraction reads live transcripts;
+      consolidation merges saved memories but does not mine old transcripts.
+      Backfill remains separate from the shipped consolidation pass (see below).
 - [ ] **Bi-temporal validity** — valid-time vs transaction-time, so "the host ran
       Apache until March" is expressible instead of only replaceable. Entries carry
       `createdAt`/`updatedAt` (transaction time) only.
@@ -175,26 +169,67 @@ D12–D14). These are actionable independently of that spec's phases.
   reads the live transcript, and the spec's end-of-session flush (D4) does not
   go back for them. codex's answer is a bounded, leased, parallel Phase 1 at
   startup.
-- **An LLM retrieval judge, deferred not rejected.** The spec declines waku's
-  gate on cost, which is right for waku's shape but not for jcode's: a listwise
-  rerank on the existing one-turn-behind prefetch adds no loop latency, and
-  jcode's "cadence carry" (re-surface the last judged set without re-running)
-  bounds the call rate. jcode treats the *absence* of the judge as a measured
-  degradation (`memory_judge_metrics.rs`). Revisit once D14 reports a baseline.
 
 ## Memory: long-horizon evaluation (after spec 2026-09-25 §7.1)
 
-The multi-session suite measures capture and recall over 2–3 sessions. Still
-unmeasured, and each needs a harness that outlives one trial:
+The existing `memory-sessions` suite measures capture and recall over 2–3
+sessions. Its completed work and results live in
+[`2026-09-25-memory-efficiency-and-graph-explorer.md`](docs/specs/2026-09-25-memory-efficiency-and-graph-explorer.md)
+§7. The following are measurement projects, not missing production features.
+Build and validate the harnesses first; run paid experiments afterward.
 
-- [ ] **Consolidation's effect.** It runs at most once per project per day,
-      after 5 sessions, so it never fires inside an eval trial. Needs a harness
-      that seeds session history (or overrides the policy for the run) and
-      compares frozen stores before/after merging at equal block budget.
-- [ ] **The savings curve.** Cumulative cost with vs without memory over 10+
-      sessions, including duplicate growth and false memories.
-- [ ] **An external corpus.** LongMemEval-S after a licence check, reported
-      separately and never tuned on.
+1. [x] **Consolidation comparison harness.** Built 2026-09-26 as
+   `evals/memory-consolidation.jsonl` plus `consolidateBeforeFinal` in the
+   eval runner. Seed identical isolated stores
+   with duplicates, complementary facts, corrections, and unrelated controls.
+   Run the production consolidator on one copy, then freeze both stores and
+   score the same held-out tasks at the same injection byte budget. Use
+   fixture-only eligible session history and project-local scheduling settings;
+   preserve production defaults. Record whether consolidation actually ran,
+   its outcome, merge counts, retained facts, and its model cost. A skipped or
+   failed pass must not count as a successful consolidation experiment.
+2. [ ] **Consolidation experiment.** Initial valid run
+   `2026-09-25-memory-consolidation-4`: 3/3 on both sides; consolidation ran
+   in all candidate trials (two 1→1 merges, one no-op), each call cost
+   $0.00076–$0.00087, and total candidate cost was −4.7% in this small sample.
+   It is not a conclusion: the harness does not yet report rendered recall,
+   irrelevant bytes, or store size. Compare task pass rate, rendered recall,
+   irrelevant bytes, store size, and total cost including the merge call.
+   Record provider/model, retrieval mode, fixture revision, and three trials
+   per side in the experiment ledger. Keep a no-benefit result as evidence;
+   fewer files alone is not success.
+3. [ ] **Long-horizon harness.** Extend session evaluation to at least 12
+   fresh sessions sharing one isolated project per trial, with scored probes
+   along the way. Include repeated facts, later corrections, distractors,
+   and unrelated controls. Keep expected answers outside the agent's files
+   and prevent teaching sessions from leaving answer-bearing files behind.
+   Report per-session and cumulative passes, tokens, cost by operation,
+   memories captured, and consolidation outcomes. Account for session-end
+   flushes, including the final session; incomplete background work means
+   incomplete cost, never zero cost.
+4. [ ] **Savings-curve experiment.** Compare automatic recall/extraction off,
+   learning with consolidation off, and learning with consolidation enabled
+   on an explicit recorded schedule. Keep judge off and pin the same model
+   and byte budget across all arms. Report raw cumulative spend and cost per
+   passed probe at sessions 1, 3, 6, 9, and 12; report any break-even point
+   only if observed. State whether the memory tool remains available in the
+   off arm, and count its writes. Archive three trials per arm with failures
+   and unknown costs visible.
+5. [ ] **External-corpus adapter.** Check LongMemEval-S's dataset licence and
+   official protocol before download or redistribution. Pin source revision,
+   checksum, and sample IDs; ingest history chronologically into fresh stores,
+   keeping answers and scoring metadata out of prompts and memory. Separate
+   ingestion, retrieval, and answer-scoring costs. Validate the adapter with
+   tiny synthetic fixtures before running the corpus.
+6. [ ] **External evaluation.** Run the pinned held-out sample using the
+   documented scoring protocol, report separately from internal suites, and
+   never tune on it. State sampling, category coverage, model, and any
+   deviations from the official protocol; do not claim a comparable official
+   score for an adapted subset.
+
+Completion requires both a working harness and a recorded experiment for
+each question. Remove completed entries from this roadmap only after moving
+their method and results into the spec, `EVAL.md`, and experiment ledger.
 
 ## Memory graph explorer (moved out of the memory-efficiency spec, 2026-09-25)
 
