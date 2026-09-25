@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.41.0
+
+Auto-poke no longer treats a list of suggestions as authorization, and the Omarchy-style `/` menu lands. A status question like "what's left?" became implementation: the model recorded suggested fixes as pending todos and the loop read the open list as a reason to continue. Suggested work was being treated as authorized work. The slash menu gets a card layout that matches the Omarchy theme across `/`, `/model`, and `/web`.
+
+### Added
+
+- **Omarchy-style `/` command menu** (`191fb381`, `6a67db1f`). `/` opens a card layout that matches the Omarchy theme; `/model` and `/web` pick from the same card. Selection highlights the full row.
+- **Icons for every `/` menu row** (`3a1c882d`).
+
+### Changed
+
+- **Resume modal follows the Omarchy theme** (`f8549327`).
+- **`menu-card` selection band covers the full row** (`2e8f2785`), not just the text. Test de-coupled from a truecolor theme (`f7c83321`).
+
+### Fixed
+
+- **Auto-poke requires in-progress work, not pending suggestions** (`04872aa9`). A status question ("what's left?") had become implementation: the model recorded suggested fixes as pending todos and auto-poke read the open list as a reason to continue. Suggested work was being treated as authorized work. Auto-poke now requires an `in_progress` item; an all-pending list is not a reason to poke. The poke identifies itself as automated and cannot authorize new work; the system prompt and todo guidance separate reporting a gap from filling it. Regression coverage harvested from the recorded session. Tradeoff: an all-pending plan no longer auto-starts.
+
+### Notes
+
+Eval ledger for the included core change: trajectory gate 26/26 at 3 trials, GATE OPEN, no regression across the 27 cases shared with the 2026-09-08 baseline. New cases `tenant-status-report-does-not-implement` and `greeting-with-home-directory-context` both 3/3. Experiment ledger entries `2026-09-24-trajectory-1` and `-redirect-build-1` marked kept.
+
 ## v0.40.0
 
 Undo. `/rewind` takes back a turn's file changes and the conversation that caused them, together — the session tree already rewound the transcript and left disk untouched, which made the conversation describe files that were never put back. On Omarchy, switching the OS theme now repaints a running session instead of asking for a restart.
