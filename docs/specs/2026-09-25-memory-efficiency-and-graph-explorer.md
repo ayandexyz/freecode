@@ -1,7 +1,7 @@
 # Memory efficiency: measure it, prove it, fix what the proof finds
 
 **Date:** 2026-09-25 (rescoped same day)
-**Status:** P0 complete · §4 injection bench built and its findings fixed 2026-09-25 (12/12 scenarios) · §6 paired eval next
+**Status:** P0 complete · §4 bench built and findings fixed · §6 first paired run done 2026-09-25 (recall pays; judge does not yet) · §7 proposed
 **Audit baseline:** `f7c83321`
 **Goal:** Know, with evidence, whether automatic memory makes the agent better or cheaper, and by how much, backed by free tests, a free local bench, and a paid paired eval.
 
@@ -53,7 +53,7 @@ changes only with paired evidence.
 | P0 | Measure the whole bill; strict rendering | §5 | free | ✅ done 2026-09-25 |
 | P1 | Injection bench | `pnpm bench:inject`: rendered recall, wasted bytes, lifecycle scenarios | free | ✅ built 2026-09-25 |
 | P1 | Correctness fixes | one fix per failing bench scenario, each with a regression test | free | ✅ done 2026-09-25 |
-| P1 | Recall-off switch + paired eval | memory off vs on, per-case quality and cost deltas | paid | proposed |
+| P1 | Recall-off switch + paired eval | memory off vs on, per-case quality and cost deltas | paid | ✅ first run 2026-09-25 (§6.1) |
 | P2 | Multi-session savings | capture, consolidation, cumulative cost over N sessions | paid | proposed |
 
 Order matters: the bench finds the bugs, the fixes make the injection correct,
@@ -223,6 +223,52 @@ and cost per successful task, on comparable pairs only. Predeclare with
 additional cost*, *regresses*, *inconclusive*. A lower token count alone is not
 a verdict when cache behaviour or models differ.
 
+### 6.1 Results — first paired run (2026-09-25, MiniMax-M3, 3 trials)
+
+`evals/memory.jsonl`: 6 memory-decides cases + 2 controls, both runs against
+the same recall-off baseline. Ledger: `2026-09-24-memory-1` (kept),
+`2026-09-24-memory-2` (rejected).
+
+| | recall off | recall on, judge off | recall on, judge on |
+| --- | ---: | ---: | ---: |
+| tasks passed | 12/24 · 13/24 | **23/24** | 20/24 |
+| cases improved vs off | — | 4 of 6 | 2 of 6 |
+| controls passed | 6/6 | 6/6 | 6/6 |
+| first request carried memory | — | **24/24** | 0/24 |
+| memory-case trials with no memory at all | — | 0/18 | 5/18 |
+| block per request (all / controls) | 0 | 789 B / 830 B | 207 B / **0 B** |
+| suite cost | $0.172 · $0.196 | $0.200 (+16.6%) | $0.215 (+9.6%) |
+| **cost per passed task** | $0.0143 · $0.0151 | **$0.0087 (−39%)** | $0.0107 (−29%) |
+| judge cost | — | — | ~$0.0002 / trial |
+
+(The two recall-off columns are the two runs' own baselines.)
+
+**Verdict, judge off: improves quality at additional cost, and lowers cost
+per passed task.** Recall nearly doubles the pass rate. Total spend rises
+16.6% because the block rides every request, but each passed task costs 39%
+less, and total tokens fell 11% (fewer turns hunting for what memory says).
+No negative transfer: the controls pass on both sides. The cost is the ~830 B
+block on tasks it cannot help.
+
+**Verdict, judge on: rejected.** The judge does what it is for on the
+controls (0 B injected, a quarter the average block) for almost nothing, but
+it costs quality, for two measured reasons:
+
+1. **It makes every first request cold.** The judge is a network call on the
+   prefetch, so it never finishes inside the 60 ms cold budget: 0/24 first
+   requests carried memory, and many tasks settle their approach on the first
+   request.
+2. **It drops relevant memories.** It judges descriptions only, and rejected
+   "never run npm install" for a module-not-found task (3/3) and the cents
+   rule for a pricing task (2/3).
+
+**Implication for the default.** `memory.retrievalJudge` defaults to `true`;
+on this suite judge-off is strictly better on quality and per-task cost. Flip
+it, or fix both judge problems (serve unjudged candidates on the cold path and
+judge on the next request; give the judge a body excerpt) and re-run §6
+before deciding. Tracked in `TODO.md`. Caveats: one model, 8 cases, 3 trials,
+a hand-written suite; the controls are only two.
+
 ## 7. P2: multi-session savings
 
 The paired eval freezes the corpus. This experiment lets memory learn: scripted
@@ -245,7 +291,7 @@ later and reported separately; never tune on it.
 - [x] The byte cap is strict and exposure attribution matches rendered content.
 - [x] `pnpm bench:inject` reports rendered recall, wasted bytes, and every §4.2 scenario.
 - [x] Every failing scenario is fixed with a regression test, or recorded in `docs/DECISIONS.md` as intended.
-- [ ] Recall can be switched off per request, and `eval ab` accepts the switch.
-- [ ] A recorded A-vs-D experiment in `evals/experiments.jsonl` with a verdict.
+- [x] Recall can be switched off per request, and `eval ab` accepts the switch.
+- [x] A recorded A-vs-D experiment in `evals/experiments.jsonl` with a verdict (judge off and on).
 - [ ] A multi-session report gives cumulative cost with and without memory.
 - [ ] `MEMORY_SYSTEM.md`, bench README, `EVAL.md`, `TRACE.md` match shipped behaviour.

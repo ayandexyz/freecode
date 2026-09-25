@@ -230,6 +230,12 @@ model never sees obsolete guidance beside, or instead of, its replacement. A
 mutual or cyclic chain keeps both; a missing target changes nothing. Search and
 the explorer still show the old record.
 
+**Switching recall off.** `memory.autoRecall: false` or
+`FREECODE_DISABLE_MEMORY_RECALL=1` stops retrieval and injection; the `memory`
+tool and static guidance stay. Requests then record `memory.exposure` with
+`preparation: "disabled"`. This is the off side of `pnpm eval ab memory`
+(EVAL.md); its first run is in spec `2026-09-25-…` §6.1.
+
 **Per session, not per project.** The graph and vectors are shared per project,
 but the surfaced set is keyed by `sessionId` so two sessions never clobber each
 other. LRU-bounded at `MAX_SESSIONS = 64`.

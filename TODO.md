@@ -94,6 +94,24 @@ drops alpha — a screenshot is fine, a copied transparent PNG comes back matted
 Chrome and the Snipping Tool also publish a `PNG` clipboard format; preferring
 `GetDataObject().GetData('PNG')` when present would preserve the original bytes.
 
+## Retrieval judge loses to no judge (paired eval, 2026-09-25)
+
+Spec `2026-09-25-memory-efficiency-and-graph-explorer.md` §6.1; ledger
+`2026-09-24-memory-2`. With the judge on, recall passed 20/24 vs 23/24 with it
+off. `memory.retrievalJudge` still defaults to `true`.
+
+- [ ] **The judge makes every first request cold.** It runs inside the
+      prefetch, a network call that never fits `COLD_BUDGET_MS` (60), so 0/24
+      first requests carried memory. Candidate fix: on a cold miss, serve the
+      unjudged candidates for this request and apply the verdict from the next.
+- [ ] **The judge drops relevant memories.** It sees descriptions only and
+      rejected "never run npm install" for a module-not-found task (3/3) and
+      the integer-cents rule for a pricing task (2/3). Candidate fix: a short
+      body excerpt under an explicit token budget.
+- [ ] **Decide the default.** Flip `retrievalJudge` to `false`, or fix both of
+      the above and re-run `pnpm eval ab memory` (EVAL.md) before deciding.
+      Either way record the outcome in the ledger.
+
 ## Docs-audit findings (memory, sessions, knowledge graph — 2026-08-23)
 
 Found while writing `apps/docs/app/internals/{memory,sessions,knowledge-graph}`.
