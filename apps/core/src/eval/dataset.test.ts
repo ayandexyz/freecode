@@ -486,8 +486,9 @@ test("case ids are unique ACROSS suites, not just within one", () => {
 const CATEGORIES_WITHOUT_CASES: FailureCategory[] = [
   // `compaction-boundary` left this list once `env` + `expectCompaction` made
   // the path reachable on purpose rather than by accident (spec
-  // `2026-08-29-eval-case-registry.md` §9.1).
-  "memory-recall",
+  // `2026-08-29-eval-case-registry.md` §9.1). `memory-recall` left it with
+  // `evals/memory.jsonl`, once cases could carry a frozen `memories` fixture
+  // (spec `2026-09-25-memory-efficiency-and-graph-explorer.md` §6).
   "resume",
   "mcp-failure",
 ];
@@ -709,4 +710,45 @@ test("the shipped security suite is valid, sandboxed, and guards its checkers", 
       );
     }
   }
+});
+
+// -- memory fixtures (spec 2026-09-25 §6) -------------------------------------
+
+const MEM = `{"type":"project","name":"uses-pnpm","description":"d","content":"c"}`;
+const SANDBOXED = `"files":{"a.txt":"x"},"expectTool":"read"`;
+
+test("a memory fixture parses and keeps its fields", () => {
+  const [c] = parseSuite(
+    `{"id":"m","prompt":"p",${REQUIRED},${SANDBOXED},"memories":[{"type":"feedback","name":"no-force","description":"d","content":"c","tags":["git"]}]}`,
+  );
+  assert.deepEqual(c.memories, [
+    { type: "feedback", name: "no-force", description: "d", content: "c", tags: ["git"] },
+  ]);
+});
+
+test("memories without a sandbox are refused: that store is the real one", () => {
+  assert.throws(
+    () => parseSuite(`{"id":"m","prompt":"p",${REQUIRED},"expectTool":"read","memories":[${MEM}]}`),
+    (e: Error) => e instanceof DatasetError && /requires 'files'/.test(e.message),
+  );
+});
+
+test("a malformed memory is refused at load", () => {
+  const bad = [
+    `{"type":"secret","name":"x","description":"d","content":"c"}`,
+    `{"type":"project","name":"../escape","description":"d","content":"c"}`,
+    `{"type":"project","name":"x","description":"","content":"c"}`,
+    `{"type":"project","name":"x","description":"d","content":"c","tags":"git"}`,
+  ];
+  for (const m of bad) {
+    assert.throws(
+      () => parseSuite(`{"id":"m","prompt":"p",${REQUIRED},${SANDBOXED},"memories":[${m}]}`),
+      DatasetError,
+      m,
+    );
+  }
+  assert.throws(
+    () => parseSuite(`{"id":"m","prompt":"p",${REQUIRED},${SANDBOXED},"memories":[${MEM},${MEM}]}`),
+    /duplicate memory/,
+  );
 });

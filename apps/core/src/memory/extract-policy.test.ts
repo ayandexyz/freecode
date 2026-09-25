@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   shouldExtract,
   resetExtractPolicy,
+  loadMemorySettings,
   DEFAULT_INTERVAL_RUNS,
 } from "./extract-policy.js";
 
@@ -244,6 +245,40 @@ test("force does NOT bypass 'the model already saved this run'", () => {
     assert.equal(decision.extract, false);
     assert.match(decision.reason, /already saved/);
   } finally {
+    cleanup();
+  }
+});
+
+// -- automatic recall switch (spec 2026-09-25 §6) -----------------------------
+
+test("automatic recall is on by default", () => {
+  const { root, cleanup } = project();
+  try {
+    assert.equal(loadMemorySettings(root).autoRecall, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("settings can turn automatic recall off", () => {
+  const { root, cleanup } = project({ memory: { autoRecall: false } });
+  try {
+    assert.equal(loadMemorySettings(root).autoRecall, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("the recall env var wins over settings, and is re-read per call", () => {
+  // Re-read per call is what lets `eval ab` flip it between trials.
+  const { root, cleanup } = project({ memory: { autoRecall: true } });
+  try {
+    process.env.FREECODE_DISABLE_MEMORY_RECALL = "1";
+    assert.equal(loadMemorySettings(root).autoRecall, false);
+    delete process.env.FREECODE_DISABLE_MEMORY_RECALL;
+    assert.equal(loadMemorySettings(root).autoRecall, true);
+  } finally {
+    delete process.env.FREECODE_DISABLE_MEMORY_RECALL;
     cleanup();
   }
 });

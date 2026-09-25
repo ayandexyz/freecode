@@ -35,6 +35,7 @@ export class AbError extends Error {}
  *   FREECODE_DISABLE_MEMORY_EXTRACTION `shouldExtract`, every turn
  *   FREECODE_DISABLE_MEMORY_JUDGE      `loadMemorySettings`, every call
  *   FREECODE_DISABLE_MEMORY_CONSOLIDATION `shouldConsolidate`, every call
+ *   FREECODE_DISABLE_MEMORY_RECALL     `loadMemorySettings`, every request
  *   FREECODE_BASH_COMPRESS             `maybeCompressOutput`, every tool call
  *   FREECODE_READ_LINE_NUMBERS         read's `execute`, every call
  *   FREECODE_EPHEMERAL_TAIL            `executeTurn`, every iteration
@@ -59,6 +60,7 @@ export const VARIABLE_ENV_KEYS = [
   "FREECODE_DISABLE_MEMORY_EXTRACTION",
   "FREECODE_DISABLE_MEMORY_JUDGE",
   "FREECODE_DISABLE_MEMORY_CONSOLIDATION",
+  "FREECODE_DISABLE_MEMORY_RECALL",
   "FREECODE_BASH_COMPRESS",
   "FREECODE_READ_LINE_NUMBERS",
   "FREECODE_EPHEMERAL_TAIL",

@@ -81,11 +81,15 @@ async function run(
 ) {
   const rolloutDir = mkdtempSync(join(tmpdir(), "freecode-exposure-rollout-"));
   const projectPath = mkdtempSync(join(tmpdir(), "freecode-exposure-proj-"));
+  const retrieveCalls = { n: 0 };
   (
     getMemoryGraphService(projectPath) as unknown as {
       retrieve: (q: string) => Promise<MemoryEntry[]>;
     }
-  ).retrieve = async () => retrieved;
+  ).retrieve = async () => {
+    retrieveCalls.n++;
+    return retrieved;
+  };
 
   const runtime = makeRuntime(
     makeTestLayer({
@@ -119,7 +123,7 @@ async function run(
           .filter((l) => l.trim())
           .map((l) => JSON.parse(l))
       : [];
-    return events;
+    return Object.assign(events, { retrieveCalls: retrieveCalls.n });
   } finally {
     await runtime.dispose();
     rmSync(rolloutDir, { recursive: true, force: true });
@@ -175,5 +179,29 @@ test("a request with no injected memory records zero block bytes", async () => {
     assert.equal(e.blockBytes, 0);
     assert.equal(e.estimatedTokens, 0);
     assert.equal(e.renderedCount, 0);
+  }
+});
+
+test("recall switched off: no retrieval, no block, and every request says why", async () => {
+  // The "memory off" side of the paired eval (spec 2026-09-25 §6). `disabled`
+  // keeps an off trial distinguishable from a store that had nothing to offer.
+  const tails: string[] = [];
+  toolLooper("exposure-off", tails);
+  process.env.FREECODE_DISABLE_MEMORY_RECALL = "1";
+  try {
+    const events = await run("exposure-off", "exposure-off", [MEMORY], 3);
+    assert.equal(events.retrieveCalls, 0, "retrieval never ran");
+    assert.ok(tails.every((t) => !t.includes("uses-pnpm")), "no block was sent");
+    const exposures = events.filter((e) => e.type === "memory.exposure") as Array<
+      Extract<RolloutEvent, { type: "memory.exposure" }>
+    >;
+    assert.equal(exposures.length, tails.length);
+    for (const e of exposures) {
+      assert.equal(e.preparation, "disabled");
+      assert.equal(e.judgeDecision, "disabled");
+      assert.equal(e.injected, false);
+    }
+  } finally {
+    delete process.env.FREECODE_DISABLE_MEMORY_RECALL;
   }
 });

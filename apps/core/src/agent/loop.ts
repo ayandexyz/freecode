@@ -489,7 +489,7 @@ export class AgentLoop {
   // omit a relevant candidate, and only the latter reaches a provider request.
   private lastMemoryCandidateCount = 0;
   private lastMemoryPreparation: {
-    state: "fresh" | "carried" | "pending" | "empty";
+    state: "fresh" | "carried" | "pending" | "empty" | "disabled";
     judgeDecision:
       | "judge_ran"
       | "disabled"
@@ -1766,31 +1766,37 @@ export class AgentLoop {
       // Omitting the context is the judge's designed off switch (graph/index.ts
       // "omit it and judging is skipped entirely"), so a provider that cannot
       // afford the call reuses that path rather than adding a second one.
+      const memorySettings = loadMemorySettings(context.projectPath);
       const judgeEnabled =
-        loadMemorySettings(context.projectPath).retrievalJudge &&
+        memorySettings.retrievalJudge &&
         allowsAuxiliaryCalls(provider as ProviderId);
       // The judge is asynchronous and can finish after later turns begin, so
       // capture its originating turn rather than reading mutable loop state in
       // the callback.
       const memoryTurnId = `turn-${this.state.turnCount}`;
-      const retrievedMemories = await memGraph.prepareMemories(
-        this.state.sessionId,
-        currentUserText,
-        judgeEnabled
-          ? {
-              provider,
-              model,
-              onAuxiliaryCall: (call) =>
-                this.recordMemoryAuxiliary(memoryTurnId, call),
-            }
-          : undefined,
-      );
+      // Automatic recall off (`memory.autoRecall` / FREECODE_DISABLE_MEMORY_RECALL):
+      // no retrieval, no judge call, no block. The `memory` tool and the static
+      // guidance stay, so this isolates what automatic injection is worth.
+      const retrievedMemories = !memorySettings.autoRecall
+        ? []
+        : await memGraph.prepareMemories(
+            this.state.sessionId,
+            currentUserText,
+            judgeEnabled
+              ? {
+                  provider,
+                  model,
+                  onAuxiliaryCall: (call) =>
+                    this.recordMemoryAuxiliary(memoryTurnId, call),
+                }
+              : undefined,
+          );
       const renderedMemories =
         renderRetrievedMemoriesDetailed(retrievedMemories);
       this.lastMemoryCandidateCount = retrievedMemories.length;
-      this.lastMemoryPreparation = memGraph.preparationFor(
-        this.state.sessionId,
-      );
+      this.lastMemoryPreparation = memorySettings.autoRecall
+        ? memGraph.preparationFor(this.state.sessionId)
+        : { state: "disabled", judgeDecision: "disabled" };
       this.lastMemoryBlock = renderedMemories.text;
       const memoryBlock = this.lastMemoryBlock;
       // UI visibility for the otherwise-silent auto-injection path: fire once

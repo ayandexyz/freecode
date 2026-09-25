@@ -304,7 +304,8 @@ export interface MemoryExposureEvent extends BaseEvent {
   /** Of `renderedCount`: entries degraded to a one-line summary. */
   summaryCount: number;
   injected: boolean;
-  preparation: "fresh" | "carried" | "pending" | "empty";
+  /** `disabled`: automatic recall is switched off for this request. */
+  preparation: "fresh" | "carried" | "pending" | "empty" | "disabled";
   judgeDecision:
     | "judge_ran"
     | "disabled"

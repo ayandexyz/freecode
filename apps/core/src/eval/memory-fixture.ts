@@ -1,0 +1,60 @@
+// =============================================================================
+// Memory fixtures for eval cases (spec 2026-09-25 §6).
+//
+// A case with `memories` measures what automatic recall is worth, so its store
+// must be exactly the fixture: seeded into the trial's own sandbox project
+// (the store is keyed by project path, so a fresh tmpdir is a fresh store),
+// frozen for the trial (extraction and consolidation off, or the two sides of
+// a comparison would read different corpora), and removed afterwards. The
+// developer's real store is never touched.
+// =============================================================================
+
+import * as fs from "fs";
+import { MemoryStore } from "../memory/mem-store.js";
+import { getMemoryGraphService } from "../memory/graph/index.js";
+import type { MemoryEntry } from "../memory/mem-types.js";
+import type { EvalMemory } from "./types.js";
+
+/** Env that freezes the corpus for the trial. Applied by the runner. */
+export const FROZEN_MEMORY_ENV: Record<string, string> = {
+  FREECODE_DISABLE_MEMORY_EXTRACTION: "1",
+  FREECODE_DISABLE_MEMORY_CONSOLIDATION: "1",
+};
+
+/**
+ * Seed `memories` into `projectPath`'s store and build its retrieval index;
+ * returns the cleanup.
+ *
+ * The index is built here, before the trial, because a real project already
+ * has its `.graph/` sidecar on disk. A fresh store builds it on the first
+ * retrieval, which overruns the 60 ms cold budget, so the first request of
+ * every trial went out without memory — and many tasks settle their answer on
+ * that request. Measured on the first smoke run (2026-09-25); unwarmed, the
+ * suite would measure an artefact of the harness, not recall.
+ */
+export async function seedMemories(
+  projectPath: string,
+  memories: EvalMemory[],
+): Promise<() => void> {
+  const store = new MemoryStore(projectPath);
+  const now = Date.now();
+  for (const m of memories) {
+    const entry: MemoryEntry = {
+      type: m.type,
+      name: m.name,
+      description: m.description,
+      content: m.content,
+      createdAt: now,
+      updatedAt: now,
+      ...(m.tags ? { tags: m.tags } : {}),
+      ...(m.supersedes ? { supersedes: m.supersedes } : {}),
+    };
+    store.save(entry);
+  }
+  await getMemoryGraphService(projectPath).retrieve("warm the index", {
+    limit: 1,
+  });
+  // Only the memory directory: the session and rollout logs beside it are
+  // what `freecode trace` reads when a red trial needs inspecting.
+  return () => fs.rmSync(store.getMemoryDir(), { recursive: true, force: true });
+}

@@ -134,6 +134,40 @@ field to `"kept"` or `"rejected"` (optionally add a `"note"`), and commit the
 ledger: rejected entries are the ones most worth the history. `freecode eval
 experiments` lists the ledger and nags about undecided entries.
 
+### Is memory worth it? — the `memory` suite
+
+`evals/memory.jsonl` exists to be run **paired**, memory off against memory on.
+Run alone it only says the agent can do the tasks. Two runs answer the two
+questions:
+
+```bash
+# Does automatic recall help at all? (judge off: the cheap configuration)
+pnpm eval ab memory --baseline env:FREECODE_DISABLE_MEMORY_RECALL=1 \
+  --candidate env:FREECODE_DISABLE_MEMORY_JUDGE=1 --trials 3 --hypothesis "..."
+
+# Does the retrieval judge pay for itself? (judge on)
+pnpm eval ab memory --baseline env:FREECODE_DISABLE_MEMORY_RECALL=1 \
+  --candidate env:FREECODE_DISABLE_MEMORY_JUDGE=0 --trials 3 --hypothesis "..."
+```
+
+- `FREECODE_DISABLE_MEMORY_RECALL=1` (or `memory.autoRecall: false`) turns off
+  automatic retrieval and injection only; the `memory` tool and the static
+  guidance stay. Every request then records `memory.exposure` with
+  `preparation: "disabled"`, so an off trial never looks like an empty store.
+- Each case carries a `memories` fixture. It needs `files`, since only a
+  sandboxed case has its own store. It is seeded into the trial's sandbox
+  project with its index already built (a real project has its `.graph/`
+  sidecar on disk; a cold one would miss the first request) and frozen for the
+  trial: extraction and consolidation are off on both sides.
+- Checks are inline `node -e`, not a `check.mjs`: a checker in the sandbox
+  would show the no-memory side the expected answer.
+- The `control-*` cases carry only unrelated memories. Their cost delta is the
+  price of the block when it cannot help, and their pass rate is where
+  negative transfer would show.
+- Read cost on **comparable pairs**, with `costByOperation` separating the
+  agent from the judge. Cost is ~$0.01 per trial on MiniMax-M3, so both runs
+  together cost under $1.
+
 ## 3. Grow the suite — `freecode eval add <session-id>`
 
 ```bash

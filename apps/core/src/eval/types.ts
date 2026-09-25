@@ -81,6 +81,16 @@ export interface KnownGap {
   target: string;
 }
 
+/** One memory in a case's frozen fixture store (spec 2026-09-25 §6). */
+export interface EvalMemory {
+  type: "user" | "feedback" | "project" | "reference" | "episode";
+  name: string;
+  description: string;
+  content: string;
+  tags?: string[];
+  supersedes?: string[];
+}
+
 export interface EvalCase {
   id: string;
   prompt: string;
@@ -196,6 +206,13 @@ export interface EvalCase {
    * lets it run in a mutating agent mode at all.
    */
   files?: Record<string, string>;
+  /**
+   * Memories seeded into the trial's own store (its sandbox project), frozen
+   * for the trial: extraction and consolidation are off, so both sides of an
+   * `eval ab` read the same corpus. Requires `files` — without a sandbox the
+   * store would be the developer's real one.
+   */
+  memories?: EvalMemory[];
   /** Shell command run in the sandbox after the turn; exit code is the score. */
   verify?: string;
   /**

@@ -17,6 +17,7 @@ import { scoreOutcome } from "./scorers/outcome.js";
 import { scoreTrajectory } from "./scorers/trajectory.js";
 import { envInt } from "../utils/env.js";
 import { drainMemoryJobs } from "../memory/background-jobs.js";
+import { FROZEN_MEMORY_ENV, seedMemories } from "./memory-fixture.js";
 
 export interface RunnerConfig {
   provider: string;
@@ -93,9 +94,19 @@ export async function runTrial(
   // Safe because `suite.ts` awaits each trial in turn — a parallel runner would
   // have to carry this into the loop's own configuration instead.
   const restoreEnv = applyEnv(kase.env);
+  // A memory case measures recall over a frozen corpus: seed it into the
+  // sandbox's own store and stop anything writing to it for the trial.
+  // `dataset.ts` guarantees `memories` implies a sandbox.
+  const restoreMemoryEnv = kase.memories ? applyEnv(FROZEN_MEMORY_ENV) : () => {};
+  let removeMemories = () => {};
   try {
+    if (kase.memories && sandbox) {
+      removeMemories = await seedMemories(sandbox.dir, kase.memories);
+    }
     return await runTrialIn(kase, config, sandbox);
   } finally {
+    removeMemories();
+    restoreMemoryEnv();
     restoreEnv();
     sandbox?.cleanup();
   }

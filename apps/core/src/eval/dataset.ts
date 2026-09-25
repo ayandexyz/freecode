@@ -10,7 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { assertSafeRelativePath, SandboxError } from "./sandbox.js";
 import { FAILURE_CATEGORIES } from "./types.js";
-import type { EvalCase, FailureCategory, KnownGap } from "./types.js";
+import type { EvalCase, EvalMemory, FailureCategory, KnownGap } from "./types.js";
 
 export class DatasetError extends Error {}
 
@@ -189,6 +189,7 @@ function validate(raw: unknown, where: string): EvalCase {
     );
   }
   const files = validateFiles(o.files, where);
+  const memories = validateMemories(o.memories, files, where);
   const immutable = validateOutcome(o, files, where);
   const rubric = validateRubric(o.rubric, where);
 
@@ -238,6 +239,7 @@ function validate(raw: unknown, where: string): EvalCase {
       ? (o.forbidTools as string[])
       : undefined,
     files,
+    memories,
     verify: typeof o.verify === "string" ? o.verify : undefined,
     immutable,
     rubric,
@@ -451,6 +453,74 @@ function validateEnv(
     throw new DatasetError(`${where}: 'env' is empty`);
   }
   return out;
+}
+
+const MEMORY_FIXTURE_TYPES = new Set([
+  "user",
+  "feedback",
+  "project",
+  "reference",
+  "episode",
+]);
+// A memory name becomes a file name in the store; keep it a plain slug.
+const MEMORY_NAME = /^[a-z0-9][a-z0-9-]*$/;
+
+function validateMemories(
+  raw: unknown,
+  files: Record<string, string> | undefined,
+  where: string,
+): EvalMemory[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new DatasetError(`${where}: 'memories' must be a non-empty array`);
+  }
+  // Without a sandbox the project root is the real working directory, whose
+  // memory store is the developer's own: seeding it would pollute real memory
+  // and cleaning up would delete it.
+  if (!files) {
+    throw new DatasetError(
+      `${where}: 'memories' requires 'files' — only a sandboxed case gets its ` +
+        `own memory store`,
+    );
+  }
+  const seen = new Set<string>();
+  return raw.map((m, i) => {
+    const at = `${where}: memories[${i}]`;
+    if (typeof m !== "object" || m === null) {
+      throw new DatasetError(`${at} must be an object`);
+    }
+    const o = m as Record<string, unknown>;
+    if (typeof o.type !== "string" || !MEMORY_FIXTURE_TYPES.has(o.type)) {
+      throw new DatasetError(
+        `${at}.type must be one of ${[...MEMORY_FIXTURE_TYPES].join(", ")}`,
+      );
+    }
+    if (typeof o.name !== "string" || !MEMORY_NAME.test(o.name)) {
+      throw new DatasetError(`${at}.name must be a lowercase slug`);
+    }
+    for (const key of ["description", "content"] as const) {
+      if (typeof o[key] !== "string" || !(o[key] as string).trim()) {
+        throw new DatasetError(`${at}.${key} must be a non-empty string`);
+      }
+    }
+    for (const key of ["tags", "supersedes"] as const) {
+      const v = o[key];
+      if (v !== undefined && (!Array.isArray(v) || v.some((x) => typeof x !== "string"))) {
+        throw new DatasetError(`${at}.${key} must be an array of strings`);
+      }
+    }
+    const id = `${o.type}/${o.name}`;
+    if (seen.has(id)) throw new DatasetError(`${at}: duplicate memory '${id}'`);
+    seen.add(id);
+    return {
+      type: o.type as EvalMemory["type"],
+      name: o.name,
+      description: o.description as string,
+      content: o.content as string,
+      ...(o.tags ? { tags: o.tags as string[] } : {}),
+      ...(o.supersedes ? { supersedes: o.supersedes as string[] } : {}),
+    };
+  });
 }
 
 function validateFiles(
