@@ -182,6 +182,20 @@ D12–D14). These are actionable independently of that spec's phases.
   bounds the call rate. jcode treats the *absence* of the judge as a measured
   degradation (`memory_judge_metrics.rs`). Revisit once D14 reports a baseline.
 
+## Memory: long-horizon evaluation (after spec 2026-09-25 §7.1)
+
+The multi-session suite measures capture and recall over 2–3 sessions. Still
+unmeasured, and each needs a harness that outlives one trial:
+
+- [ ] **Consolidation's effect.** It runs at most once per project per day,
+      after 5 sessions, so it never fires inside an eval trial. Needs a harness
+      that seeds session history (or overrides the policy for the run) and
+      compares frozen stores before/after merging at equal block budget.
+- [ ] **The savings curve.** Cumulative cost with vs without memory over 10+
+      sessions, including duplicate growth and false memories.
+- [ ] **An external corpus.** LongMemEval-S after a licence check, reported
+      separately and never tuned on.
+
 ## Memory graph explorer (moved out of the memory-efficiency spec, 2026-09-25)
 
 Presentation only: none of this changes what is injected or what it costs.

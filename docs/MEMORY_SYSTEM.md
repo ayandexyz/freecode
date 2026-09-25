@@ -288,7 +288,13 @@ across four runs; with the fixed judge, tokens −19% and cost per passed task
 itself is neutral head to head (23/24 off vs 22/24 on, within noise), so it
 is **off by default** since 2026-09-25: `memory.retrievalJudge: true` or
 `FREECODE_DISABLE_MEMORY_JUDGE=0` turns it on (the env var is two-way and beats
-the settings files). Recorded in `docs/DECISIONS.md`. Spec §6.1–6.2 has the tables.
+the settings files). Recorded in `docs/DECISIONS.md`.
+
+**Does it learn?** `pnpm eval ab memory-sessions` lets memory learn from
+earlier sessions (daemon session-end flush included) instead of seeding it:
+final-session tasks 13/15 with learning vs 4/15 without, a stated-then-
+corrected fact used correctly 3/3, cost per passed task −65%, and extraction
+3.9% of spend. Consolidation is not exercised by it (spec §7.1). Spec §6.1–6.2 has the tables.
 
 **`RetrievalOutcome`** names every path — `fused`, `lexical_only`,
 `empty_by_floor`, `empty_query`, `empty_store`, `error` — so a silent fallback is

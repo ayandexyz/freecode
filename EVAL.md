@@ -168,6 +168,27 @@ pnpm eval ab memory --baseline env:FREECODE_DISABLE_MEMORY_RECALL=1 \
   agent from the judge. Cost is ~$0.01 per trial on MiniMax-M3, so both runs
   together cost under $1.
 
+### Does memory learn? — the `memory-sessions` suite
+
+`evals/memory-sessions.jsonl` lets memory learn instead of seeding it. A case's
+`sessions` run first, each in its own fresh session on the same sandbox (and so
+the same, initially empty, store), and each ends the way the daemon ends one,
+including the session-end extraction flush (`session/session-flush.ts`, the
+code the daemon runs). Only the final `prompt` is scored; tokens and cost are
+summed over every session, so extraction's cost is in the number, and
+`memoriesCaptured` says what the store held at the end.
+
+```bash
+pnpm eval ab memory-sessions \
+  --baseline env:FREECODE_DISABLE_MEMORY_RECALL=1,env:FREECODE_DISABLE_MEMORY_EXTRACTION=1 \
+  --candidate env:FREECODE_DISABLE_MEMORY_RECALL=0 --trials 3 --hypothesis "..."
+```
+
+Earlier sessions teach through conversation and are told not to edit: files
+persist across a trial's sessions, so a fact written to disk would be findable
+without memory. Consolidation cannot fire inside a trial (one run per project
+per day, after 5 sessions), so this measures capture and recall, not merging.
+
 ## 3. Grow the suite — `freecode eval add <session-id>`
 
 ```bash

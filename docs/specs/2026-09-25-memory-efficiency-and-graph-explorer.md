@@ -1,7 +1,7 @@
 # Memory efficiency: measure it, prove it, fix what the proof finds
 
 **Date:** 2026-09-25 (rescoped same day)
-**Status:** P0 complete · §4 bench built and findings fixed · §6 paired runs done 2026-09-25 (recall pays: 24/24 vs 13/24, −45% cost per task; judge neutral) · §7 proposed
+**Status:** P0 complete · §4 bench built and findings fixed · §6 paired runs done 2026-09-25 (recall pays: 24/24 vs 13/24, −45% cost per task; judge neutral) · §7 first multi-session run done (13/15 vs 4/15, −65% cost per task)
 **Audit baseline:** `f7c83321`
 **Goal:** Know, with evidence, whether automatic memory makes the agent better or cheaper, and by how much, backed by free tests, a free local bench, and a paid paired eval.
 
@@ -54,7 +54,7 @@ changes only with paired evidence.
 | P1 | Injection bench | `pnpm bench:inject`: rendered recall, wasted bytes, lifecycle scenarios | free | ✅ built 2026-09-25 |
 | P1 | Correctness fixes | one fix per failing bench scenario, each with a regression test | free | ✅ done 2026-09-25 |
 | P1 | Recall-off switch + paired eval | memory off vs on, per-case quality and cost deltas | paid | ✅ first run 2026-09-25 (§6.1) |
-| P2 | Multi-session savings | capture, consolidation, cumulative cost over N sessions | paid | proposed |
+| P2 | Multi-session savings | capture, consolidation, cumulative cost over N sessions | paid | ✅ first run 2026-09-26 (§7.1); consolidation + long horizon → ROADMAP |
 
 Order matters: the bench finds the bugs, the fixes make the injection correct,
 and only then is a paid comparison worth its money. A paired eval of a
@@ -326,6 +326,34 @@ runs (single-trial evals never do).
 An external held-out set (LongMemEval-S, after a licence check) may be added
 later and reported separately; never tune on it.
 
+### 7.1 Results — first multi-session run (2026-09-26, MiniMax-M3, 3 trials)
+
+`evals/memory-sessions.jsonl`: 4 learn-then-use cases (one with a mid-way
+correction) and a control; each case runs 1–2 teaching sessions, ended with
+the daemon's session-end flush, then the scored session. Off = recall and
+extraction off; on = both on, judge off (the default). Ledger
+`2026-09-25-memory-sessions-1` (kept).
+
+| | memory off | memory learning |
+| --- | ---: | ---: |
+| final-session tasks passed | 4/15 | **13/15** |
+| control passed | 3/3 | 3/3 |
+| suite cost (all sessions) | $0.253 | $0.291 (+15%) |
+| **cost per passed task** | $0.0632 | **$0.0223 (−65%)** |
+| session-end extraction cost | — | $0.0112 (3.9% of spend) |
+| memories captured | 2 (model's own tool saves) | 21 |
+
+**Verdict: memory learns, and learning is cheap.** Facts stated in passing in
+an earlier session decided later tasks: 3 of 4 learning cases went from
+failing to 3/3, including the correction case, which used the corrected value
+every time. Capture costs under 4% of spend. `learn-forbidden-install` failed
+the turn cap on both sides (1/3 each), a task-difficulty result, not memory's.
+
+**Not measured:** consolidation (it runs at most once per project per day,
+after 5 sessions, so never inside a trial), the savings curve over many more
+sessions, and an external corpus. Those need a long-horizon harness and are
+left in `ROADMAP.md`.
+
 ## 8. Completion checklist
 
 - [x] Full runtime memory cost is measurable, including background calls.
@@ -334,5 +362,5 @@ later and reported separately; never tune on it.
 - [x] Every failing scenario is fixed with a regression test, or recorded in `docs/DECISIONS.md` as intended.
 - [x] Recall can be switched off per request, and `eval ab` accepts the switch.
 - [x] A recorded A-vs-D experiment in `evals/experiments.jsonl` with a verdict (judge off and on).
-- [ ] A multi-session report gives cumulative cost with and without memory.
+- [x] A multi-session report gives cumulative cost with and without memory (§7.1; consolidation and the long-horizon curve are in `ROADMAP.md`).
 - [x] `MEMORY_SYSTEM.md`, bench README, `EVAL.md`, `TRACE.md` match shipped behaviour (checked 2026-09-25).
