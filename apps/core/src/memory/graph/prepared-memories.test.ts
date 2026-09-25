@@ -237,3 +237,69 @@ test("an edit that adds a secret drops the memory from the stash at once", async
     cleanup();
   }
 });
+
+// First request with a judge (spec 2026-09-25 §6.1): the judge is a network
+// call and never fits the 60 ms cold budget, so the first request carried no
+// memory in 24/24 eval trials. On a cold miss the unjudged candidates ride the
+// first request; the verdict governs from the next one.
+test("a slow judge no longer leaves the first request empty", async () => {
+  const { service, cleanup } = open([PNPM]);
+  try {
+    const judge: JudgeContext = {
+      provider: "test",
+      complete: async () => {
+        await sleep(300);
+        return "[1]";
+      },
+    };
+    const first = await service.prepareMemories("s", QUERY, judge);
+    assert.ok(find(first, "uses-pnpm"), "unjudged candidate served on the cold path");
+    assert.equal(service.preparationFor("s").state, "unjudged");
+
+    await drainMemoryJobs("s", 5_000);
+    const next = await service.prepareMemories("s", QUERY, judge);
+    assert.ok(find(next, "uses-pnpm"));
+    assert.equal(service.preparationFor("s").state, "fresh");
+  } finally {
+    cleanup();
+  }
+});
+
+test("the verdict still removes what it rejects, from the next request on", async () => {
+  const { service, cleanup } = open([PNPM]);
+  try {
+    const judge: JudgeContext = {
+      provider: "test",
+      complete: async () => {
+        await sleep(200);
+        return "[]";
+      },
+    };
+    await service.prepareMemories("s", QUERY, judge);
+    await drainMemoryJobs("s", 5_000);
+    assert.equal(find(await service.prepareMemories("s", QUERY, judge), "uses-pnpm"), undefined);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a warm session never swaps its judged set for unjudged candidates", async () => {
+  const { service, cleanup } = open([PNPM, OTHER]);
+  try {
+    let verdict = "[1]";
+    const judge: JudgeContext = { provider: "test", complete: async () => verdict };
+    await settled(service, "s", judge);
+    verdict = "[]";
+    // Same topic, new wording: the carried verdict applies; nothing unjudged
+    // may appear while a refresh is in flight.
+    const follow = await service.prepareMemories(
+      "s",
+      "which package manager should I use to install dependencies in the workspace",
+      judge,
+    );
+    assert.notEqual(service.preparationFor("s").state, "unjudged");
+    assert.ok(follow.length <= 1);
+  } finally {
+    cleanup();
+  }
+});

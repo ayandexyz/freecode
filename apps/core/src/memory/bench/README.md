@@ -71,7 +71,7 @@ Lifecycle scenarios, **12/12 pass** after the 2026-09-25 fixes (7/12 before):
 | scenario | before | after | fix |
 | --- | --- | --- | --- |
 | first message, fast retrieval | pass | pass | |
-| retrieval slower than the cold budget | pass | pass | |
+| judge slower than the cold budget (was: retrieval slower) | pass | pass | first request now carries unjudged candidates (§6.1) |
 | same-topic follow-up (1 judge call) | pass | pass | |
 | abrupt topic switch | pass | pass | |
 | repeated identical prompt (1 judge call) | pass | pass | |

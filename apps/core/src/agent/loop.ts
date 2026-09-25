@@ -489,7 +489,7 @@ export class AgentLoop {
   // omit a relevant candidate, and only the latter reaches a provider request.
   private lastMemoryCandidateCount = 0;
   private lastMemoryPreparation: {
-    state: "fresh" | "carried" | "pending" | "empty" | "disabled";
+    state: "fresh" | "carried" | "pending" | "empty" | "unjudged" | "disabled";
     judgeDecision:
       | "judge_ran"
       | "disabled"

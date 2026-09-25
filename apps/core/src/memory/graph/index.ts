@@ -70,10 +70,18 @@ interface SessionMemory {
   // Lets prepareMemories be called on every turn without re-fetching: once
   // resolved, callers just read `stash` instead of re-kicking retrieve().
   resolved: boolean;
+  // The stash holds retrieval's candidates before the judge ruled on them:
+  // the cold-path stopgap, replaced by the verdict when it lands.
+  unjudged?: boolean;
   lastDecision: JudgeDecision | "cadence_carry" | "not_configured";
 }
 
-export type MemoryPreparationState = "fresh" | "carried" | "pending" | "empty";
+export type MemoryPreparationState =
+  | "fresh"
+  | "carried"
+  | "pending"
+  | "empty"
+  | "unjudged";
 
 export interface MemoryPreparation {
   state: MemoryPreparationState;
@@ -671,7 +679,7 @@ export class MemoryGraphService {
       };
     }
     return {
-      state: st.resolved ? "fresh" : "carried",
+      state: st.unjudged ? "unjudged" : st.resolved ? "fresh" : "carried",
       judgeDecision: st.lastDecision,
     };
   }
@@ -705,6 +713,7 @@ export class MemoryGraphService {
     // topic, so the moment the topic moves the verdict stops applying.
     if (st.lastQuery && lexicalSimilarity(q, st.lastQuery) < TOPIC_SIM_MIN) {
       st.stash = [];
+      st.unjudged = false;
       st.resolved = false;
       st.judgedIds = null;
     }
@@ -748,6 +757,15 @@ export class MemoryGraphService {
             this.store.list(),
           ).filter(modelSafe);
           if (q !== st.lastQuery) continue;
+          // Cold path with a judge: the judge is a network call that never
+          // fits COLD_BUDGET_MS, so without this the first request of every
+          // topic carried nothing (0/24 in the first paired eval, spec
+          // 2026-09-25 §6.1). Serve retrieval's candidates now; the verdict
+          // replaces them when it lands. A warm stash is never swapped out.
+          if (st.stash.length === 0 && st.judge && !st.judgedIds) {
+            st.stash = results;
+            st.unjudged = results.length > 0;
+          }
           const judged = await this.applyJudge(st, q, results, generation);
           // applyJudge can await a multi-second model call; a topic change
           // during it must not pin the old topic's memories (or its verdict)
@@ -757,6 +775,7 @@ export class MemoryGraphService {
             continue;
           }
           st.stash = judged;
+          st.unjudged = false;
           st.resolved = true;
           return;
         }

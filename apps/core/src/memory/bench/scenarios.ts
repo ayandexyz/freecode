@@ -143,7 +143,10 @@ const SCENARIOS: Scenario[] = [
       }),
   },
   {
-    name: "retrieval slower than the cold budget",
+    // The judge never fits the 60 ms cold budget, so the first request carries
+    // retrieval's unjudged candidates and the verdict governs the next one
+    // (spec 2026-09-25 §6.1: before this, 0/24 first requests had memory).
+    name: "judge slower than the cold budget",
     run: () =>
       withStore([PNPM], async (b) => {
         const { ctx } = countingJudge({ delayMs: 200 });
@@ -151,11 +154,15 @@ const SCENARIOS: Scenario[] = [
         const state = b.service.preparationFor("s").state;
         await drainMemoryJobs("s", 5_000);
         const next = await b.service.prepareMemories("s", PKG_QUERY, ctx);
+        const nextState = b.service.preparationFor("s").state;
         const pass =
-          first.length === 0 && state === "pending" && next.some((e) => e.name === "uses-pnpm");
+          first.some((e) => e.name === "uses-pnpm") &&
+          state === "unjudged" &&
+          next.some((e) => e.name === "uses-pnpm") &&
+          nextState === "fresh";
         return {
           pass,
-          detail: `first: ${first.length} (${state}); next request: ${next.length} entries`,
+          detail: `first: ${first.length} (${state}); next request: ${next.length} (${nextState})`,
         };
       }),
   },
