@@ -752,3 +752,29 @@ test("a malformed memory is refused at load", () => {
     /duplicate memory/,
   );
 });
+
+// -- multi-session cases (spec 2026-09-25 §7) ----------------------------------
+
+test("earlier sessions parse, in order", () => {
+  const [c] = parseSuite(
+    `{"id":"s","prompt":"p",${REQUIRED},${SANDBOXED},"sessions":["first","second"]}`,
+  );
+  assert.deepEqual(c.sessions, ["first", "second"]);
+});
+
+test("sessions without a sandbox are refused: they would learn into the real store", () => {
+  assert.throws(
+    () => parseSuite(`{"id":"s","prompt":"p",${REQUIRED},"expectTool":"read","sessions":["a"]}`),
+    (e: Error) => e instanceof DatasetError && /requires 'files'/.test(e.message),
+  );
+});
+
+test("sessions must be a non-empty array of non-empty strings", () => {
+  for (const bad of [`[]`, `[""]`, `"a"`, `[1]`]) {
+    assert.throws(
+      () => parseSuite(`{"id":"s","prompt":"p",${REQUIRED},${SANDBOXED},"sessions":${bad}}`),
+      DatasetError,
+      bad,
+    );
+  }
+});

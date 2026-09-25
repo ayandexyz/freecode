@@ -15,6 +15,22 @@ import { getMemoryGraphService } from "../memory/graph/index.js";
 import type { MemoryEntry } from "../memory/mem-types.js";
 import type { EvalMemory } from "./types.js";
 
+/** How many memories `projectPath`'s store holds right now. */
+export function countMemories(projectPath: string): number {
+  return new MemoryStore(projectPath).list().length;
+}
+
+/**
+ * Remove whatever `projectPath`'s store holds — for a multi-session case, what
+ * the earlier sessions learned. The session and rollout logs stay.
+ */
+export function removeMemoryStore(projectPath: string): void {
+  fs.rmSync(new MemoryStore(projectPath).getMemoryDir(), {
+    recursive: true,
+    force: true,
+  });
+}
+
 /** Env that freezes the corpus for the trial. Applied by the runner. */
 export const FROZEN_MEMORY_ENV: Record<string, string> = {
   FREECODE_DISABLE_MEMORY_EXTRACTION: "1",

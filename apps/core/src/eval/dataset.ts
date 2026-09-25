@@ -190,6 +190,7 @@ function validate(raw: unknown, where: string): EvalCase {
   }
   const files = validateFiles(o.files, where);
   const memories = validateMemories(o.memories, files, where);
+  const sessions = validateSessions(o.sessions, files, where);
   const immutable = validateOutcome(o, files, where);
   const rubric = validateRubric(o.rubric, where);
 
@@ -240,6 +241,7 @@ function validate(raw: unknown, where: string): EvalCase {
       : undefined,
     files,
     memories,
+    sessions,
     verify: typeof o.verify === "string" ? o.verify : undefined,
     immutable,
     rubric,
@@ -521,6 +523,31 @@ function validateMemories(
       ...(o.supersedes ? { supersedes: o.supersedes as string[] } : {}),
     };
   });
+}
+
+function validateSessions(
+  raw: unknown,
+  files: Record<string, string> | undefined,
+  where: string,
+): string[] | undefined {
+  if (raw === undefined) return undefined;
+  if (
+    !Array.isArray(raw) ||
+    raw.length === 0 ||
+    raw.some((p) => typeof p !== "string" || !p.trim())
+  ) {
+    throw new DatasetError(
+      `${where}: 'sessions' must be a non-empty array of non-empty strings`,
+    );
+  }
+  // Earlier sessions write memories; only a sandbox has a store of its own.
+  if (!files) {
+    throw new DatasetError(
+      `${where}: 'sessions' requires 'files' — only a sandboxed case gets its ` +
+        `own memory store`,
+    );
+  }
+  return raw as string[];
 }
 
 function validateFiles(

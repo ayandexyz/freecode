@@ -77,9 +77,7 @@ import {
   reviveSession,
   type SessionEndReason,
 } from "./session/end-session.js";
-import { flushSessionMemory } from "./memory/final-flush.js";
-import { RolloutRecorder } from "./rollout/recorder.js";
-import { subscriptionAuth } from "./providers/config.js";
+import { sessionMemoryFlush } from "./session/session-flush.js";
 import { getSessionManager, type SessionContext } from "./session/index.js";
 import { type SessionStore } from "./session/store.js";
 import {
@@ -457,36 +455,15 @@ async function endSessionOnce(
     also: () => messageQueues.delete(sessionId),
     flush:
       options.flush && info
-        ? async () => {
-            const store = await getSessionStore();
-            const messages = await store.getMessages(sessionId);
-            const recorder = new RolloutRecorder(sessionId);
-            return flushSessionMemory({
-              sessionId,
-              // The session's own project, not the daemon's cwd — a session
-              // opened on another workspace must not flush its memories into
-              // whatever directory the daemon happened to start in.
-              projectPath: info.projectPath || process.cwd(),
-              provider: info.provider,
-              messages,
-              onAuxiliaryCall: (call) =>
-                recorder.recordMemoryAuxiliary(undefined, {
-                  purpose: call.purpose,
-                  provider: call.provider,
-                  model: call.model,
-                  duration_ms: call.duration_ms,
-                  outcome: call.outcome,
-                  inputTokens: call.usage?.inputTokens,
-                  outputTokens: call.usage?.outputTokens,
-                  cacheReadTokens: call.usage?.cacheReadInputTokens,
-                  cacheWriteTokens:
-                    call.usage?.cacheWriteInputTokens ??
-                    call.usage?.cacheCreationInputTokens,
-                  reasoningTokens: call.usage?.reasoningTokens,
-                  authMode: subscriptionAuth(call.provider),
-                }),
-            });
-          }
+        ? sessionMemoryFlush({
+            sessionId,
+            // The session's own project, not the daemon's cwd — a session
+            // opened on another workspace must not flush its memories into
+            // whatever directory the daemon happened to start in.
+            projectPath: info.projectPath || process.cwd(),
+            provider: info.provider,
+            getStore: getSessionStore,
+          })
         : undefined,
   });
 }

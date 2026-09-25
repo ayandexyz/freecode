@@ -213,6 +213,15 @@ export interface EvalCase {
    * store would be the developer's real one.
    */
   memories?: EvalMemory[];
+  /**
+   * Earlier sessions, run before `prompt` on the same sandbox project and
+   * therefore the same memory store (spec 2026-09-25 §7). Each is one prompt
+   * in its own fresh session, ended the way the daemon ends one — including
+   * the session-end extraction flush — so memory can learn between sessions.
+   * Only the final session (`prompt` + `followUps`) is scored; tokens and cost
+   * are summed across all of them. Requires `files`.
+   */
+  sessions?: string[];
   /** Shell command run in the sandbox after the turn; exit code is the score. */
   verify?: string;
   /**
@@ -283,6 +292,11 @@ export interface TrialResult {
   memoryCostComplete?: boolean;
   /** Unfinished memory jobs mean the full runtime cost is unknown. */
   memoryJobsPending?: number;
+  /**
+   * Memories in the trial's store when it ended — set only for a case with
+   * `sessions`, where it is how much the earlier sessions taught.
+   */
+  memoriesCaptured?: number;
   /**
    * The session this trial ran in. Carried so an exported score can LINK to
    * the trace it graded (spec §12.4) — without it, scores and runs land in the

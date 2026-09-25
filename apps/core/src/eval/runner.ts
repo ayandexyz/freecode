@@ -17,7 +17,13 @@ import { scoreOutcome } from "./scorers/outcome.js";
 import { scoreTrajectory } from "./scorers/trajectory.js";
 import { envInt } from "../utils/env.js";
 import { drainMemoryJobs } from "../memory/background-jobs.js";
-import { FROZEN_MEMORY_ENV, seedMemories } from "./memory-fixture.js";
+import {
+  countMemories,
+  FROZEN_MEMORY_ENV,
+  removeMemoryStore,
+  seedMemories,
+} from "./memory-fixture.js";
+import { trackMemoryJob } from "../memory/background-jobs.js";
 
 export interface RunnerConfig {
   provider: string;
@@ -106,6 +112,8 @@ export async function runTrial(
     return await runTrialIn(kase, config, sandbox);
   } finally {
     removeMemories();
+    // A multi-session case writes into the sandbox's store as it learns.
+    if (kase.sessions && sandbox) removeMemoryStore(sandbox.dir);
     restoreMemoryEnv();
     restoreEnv();
     sandbox?.cleanup();
@@ -142,6 +150,9 @@ async function runTrialIn(
   const { getSessionManager } = await import("../session/index.js");
   const { answerPermission, bus, rejectPermission, rejectQuestion } =
     await import("../bus/index.js");
+  const { endSession } = await import("../session/end-session.js");
+  const { sessionMemoryFlush } = await import("../session/session-flush.js");
+  const { SessionStoreTag } = await import("../effect/context.js");
 
   const projectPath = sandbox?.dir ?? config.projectPath;
 
@@ -161,6 +172,12 @@ async function runTrialIn(
   // Fresh session per trial: each gets its own rollout aggregate, and
   // therefore its own Trace. Sharing one would fold two runs into one span set.
   const sessionId = await manager.start(projectPath, provider);
+  // Earlier sessions of a multi-session case (spec 2026-09-25 §7). Their ids
+  // are collected so the prompt handlers below answer for them too, and so
+  // their cost is summed into the trial.
+  const earlierSessionIds: string[] = [];
+  const ownsSession = (id: string | undefined) =>
+    id === undefined || id === sessionId || earlierSessionIds.includes(id);
 
   // The rollout log deliberately carries no message bodies (spec §5.2), so the
   // reply text is captured live here. Nothing scores it in Phase 1; the judge
@@ -185,7 +202,7 @@ async function runTrialIn(
   // it ("You can continue without this information").
   let questionsRejected = 0;
   const unsubscribeQuestions = bus.subscribe("question.asked", (e) => {
-    if (e.sessionId !== undefined && e.sessionId !== sessionId) return;
+    if (!ownsSession(e.sessionId)) return;
     questionsRejected++;
     rejectQuestion(e.requestId);
   });
@@ -203,7 +220,7 @@ async function runTrialIn(
   // keeps Phase 1's behaviour exactly: headless ask, deny.
   const unsubscribePermissions = sandbox
     ? bus.subscribe("permission.asked", (e) => {
-        if (e.sessionId !== undefined && e.sessionId !== sessionId) return;
+        if (!ownsSession(e.sessionId)) return;
         const target = (e.args.filePath ?? e.args.path ?? e.args.cwd) as
           | string
           | undefined;
@@ -231,7 +248,42 @@ async function runTrialIn(
     // the previous turn did — which is what makes a compaction reachable at
     // all (see `EvalCase.followUps`).
     const prompts = [kase.prompt, ...(kase.followUps ?? [])];
+    const agentMode = kase.agentMode ?? (sandbox ? "build" : "explore");
     const turns = (async () => {
+      // Each earlier session: one prompt in a fresh session, then ended the
+      // way the daemon ends one, session-end flush included. The flush is
+      // tracked and drained, so its cost is in the trial and what it learned
+      // is in the store before the next session starts.
+      for (const earlier of kase.sessions ?? []) {
+        const sid = await manager.start(projectPath, provider);
+        earlierSessionIds.push(sid);
+        const earlierLoop = await getAppRuntime().runPromise(
+          createAgentLoopEffect(sid),
+        );
+        await getAppRuntime().runPromise(
+          earlierLoop.runEffect({
+            prompt: earlier,
+            sessionId: sid,
+            provider,
+            model,
+            projectPath,
+            agentMode,
+          }),
+        );
+        const flush = sessionMemoryFlush({
+          sessionId: sid,
+          projectPath,
+          provider,
+          getStore: () => getAppRuntime().runPromise(SessionStoreTag),
+        });
+        await endSession(sid, {
+          reason: "switch",
+          flush: () => trackMemoryJob(sid, flush()),
+        });
+        memoryJobsPending += (
+          await drainMemoryJobs(sid, MEMORY_DRAIN_TIMEOUT_MS)
+        ).pending;
+      }
       for (const prompt of prompts) {
         response = "";
         await getAppRuntime().runPromise(
@@ -246,7 +298,7 @@ async function runTrialIn(
             // `dataset.ts` rejects any mutating override, because there
             // `forbidTools` only SCORES a mutation; it cannot prevent one.
             // Mode enforcement can.
-            agentMode: kase.agentMode ?? (sandbox ? "build" : "explore"),
+            agentMode,
           }),
         );
       }
@@ -265,7 +317,7 @@ async function runTrialIn(
         timer.unref?.();
       }),
     ]);
-    memoryJobsPending = (
+    memoryJobsPending += (
       await drainMemoryJobs(sessionId, MEMORY_DRAIN_TIMEOUT_MS)
     ).pending;
   } catch (err) {
@@ -371,9 +423,22 @@ async function runTrialIn(
 
   const { JUDGE_CASE_FLOOR } = await import("./gate.js");
   const { traceCost, traceCostByOperation } = await import("../rollout/cost.js");
-  const cost = memoryJobsPending === 0 ? traceCost(trace) : undefined;
+  // The bill covers every session of the trial; scoring stays on the final
+  // one, which is the session the case's expectations describe.
+  const earlierTraces = earlierSessionIds.flatMap((id) => {
+    const ev = loadSessionEvents(id);
+    return ev ? [buildTrace(id, ev.events)] : [];
+  });
+  const billed: Trace = {
+    ...trace,
+    modelSpans: [trace, ...earlierTraces].flatMap((t) => t.modelSpans),
+    auxiliarySpans: [trace, ...earlierTraces].flatMap((t) => t.auxiliarySpans),
+  };
+  const sumOf = (pick: (t: Trace) => number) =>
+    [trace, ...earlierTraces].reduce((n, t) => n + pick(t), 0);
+  const cost = memoryJobsPending === 0 ? traceCost(billed) : undefined;
   const costByOperation = Object.fromEntries(
-    Object.entries(traceCostByOperation(trace)).map(([op, c]) => [
+    Object.entries(traceCostByOperation(billed)).map(([op, c]) => [
       op,
       c?.usd ?? null,
     ]),
@@ -399,14 +464,17 @@ async function runTrialIn(
     ...(kase.rubric ? { score: judged?.score ?? null } : {}),
     ...(judged?.costUsd !== undefined ? { judgeCostUsd: judged.costUsd } : {}),
     durationMs: Date.now() - startedAt,
-    inputTokens: trace.inputTokens,
-    outputTokens: trace.outputTokens,
+    inputTokens: sumOf((t) => t.inputTokens),
+    outputTokens: sumOf((t) => t.outputTokens),
     costUsd: cost?.usd,
     ...(cost?.partial ? { costPartial: true } : {}),
     ...(Object.keys(costByOperation).length > 0 ? { costByOperation } : {}),
     memoryCostComplete: memoryJobsPending === 0,
     ...(memoryJobsPending > 0 ? { memoryJobsPending } : {}),
-    turns: trace.modelSpans.length,
+    turns: billed.modelSpans.length,
+    ...(kase.sessions && sandbox
+      ? { memoriesCaptured: countMemories(sandbox.dir) }
+      : {}),
     repeatedCalls: countRepeatedCalls(trace),
     redirects: trace.redirects,
     redirectsSkipped: trace.redirectsSkipped,
