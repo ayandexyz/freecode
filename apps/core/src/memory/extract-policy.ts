@@ -85,10 +85,20 @@ function isEnvTruthy(value: string | undefined): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+function isEnvFalsy(value: string | undefined): boolean {
+  if (!value) return false;
+  const v = value.toLowerCase();
+  return v === "0" || v === "false" || v === "no";
+}
+
 export interface MemorySettings {
   autoExtract: boolean;
   intervalRuns: number;
-  /** Retrieval judge (spec D15). Off → no abstention, no extra call. */
+  /**
+   * Retrieval judge (spec D15). Off → no abstention, no extra call. Off by
+   * default since 2026-09-25: head to head the judge was quality- and
+   * cost-neutral (spec 2026-09-25 §6.2, ledger 2026-09-25-memory-2).
+   */
   retrievalJudge: boolean;
   /**
    * Automatic recall: retrieve and inject relevant memories every request.
@@ -150,8 +160,13 @@ export function loadMemorySettings(projectRoot: string): MemorySettings {
   return {
     autoExtract: autoExtract ?? true,
     intervalRuns: intervalRuns ?? DEFAULT_INTERVAL_RUNS,
-    retrievalJudge:
-      (retrievalJudge ?? true) && !isEnvTruthy(process.env[ENV_DISABLE_JUDGE]),
+    // Two-way env, beating the files: `1` forces it off, `0` forces it on, so
+    // `eval ab` can select either side whatever the settings say.
+    retrievalJudge: isEnvTruthy(process.env[ENV_DISABLE_JUDGE])
+      ? false
+      : isEnvFalsy(process.env[ENV_DISABLE_JUDGE])
+        ? true
+        : (retrievalJudge ?? false),
     autoRecall:
       (autoRecall ?? true) && !isEnvTruthy(process.env[ENV_DISABLE_RECALL]),
   };

@@ -94,19 +94,6 @@ drops alpha — a screenshot is fine, a copied transparent PNG comes back matted
 Chrome and the Snipping Tool also publish a `PNG` clipboard format; preferring
 `GetDataObject().GetData('PNG')` when present would preserve the original bytes.
 
-## Retrieval judge default (paired eval, 2026-09-25)
-
-Spec `2026-09-25-memory-efficiency-and-graph-explorer.md` §6.2. The judge's
-two measured defects (cold first request, dropped rules) are fixed; head to
-head it is now quality- and cost-neutral against judge off on the memory
-suite (ledger `2026-09-25-memory-2`).
-
-- [ ] **Decide `memory.retrievalJudge`'s default** (currently `true`). Off is
-      simpler and saves a network call; on trims irrelevant memories, which
-      only pays once a store is large enough to fill the 2 KB block. A suite
-      with a larger fixture store would settle it. Record the outcome in the
-      ledger either way.
-
 ## Docs-audit findings (memory, sessions, knowledge graph — 2026-08-23)
 
 Found while writing `apps/docs/app/internals/{memory,sessions,knowledge-graph}`.

@@ -285,8 +285,10 @@ run npm install".
 MiniMax-M3: recall on passed 23–24/24 tasks vs 12–13/24 with recall off,
 across four runs; with the fixed judge, tokens −19% and cost per passed task
 −45% at the same total spend, and the control tasks were unaffected. The judge
-itself is neutral head to head (23/24 off vs 22/24 on, within noise); its
-default is an open decision in `TODO.md`. Spec §6.1–6.2 has the tables.
+itself is neutral head to head (23/24 off vs 22/24 on, within noise), so it
+is **off by default** since 2026-09-25: `memory.retrievalJudge: true` or
+`FREECODE_DISABLE_MEMORY_JUDGE=0` turns it on (the env var is two-way and beats
+the settings files). Recorded in `docs/DECISIONS.md`. Spec §6.1–6.2 has the tables.
 
 **`RetrievalOutcome`** names every path — `fused`, `lexical_only`,
 `empty_by_floor`, `empty_query`, `empty_store`, `error` — so a silent fallback is

@@ -22,6 +22,12 @@ Grouped by subsystem. Open bugs are in `TODO.md`; unbuilt features in
   duplication; it is the reason compaction can trim history without destroying the
   record of what happened.
 - **Cascade skips `Contradicts`; tag/cluster nodes relay but never score.**
+- **The retrieval judge is off by default** (2026-09-25). Head to head on the
+  memory eval suite the fixed judge was quality- and cost-neutral (23/24 off vs
+  22/24 on, cost +5.5%, within noise; ledger `2026-09-25-memory-2`), and it is a
+  network call per new topic. It trims irrelevant memories, which should pay
+  once a store is large enough to fill the 2 KB block, so turning it back on
+  needs a paired run on a large-store suite, not a hunch.
 - **Similar memories are not suppressed at injection time.** `pnpm bench:inject`
   showed five on-topic filler notes out-ranking a directly matching fact, which
   then lost its body to the byte budget (2026-09-25). The renderer spends the

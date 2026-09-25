@@ -306,7 +306,9 @@ The fixed judge is no longer harmful, but it is not measurably better or
 cheaper: it trims a few hundred bytes a request, below run-to-run noise at
 this block size. It would matter with a larger store, where judge-off fills
 the 2 KB cap with memories that do not apply (`bench:inject`: 62.5% of the
-block). The default is a product decision recorded in `TODO.md`.
+block). **Decided 2026-09-25: the judge is off by default**
+(`memory.retrievalJudge: true` or `FREECODE_DISABLE_MEMORY_JUDGE=0` enables
+it; recorded in `docs/DECISIONS.md`). Revisit with a large-store suite.
 
 ## 7. P2: multi-session savings
 

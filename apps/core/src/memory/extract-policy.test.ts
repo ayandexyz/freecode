@@ -282,3 +282,43 @@ test("the recall env var wins over settings, and is re-read per call", () => {
     cleanup();
   }
 });
+
+// -- retrieval judge default (spec 2026-09-25 §6.2) ---------------------------
+// Off by default: head to head the fixed judge was quality- and cost-neutral,
+// and it is a network call. The env var is two-way so `eval ab` can still
+// select either side whatever the settings file says.
+
+test("the retrieval judge is off by default", () => {
+  const { root, cleanup } = project();
+  try {
+    assert.equal(loadMemorySettings(root).retrievalJudge, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("settings can turn the judge on", () => {
+  const { root, cleanup } = project({ memory: { retrievalJudge: true } });
+  try {
+    assert.equal(loadMemorySettings(root).retrievalJudge, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("FREECODE_DISABLE_MEMORY_JUDGE is two-way and beats settings", () => {
+  const on = project({ memory: { retrievalJudge: true } });
+  const off = project();
+  try {
+    process.env.FREECODE_DISABLE_MEMORY_JUDGE = "1";
+    assert.equal(loadMemorySettings(on.root).retrievalJudge, false);
+    process.env.FREECODE_DISABLE_MEMORY_JUDGE = "0";
+    assert.equal(loadMemorySettings(off.root).retrievalJudge, true);
+    process.env.FREECODE_DISABLE_MEMORY_JUDGE = "";
+    assert.equal(loadMemorySettings(off.root).retrievalJudge, false, "empty is unset");
+  } finally {
+    delete process.env.FREECODE_DISABLE_MEMORY_JUDGE;
+    on.cleanup();
+    off.cleanup();
+  }
+});

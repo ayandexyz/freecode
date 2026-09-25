@@ -141,11 +141,11 @@ Run alone it only says the agent can do the tasks. Two runs answer the two
 questions:
 
 ```bash
-# Does automatic recall help at all? (judge off: the cheap configuration)
+# Does automatic recall help at all? (judge off: the default since 2026-09-25)
 pnpm eval ab memory --baseline env:FREECODE_DISABLE_MEMORY_RECALL=1 \
   --candidate env:FREECODE_DISABLE_MEMORY_JUDGE=1 --trials 3 --hypothesis "..."
 
-# Does the retrieval judge pay for itself? (judge on)
+# Does the retrieval judge pay for itself? (`=0` forces it on; the var is two-way)
 pnpm eval ab memory --baseline env:FREECODE_DISABLE_MEMORY_RECALL=1 \
   --candidate env:FREECODE_DISABLE_MEMORY_JUDGE=0 --trials 3 --hypothesis "..."
 ```
