@@ -464,10 +464,15 @@ exactly the condition under which §7.2 found consolidation earns its cost.
 single-run noise at n=3 — the same lesson §7.2 already drew from
 `consolidate-production-endpoint` reversing between 3 and 5 trials. And
 `long-incremental-assembly` never passed once across all four arms (0/12
-total); at least two of those failures were the model populating an empty,
-seeded `RATES = {}` table in an immutable sibling file rather than a memory
-failure — a fixture confound, filed in `TODO.md`, not evidence that memory
-cannot assemble fragmented facts. **Not measured**: single-trial noise at this
+total). Part of that was the fixture — `regions.mjs` was immutable although
+the teaching says the rate table lives there — fixed in `595b9dd3`. The
+re-run on the fixed case (`2026-09-26-memory-long-horizon-3`, rejected) is
+still 0/3 vs 0/3, and now it is memory: recall injected 4 memories every
+turn, but the fact taught in the last session was never retained, and in 2
+of 3 trials the forced consolidation merged/deleted entries and a rate taught
+earlier came out wrong or missing. So memory, as built, does **not** reliably
+assemble a fact spread across sessions; both mechanisms are filed in
+`TODO.md`. **Not measured**: single-trial noise at this
 horizon (3 trials, not the 5-trial replicate that reversed §7.2's other
 fixture), the external corpus, and a wider consolidation schedule than "every
 eligible session."

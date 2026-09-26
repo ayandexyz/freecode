@@ -745,22 +745,27 @@ anchors). Detector gained a one-sample deferral for provider blips
 
 ## Found running the memory long-horizon savings-curve experiment (2026-09-26)
 
-`evals/memory-long-horizon.jsonl`, `long-incremental-assembly`: paid runs
-(`evals/experiments.jsonl` `2026-09-26-memory-long-horizon-1` and `-2`) show
-0/12 passes total, across all four arms (memory off, learning only, learning +
-consolidation off, learning + consolidation on schedule) — the only case in
-the suite with zero passes anywhere.
+`evals/memory-long-horizon.jsonl`, `long-incremental-assembly` (three tax
+rates taught across six sessions, one probe that needs all three). Its fixture
+confound — `regions.mjs` was immutable although the teaching says "the rate
+table lives in regions.mjs" — is fixed (`595b9dd3`), and an oracle solution
+passes `verify`. The re-run (`evals/experiments.jsonl`
+`2026-09-26-memory-long-horizon-3`, rejected) is still 0/3 vs 0/3, now for
+memory reasons. Evidence is store sizes plus the model's stated recall; the
+stores are deleted after each trial, so contents were not read directly —
+set `FREECODE_EVAL_KEEP_SANDBOX=1` and keep the store to confirm.
 
-- [ ] **The case is confounded, not necessarily unlearnable.** `regions.mjs`
-      seeds an empty `RATES = {}` table, which invites the model to populate
-      the per-region rates there instead of inline in `tax.mjs`; two of the
-      four arms failed with `modified immutable regions.mjs` rather than a
-      logic error (the other two failed on genuine rate-table bugs: `unknown
-      region` and `NaN == 888`). The `immutable` fix in commit `bf672ee1`
-      correctly left `regions.mjs` immutable (the prompt never asks to edit
-      it), but the fixture itself tempts the edit it then punishes. Fix by
-      either seeding `regions.mjs` with a non-empty placeholder that makes
-      "don't touch this file" obvious, or by stating in the prompt that region
-      rates must be read from `regions.mjs`, not written to it. Re-run this one
-      case after the fix; do not fold its 0/12 into a "memory doesn't help
-      fragmented-fact assembly" conclusion until it has been.
+- [ ] **The last-taught fact is not retained.** Session 6 ("the region table
+      also needs ap-northeast-1 at 10 percent") grew the store in 0 of 3
+      candidate trials. In the one trial where consolidation did nothing, the
+      model used the first two rates correctly and had no ap-northeast-1 —
+      so the fact was either never extracted or overwritten in place under an
+      existing memory name (`extract.ts` saves over a same-name entry rather
+      than merging content). Distinguish the two before fixing.
+- [ ] **Consolidation lost a fact it had.** In 2 of 3 candidate trials the
+      forced pass merged 2 and deleted 2 memories right before the scored
+      turn, and the probe then used a rate taught earlier wrongly
+      (us-east-1 = 0) or not at all (eu-west-2 missing). Same shape as spec
+      §7.2's rejected `consolidate-production-endpoint` result — a merge that
+      drops content from the entries it folds together. Check what the merge
+      prompt keeps when combining entries that each hold part of a table.

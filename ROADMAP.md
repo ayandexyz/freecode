@@ -218,8 +218,9 @@ Build and validate the harnesses first; run paid experiments afterward.
    is the final probe passing. The memory tool stayed callable with
    auto-recall/extraction off (2 voluntary writes, no effect since recall was
    off). One case (`long-incremental-assembly`) never passed in any arm
-   (0/12) — a fixture confound (an empty seeded table invites an edit its own
-   immutable guard punishes), filed in `TODO.md`, not a memory verdict.
+   (0/12). Its fixture confound is fixed (`595b9dd3`); the re-run is still
+   0/3 vs 0/3 and now fails on memory — last-taught fact not retained,
+   consolidation dropping an earlier one — filed in `TODO.md`.
 5. [x] **External-corpus adapter.** Built and validated 2026-09-26,
    `apps/core/src/eval/longmemeval-adapter.ts` + `.test.ts` (12/12, no model
    calls). Licence check: `xiaowu0162/longmemeval` (containing the

@@ -267,9 +267,11 @@ consolidation off (still learning) passed 8/15, on-schedule 11/15 (cost per
 passed probe -41% on top of that). No break-even in teaching cost itself —
 learning costs 20–50% more by session 12 regardless of arm; the return is
 entirely the final probe passing. `long-incremental-assembly` never passed in
-any of the 4 arms (0/12) — a fixture confound (an empty seeded table invites
-an edit its own immutable guard then punishes), not a memory verdict; see
-`TODO.md`. Full numbers: spec §7.3.
+any of the 4 arms (0/12). Its fixture confound (an immutable `regions.mjs`
+the teaching tells the model to edit) is fixed in `595b9dd3`; the re-run is
+still 0/3 vs 0/3 (`-3`, rejected), now for memory reasons — the last-taught
+fact is not retained, and consolidation dropped an earlier one in 2 of 3
+trials. See `TODO.md`. Full numbers: spec §7.3.
 
 ## 3. Grow the suite — `freecode eval add <session-id>`
 
