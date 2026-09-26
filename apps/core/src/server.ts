@@ -77,7 +77,7 @@ import {
   reviveSession,
   type SessionEndReason,
 } from "./session/end-session.js";
-import { flushSessionMemory } from "./memory/final-flush.js";
+import { sessionMemoryFlush } from "./session/session-flush.js";
 import { getSessionManager, type SessionContext } from "./session/index.js";
 import { type SessionStore } from "./session/store.js";
 import {
@@ -455,19 +455,15 @@ async function endSessionOnce(
     also: () => messageQueues.delete(sessionId),
     flush:
       options.flush && info
-        ? async () => {
-            const store = await getSessionStore();
-            const messages = await store.getMessages(sessionId);
-            return flushSessionMemory({
-              sessionId,
-              // The session's own project, not the daemon's cwd — a session
-              // opened on another workspace must not flush its memories into
-              // whatever directory the daemon happened to start in.
-              projectPath: info.projectPath || process.cwd(),
-              provider: info.provider,
-              messages,
-            });
-          }
+        ? sessionMemoryFlush({
+            sessionId,
+            // The session's own project, not the daemon's cwd — a session
+            // opened on another workspace must not flush its memories into
+            // whatever directory the daemon happened to start in.
+            projectPath: info.projectPath || process.cwd(),
+            provider: info.provider,
+            getStore: getSessionStore,
+          })
         : undefined,
   });
 }
@@ -1424,7 +1420,8 @@ export const methodHandlers: Record<
 
   // --- extensions (spec 2026-09-20-pi-parity-plan, Phase 5) ------------------
   "extensions.list": async (): Promise<unknown> => listExtensions(),
-  "extensions.reload": async (): Promise<unknown> => loadExtensions(process.cwd()),
+  "extensions.reload": async (): Promise<unknown> =>
+    loadExtensions(process.cwd()),
 
   // --- session tree (spec 2026-09-20-pi-parity-plan, Phase 3) ---------------
   "session.tree": async (params: Record<string, unknown>): Promise<unknown> => {
@@ -1496,9 +1493,7 @@ export const methodHandlers: Record<
     // Same guard as navigate, checked up front: a running loop is still
     // writing files, so restoring under it would race its own edits.
     if (activeLoops.has(sessionId)) {
-      throw new Error(
-        "A turn is in progress; stop it before rewinding.",
-      );
+      throw new Error("A turn is in progress; stop it before rewinding.");
     }
 
     // Files FIRST (§5): if the restore throws, the transcript has not moved
@@ -1705,7 +1700,9 @@ export async function startServer() {
 
   await initProviders();
   mcpReady = initMcpServers().catch((err) => {
-    logger.warn(`[mcp] init failed: ${err instanceof Error ? err.message : String(err)}`);
+    logger.warn(
+      `[mcp] init failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   });
   await loadExtensions(process.cwd());
 

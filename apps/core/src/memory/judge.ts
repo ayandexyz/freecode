@@ -20,21 +20,38 @@ import { getProvider } from "../providers/index.js";
 import type { ProviderId } from "../providers/index.js";
 import type { MemoryEntry } from "./mem-types.js";
 import { logger } from "../utils/logger.js";
+import type { MemoryAuxiliaryObserver } from "./auxiliary.js";
 
-// The judge reads a list of one-line descriptions and returns the keepers, so
-// its output is bounded by the candidate count however the model misbehaves.
+// The judge reads a numbered list of descriptions (plus a one-line excerpt each)
+// and returns the keepers, so its output is bounded by the candidate count
+// however the model misbehaves.
 const MAX_TOKENS = 256;
 
 const SYSTEM = `You decide which stored memories are relevant to a user's request.
 
-You are given the request and a numbered list of memory descriptions. Return
-ONLY a JSON array of the numbers worth surfacing, e.g. [1,4]. No prose.
+You are given the request and a numbered list of memories: a description, then
+an indented excerpt of its body. Return ONLY a JSON array of the numbers worth
+surfacing, e.g. [1,4]. No prose.
 
-Keep a memory only if it would change how the request is answered. A memory
-about the project's database is not relevant to a question about arithmetic.
+Keep a memory if it would change what the answer is OR how the work should be
+done. Rules count even when the request does not mention their topic: a
+project convention, a forbidden command, a required format or unit, or a past
+decision that the task could run into is relevant to that task.
 
-Most requests need none of them. Returning [] is the common, correct answer.
-Do not keep a memory because it is interesting; keep it because it is needed.`;
+Drop memories about unrelated subjects: a memory about the project's database
+is not relevant to a question about arithmetic. Returning [] is correct when
+nothing applies. Do not keep a memory because it is interesting.`;
+
+// A one-line body excerpt per candidate. Descriptions alone lost too much: the
+// first paired eval (spec 2026-09-25 §6.1) saw the judge drop "never run npm
+// install" for a module-not-found task. Bounded so 8 candidates stay a few
+// hundred tokens.
+const EXCERPT_CHARS = 160;
+
+function excerpt(content: string): string {
+  const flat = content.replace(/\s+/g, " ").trim();
+  return flat.length <= EXCERPT_CHARS ? flat : `${flat.slice(0, EXCERPT_CHARS - 1)}…`;
+}
 
 export interface JudgeInput {
   query: string;
@@ -43,6 +60,8 @@ export interface JudgeInput {
   model?: string;
   /** Test seam; defaults to a one-shot provider call. */
   complete?: (system: string, prompt: string) => Promise<string>;
+  /** Reports provider usage when this path makes a real auxiliary call. */
+  onAuxiliaryCall?: MemoryAuxiliaryObserver;
 }
 
 // Every terminal outcome of a judging attempt. Exhaustive on purpose: a new
@@ -95,14 +114,34 @@ async function oneShot(
 ): Promise<string> {
   const provider = getProvider(input.provider as ProviderId);
   if (!provider) throw new Error("no provider");
-  const result = await provider.execute({
-    prompt,
-    system,
-    model: input.model,
-    quietModelFallback: true,
-    maxTokens: MAX_TOKENS,
-  });
-  return result.content ?? "";
+  const startedAt = Date.now();
+  try {
+    const result = await provider.execute({
+      prompt,
+      system,
+      model: input.model,
+      quietModelFallback: true,
+      maxTokens: MAX_TOKENS,
+    });
+    input.onAuxiliaryCall?.({
+      purpose: "retrieval_judge",
+      provider: input.provider,
+      model: result.model || input.model,
+      duration_ms: Date.now() - startedAt,
+      outcome: "succeeded",
+      usage: result.usage,
+    });
+    return result.content ?? "";
+  } catch (error) {
+    input.onAuxiliaryCall?.({
+      purpose: "retrieval_judge",
+      provider: input.provider,
+      model: input.model,
+      duration_ms: Date.now() - startedAt,
+      outcome: "failed",
+    });
+    throw error;
+  }
 }
 
 /**
@@ -125,8 +164,10 @@ export async function judgeMemories(input: JudgeInput): Promise<JudgeResult> {
   }
 
   try {
+    // The numbered line stays exactly `N. [type] description`; the excerpt
+    // rides the next line, indented, so parsers keyed on the number still work.
     const listed = candidates
-      .map((c, i) => `${i + 1}. [${c.type}] ${c.description}`)
+      .map((c, i) => `${i + 1}. [${c.type}] ${c.description}\n   ${excerpt(c.content)}`)
       .join("\n");
     const complete = input.complete ?? ((s, p) => oneShot(input, s, p));
     const raw = await complete(
@@ -136,7 +177,9 @@ export async function judgeMemories(input: JudgeInput): Promise<JudgeResult> {
 
     const keep = parseKeepIndices(raw, candidates.length);
     if (keep === null) {
-      logger.debug("[MemoryJudge] unparseable verdict", { raw: raw.slice(0, 200) });
+      logger.debug("[MemoryJudge] unparseable verdict", {
+        raw: raw.slice(0, 200),
+      });
       return { kept: [], decision: "unparseable" };
     }
     // Preserve the incoming (cascade) order rather than the model's, so the

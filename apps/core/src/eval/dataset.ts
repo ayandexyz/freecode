@@ -10,7 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { assertSafeRelativePath, SandboxError } from "./sandbox.js";
 import { FAILURE_CATEGORIES } from "./types.js";
-import type { EvalCase, FailureCategory, KnownGap } from "./types.js";
+import type { EvalCase, EvalMemory, FailureCategory, KnownGap } from "./types.js";
 
 export class DatasetError extends Error {}
 
@@ -189,7 +189,23 @@ function validate(raw: unknown, where: string): EvalCase {
     );
   }
   const files = validateFiles(o.files, where);
+  const memories = validateMemories(o.memories, files, where);
+  const sessions = validateSessions(o.sessions, files, where);
+  const sessionFollowUps = validateSessionFollowUps(
+    o.sessionFollowUps,
+    sessions,
+    where,
+  );
   const immutable = validateOutcome(o, files, where);
+  const consolidateBeforeFinal = validateConsolidationFixture(
+    o.consolidateBeforeFinal,
+    files,
+    memories,
+    sessions,
+    sessionFollowUps,
+    immutable,
+    where,
+  );
   const rubric = validateRubric(o.rubric, where);
 
   // A case with no `files` has no sandbox, so it runs against the real working
@@ -238,10 +254,70 @@ function validate(raw: unknown, where: string): EvalCase {
       ? (o.forbidTools as string[])
       : undefined,
     files,
+    memories,
+    sessions,
+    sessionFollowUps,
+    consolidateBeforeFinal,
     verify: typeof o.verify === "string" ? o.verify : undefined,
     immutable,
     rubric,
   };
+}
+
+/**
+ * A consolidation comparison must exercise the real scheduler, rather than a
+ * private test-only force flag. The fixture makes exactly one completed
+ * teaching session eligible and protects that schedule from the final agent.
+ */
+function validateConsolidationFixture(
+  raw: unknown,
+  files: Record<string, string> | undefined,
+  memories: EvalMemory[] | undefined,
+  sessions: string[] | undefined,
+  sessionFollowUps: string[][] | undefined,
+  immutable: string[] | undefined,
+  where: string,
+): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (raw !== true) {
+    throw new DatasetError(`${where}: 'consolidateBeforeFinal' must be true`);
+  }
+  if (!files || !sessions) {
+    throw new DatasetError(
+      `${where}: 'consolidateBeforeFinal' requires files and sessions`,
+    );
+  }
+  if (!sessions.every((_session, index) => (sessionFollowUps?.[index]?.length ?? 0) >= 1)) {
+    throw new DatasetError(
+      `${where}: 'consolidateBeforeFinal' requires one or more 'sessionFollowUps' ` +
+        "for every teaching session so the production two-turn gate is met",
+    );
+  }
+  const settingsPath = ".freecode/settings.json";
+  if (!immutable?.includes(settingsPath)) {
+    throw new DatasetError(
+      `${where}: 'consolidateBeforeFinal' requires immutable '${settingsPath}'`,
+    );
+  }
+  try {
+    const parsed = JSON.parse(files[settingsPath] ?? "") as {
+      memory?: Record<string, unknown>;
+    };
+    const memory = parsed.memory;
+    if (
+      memory?.autoConsolidate !== true ||
+      memory.consolidateMinSessions !== 1 ||
+      memory.consolidateMinHours !== 0
+    ) {
+      throw new Error("schedule mismatch");
+    }
+  } catch {
+    throw new DatasetError(
+      `${where}: '${settingsPath}' must enable consolidation with ` +
+        "consolidateMinSessions: 1 and consolidateMinHours: 0",
+    );
+  }
+  return true;
 }
 
 /**
@@ -451,6 +527,125 @@ function validateEnv(
     throw new DatasetError(`${where}: 'env' is empty`);
   }
   return out;
+}
+
+const MEMORY_FIXTURE_TYPES = new Set([
+  "user",
+  "feedback",
+  "project",
+  "reference",
+  "episode",
+]);
+// A memory name becomes a file name in the store; keep it a plain slug.
+const MEMORY_NAME = /^[a-z0-9][a-z0-9-]*$/;
+
+function validateMemories(
+  raw: unknown,
+  files: Record<string, string> | undefined,
+  where: string,
+): EvalMemory[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new DatasetError(`${where}: 'memories' must be a non-empty array`);
+  }
+  // Without a sandbox the project root is the real working directory, whose
+  // memory store is the developer's own: seeding it would pollute real memory
+  // and cleaning up would delete it.
+  if (!files) {
+    throw new DatasetError(
+      `${where}: 'memories' requires 'files' — only a sandboxed case gets its ` +
+        `own memory store`,
+    );
+  }
+  const seen = new Set<string>();
+  return raw.map((m, i) => {
+    const at = `${where}: memories[${i}]`;
+    if (typeof m !== "object" || m === null) {
+      throw new DatasetError(`${at} must be an object`);
+    }
+    const o = m as Record<string, unknown>;
+    if (typeof o.type !== "string" || !MEMORY_FIXTURE_TYPES.has(o.type)) {
+      throw new DatasetError(
+        `${at}.type must be one of ${[...MEMORY_FIXTURE_TYPES].join(", ")}`,
+      );
+    }
+    if (typeof o.name !== "string" || !MEMORY_NAME.test(o.name)) {
+      throw new DatasetError(`${at}.name must be a lowercase slug`);
+    }
+    for (const key of ["description", "content"] as const) {
+      if (typeof o[key] !== "string" || !(o[key] as string).trim()) {
+        throw new DatasetError(`${at}.${key} must be a non-empty string`);
+      }
+    }
+    for (const key of ["tags", "supersedes"] as const) {
+      const v = o[key];
+      if (v !== undefined && (!Array.isArray(v) || v.some((x) => typeof x !== "string"))) {
+        throw new DatasetError(`${at}.${key} must be an array of strings`);
+      }
+    }
+    const id = `${o.type}/${o.name}`;
+    if (seen.has(id)) throw new DatasetError(`${at}: duplicate memory '${id}'`);
+    seen.add(id);
+    return {
+      type: o.type as EvalMemory["type"],
+      name: o.name,
+      description: o.description as string,
+      content: o.content as string,
+      ...(o.tags ? { tags: o.tags as string[] } : {}),
+      ...(o.supersedes ? { supersedes: o.supersedes as string[] } : {}),
+    };
+  });
+}
+
+function validateSessions(
+  raw: unknown,
+  files: Record<string, string> | undefined,
+  where: string,
+): string[] | undefined {
+  if (raw === undefined) return undefined;
+  if (
+    !Array.isArray(raw) ||
+    raw.length === 0 ||
+    raw.some((p) => typeof p !== "string" || !p.trim())
+  ) {
+    throw new DatasetError(
+      `${where}: 'sessions' must be a non-empty array of non-empty strings`,
+    );
+  }
+  // Earlier sessions write memories; only a sandbox has a store of its own.
+  if (!files) {
+    throw new DatasetError(
+      `${where}: 'sessions' requires 'files' — only a sandboxed case gets its ` +
+        `own memory store`,
+    );
+  }
+  return raw as string[];
+}
+
+function validateSessionFollowUps(
+  raw: unknown,
+  sessions: string[] | undefined,
+  where: string,
+): string[][] | undefined {
+  if (raw === undefined) return undefined;
+  if (!sessions || !Array.isArray(raw) || raw.length !== sessions.length) {
+    throw new DatasetError(
+      `${where}: 'sessionFollowUps' must have one array for every session`,
+    );
+  }
+  const followUps: string[][] = [];
+  for (const [index, value] of raw.entries()) {
+    if (
+      !Array.isArray(value) ||
+      value.some((prompt) => typeof prompt !== "string" || !prompt.trim())
+    ) {
+      throw new DatasetError(
+        `${where}: sessionFollowUps[${index}] must be an array of non-empty strings`,
+      );
+    }
+    followUps.push(value as string[]);
+  }
+  return followUps;
 }
 
 function validateFiles(

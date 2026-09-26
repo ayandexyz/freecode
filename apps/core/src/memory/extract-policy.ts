@@ -24,6 +24,7 @@ const TOPIC_SIM_MIN = 0.12;
 const MAX_SESSIONS = 64;
 const ENV_DISABLE = "FREECODE_DISABLE_MEMORY_EXTRACTION";
 const ENV_DISABLE_JUDGE = "FREECODE_DISABLE_MEMORY_JUDGE";
+const ENV_DISABLE_RECALL = "FREECODE_DISABLE_MEMORY_RECALL";
 
 export interface ExtractDecisionInput {
   sessionId: string;
@@ -84,11 +85,27 @@ function isEnvTruthy(value: string | undefined): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+function isEnvFalsy(value: string | undefined): boolean {
+  if (!value) return false;
+  const v = value.toLowerCase();
+  return v === "0" || v === "false" || v === "no";
+}
+
 export interface MemorySettings {
   autoExtract: boolean;
   intervalRuns: number;
-  /** Retrieval judge (spec D15). Off → no abstention, no extra call. */
+  /**
+   * Retrieval judge (spec D15). Off → no abstention, no extra call. Off by
+   * default since 2026-09-25: head to head the judge was quality- and
+   * cost-neutral (spec 2026-09-25 §6.2, ledger 2026-09-25-memory-2).
+   */
   retrievalJudge: boolean;
+  /**
+   * Automatic recall: retrieve and inject relevant memories every request.
+   * Off leaves the `memory` tool and the static guidance untouched — it is
+   * the "no automatic memory" side of the paired eval (spec 2026-09-25 §6).
+   */
+  autoRecall: boolean;
 }
 
 function readScope(filePath: string): Record<string, unknown> | undefined {
@@ -115,6 +132,7 @@ export function loadMemorySettings(projectRoot: string): MemorySettings {
   let autoExtract: boolean | undefined;
   let intervalRuns: number | undefined;
   let retrievalJudge: boolean | undefined;
+  let autoRecall: boolean | undefined;
   for (const file of scopes) {
     const memory = readScope(file);
     if (!memory) continue;
@@ -126,6 +144,9 @@ export function loadMemorySettings(projectRoot: string): MemorySettings {
       typeof memory.retrievalJudge === "boolean"
     ) {
       retrievalJudge = memory.retrievalJudge;
+    }
+    if (autoRecall === undefined && typeof memory.autoRecall === "boolean") {
+      autoRecall = memory.autoRecall;
     }
     if (
       intervalRuns === undefined &&
@@ -139,8 +160,15 @@ export function loadMemorySettings(projectRoot: string): MemorySettings {
   return {
     autoExtract: autoExtract ?? true,
     intervalRuns: intervalRuns ?? DEFAULT_INTERVAL_RUNS,
-    retrievalJudge:
-      (retrievalJudge ?? true) && !isEnvTruthy(process.env[ENV_DISABLE_JUDGE]),
+    // Two-way env, beating the files: `1` forces it off, `0` forces it on, so
+    // `eval ab` can select either side whatever the settings say.
+    retrievalJudge: isEnvTruthy(process.env[ENV_DISABLE_JUDGE])
+      ? false
+      : isEnvFalsy(process.env[ENV_DISABLE_JUDGE])
+        ? true
+        : (retrievalJudge ?? false),
+    autoRecall:
+      (autoRecall ?? true) && !isEnvTruthy(process.env[ENV_DISABLE_RECALL]),
   };
 }
 

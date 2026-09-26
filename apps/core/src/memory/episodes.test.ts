@@ -141,7 +141,14 @@ test("episodes render as one dated line, newest first, after everything else", (
 
 test("an undated episode still renders, labelled as undated", () => {
   const rendered = renderRetrievedMemories([episode("mystery")]);
-  assert.match(rendered, /- undated — we decided mystery/);
+  assert.match(rendered, /- mystery \(undated\) — we decided mystery/);
+});
+
+test("an episode line carries its name, so it can be cited", () => {
+  // Citations are `type/name`. Before the name was rendered, an episode that
+  // shaped an answer had no identity the model could credit (spec 2026-09-25 §6).
+  const rendered = renderRetrievedMemories([episode("chose-sqlite", "2026-08-23")]);
+  assert.match(rendered, /## Episode\n- chose-sqlite \(2026-08-23\) — we decided chose-sqlite/);
 });
 
 // -- D6: decay, discounted by use ---------------------------------------------

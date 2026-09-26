@@ -23,6 +23,9 @@ import { deriveGraph, graphSignature, memoryId } from "./builder.js";
 import { cascadeRetrieve } from "./cascade.js";
 import { computeClusters } from "./clusters.js";
 import { containsSecret } from "./secret-filter.js";
+import { resolveSupersession } from "./supersession.js";
+import type { MemoryAuxiliaryObserver } from "../auxiliary.js";
+import { trackMemoryJob } from "../background-jobs.js";
 import type { GraphEdge, GraphNode, RetrievalResult } from "./graph-types.js";
 
 const GRAPH_DIR = ".graph";
@@ -50,6 +53,8 @@ export interface JudgeContext {
   model?: string;
   /** Test seam, forwarded to judgeMemories. */
   complete?: (system: string, prompt: string) => Promise<string>;
+  /** Reports real retrieval-judge provider calls to the owning agent loop. */
+  onAuxiliaryCall?: MemoryAuxiliaryObserver;
 }
 
 // Per-session prepared-memory cache (one-turn-behind state).
@@ -65,6 +70,22 @@ interface SessionMemory {
   // Lets prepareMemories be called on every turn without re-fetching: once
   // resolved, callers just read `stash` instead of re-kicking retrieve().
   resolved: boolean;
+  // The stash holds retrieval's candidates before the judge ruled on them:
+  // the cold-path stopgap, replaced by the verdict when it lands.
+  unjudged?: boolean;
+  lastDecision: JudgeDecision | "cadence_carry" | "not_configured";
+}
+
+export type MemoryPreparationState =
+  | "fresh"
+  | "carried"
+  | "pending"
+  | "empty"
+  | "unjudged";
+
+export interface MemoryPreparation {
+  state: MemoryPreparationState;
+  judgeDecision: JudgeDecision | "cadence_carry" | "not_configured";
 }
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -104,6 +125,13 @@ function splitId(id: string): { type: MemoryEntry["type"]; name: string } {
 // What we embed for a memory: name + description + body carry its meaning.
 function embedText(e: MemoryEntry): string {
   return `${e.name}\n${e.description}\n${e.content}`;
+}
+
+// Whether a memory may be sent to a model at all — the judge prompt or the
+// injected block. The write path screens secrets, but a file edited by hand or
+// by another tool never passes through it, and BM25 would still surface it.
+function modelSafe(e: MemoryEntry): boolean {
+  return !containsSecret(embedText(e));
 }
 
 function hashOf(text: string): string {
@@ -159,6 +187,10 @@ export class MemoryGraphService {
   // in the same project never clobber each other's surfaced set. Bounded by an
   // LRU cap; each entry is tiny (a few entry refs + a query string).
   private sessions = new Map<string, SessionMemory>();
+  // Bumped on every store change. A prefetch that started under an older
+  // generation read entries that may no longer exist in that form, so it
+  // discards its result and retries instead of publishing it.
+  private storeGeneration = 0;
   // Unregisters this service's onMemoryChange listener; called by dispose() so
   // an evicted/replaced service doesn't leak a listener into the change bus.
   private unsubscribe: () => void;
@@ -171,6 +203,7 @@ export class MemoryGraphService {
     this.usage = new UsageStore(dir);
     this.unsubscribe = onMemoryChange((change) => {
       if (change.store.getMemoryDir() === this.store.getMemoryDir()) {
+        this.invalidateSessions(change);
         void this.onChange(change);
       }
     });
@@ -218,6 +251,34 @@ export class MemoryGraphService {
       () => {},
     );
     return run;
+  }
+
+  /**
+   * Keep every session's prepared set consistent with a store change, right
+   * away and synchronously — before the next request can read the stash.
+   *
+   * A session holding the changed memory gets it removed (delete) or swapped
+   * for the saved version (edit), is marked unresolved so the next
+   * `prepareMemories` refetches, and loses its carried judge verdict: that
+   * verdict was about the old text. Sessions not holding it are untouched, so
+   * an unrelated save (extraction writes often) costs no judge call anywhere.
+   */
+  private invalidateSessions(change: MemoryChange): void {
+    this.storeGeneration++;
+    const changed = change.deleted ?? change.entry;
+    if (!changed) return;
+    const id = memoryId(changed.type, changed.name);
+    const matches = (e: MemoryEntry) => memoryId(e.type, e.name) === id;
+    for (const st of this.sessions.values()) {
+      if (!st.stash.some(matches) && !st.judgedIds?.has(id)) continue;
+      st.stash = change.deleted
+        ? st.stash.filter((e) => !matches(e))
+        : st.stash
+            .map((e) => (matches(e) ? change.entry! : e))
+            .filter(modelSafe);
+      st.resolved = false;
+      st.judgedIds = null;
+    }
   }
 
   // Incremental vector update on save/delete — fire-and-forget, never throws.
@@ -590,6 +651,7 @@ export class MemoryGraphService {
       inflight: null,
       resolved: false,
       judgedIds: null,
+      lastDecision: "not_configured",
     };
     this.sessions.set(sessionId, st);
     while (this.sessions.size > MAX_SESSIONS) {
@@ -605,6 +667,21 @@ export class MemoryGraphService {
   // judge call or move the one-turn-behind stash the next real turn depends on.
   peekMemories(sessionId: string): MemoryEntry[] {
     return this.sessions.get(sessionId)?.stash ?? [];
+  }
+
+  /** Metadata for the most recent preparation, with no memory text or ids. */
+  preparationFor(sessionId: string): MemoryPreparation {
+    const st = this.sessions.get(sessionId);
+    if (!st || st.stash.length === 0) {
+      return {
+        state: st?.inflight ? "pending" : "empty",
+        judgeDecision: st?.lastDecision ?? "not_configured",
+      };
+    }
+    return {
+      state: st.unjudged ? "unjudged" : st.resolved ? "fresh" : "carried",
+      judgeDecision: st.lastDecision,
+    };
   }
 
   // Prepare the memories to inject for `sessionId`'s current context and return
@@ -636,6 +713,7 @@ export class MemoryGraphService {
     // topic, so the moment the topic moves the verdict stops applying.
     if (st.lastQuery && lexicalSimilarity(q, st.lastQuery) < TOPIC_SIM_MIN) {
       st.stash = [];
+      st.unjudged = false;
       st.resolved = false;
       st.judgedIds = null;
     }
@@ -645,7 +723,7 @@ export class MemoryGraphService {
     }
     const cold = st.stash.length === 0;
     if (!st.resolved) {
-      this.kickPrefetch(st);
+      this.kickPrefetch(sessionId, st);
     }
 
     // Cold start: give the in-flight retrieval a brief chance to land.
@@ -661,19 +739,43 @@ export class MemoryGraphService {
   // The judge (D15) runs *here*, on the one-turn-behind path, which is what
   // makes it affordable: the loop never waits on it, and the cadence carry
   // below means it fires on a topic change rather than every user message.
-  private kickPrefetch(st: SessionMemory): void {
+  //
+  // Tracked as a background memory job so an eval trial's drain waits for an
+  // in-flight judge call — otherwise its cost lands after the trace is folded
+  // and the trial reports a complete total that is missing it.
+  private kickPrefetch(sessionId: string, st: SessionMemory): void {
     if (st.inflight) return;
     st.inflight = (async () => {
       try {
         for (let q = st.lastQuery; ; q = st.lastQuery) {
-          const results = await this.retrieve(q);
+          const generation = this.storeGeneration;
+          // Never offer obsolete guidance to the judge or the model: each
+          // superseded candidate becomes its newest live replacement.
+          // Secret-bearing entries are dropped before the judge sees them.
+          const results = resolveSupersession(
+            await this.retrieve(q),
+            this.store.list(),
+          ).filter(modelSafe);
           if (q !== st.lastQuery) continue;
-          const judged = await this.applyJudge(st, q, results);
+          // Cold path with a judge: the judge is a network call that never
+          // fits COLD_BUDGET_MS, so without this the first request of every
+          // topic carried nothing (0/24 in the first paired eval, spec
+          // 2026-09-25 §6.1). Serve retrieval's candidates now; the verdict
+          // replaces them when it lands. A warm stash is never swapped out.
+          if (st.stash.length === 0 && st.judge && !st.judgedIds) {
+            st.stash = results;
+            st.unjudged = results.length > 0;
+          }
+          const judged = await this.applyJudge(st, q, results, generation);
           // applyJudge can await a multi-second model call; a topic change
           // during it must not pin the old topic's memories (or its verdict)
-          // onto the new one.
-          if (q !== st.lastQuery) continue;
+          // onto the new one — and neither may a store edit or delete, whose
+          // stale pre-change entries would overwrite invalidateSessions' work.
+          if (q !== st.lastQuery || generation !== this.storeGeneration) {
+            continue;
+          }
           st.stash = judged;
+          st.unjudged = false;
           st.resolved = true;
           return;
         }
@@ -684,6 +786,7 @@ export class MemoryGraphService {
         st.inflight = null;
       }
     })();
+    void trackMemoryJob(sessionId, st.inflight);
   }
 
   /**
@@ -704,13 +807,20 @@ export class MemoryGraphService {
     st: SessionMemory,
     query: string,
     candidates: MemoryEntry[],
+    generation: number,
   ): Promise<MemoryEntry[]> {
     const ctx = st.judge;
-    if (!ctx || candidates.length === 0) return candidates;
+    if (!ctx || candidates.length === 0) {
+      st.lastDecision = !ctx ? "not_configured" : "no_candidates";
+      return candidates;
+    }
 
     if (st.judgedIds) {
       this.lastDecision = "cadence_carry";
-      return candidates.filter((e) => st.judgedIds?.has(memoryId(e.type, e.name)));
+      st.lastDecision = "cadence_carry";
+      return candidates.filter((e) =>
+        st.judgedIds?.has(memoryId(e.type, e.name)),
+      );
     }
 
     const { kept, decision } = await judgeMemories({
@@ -719,13 +829,20 @@ export class MemoryGraphService {
       provider: ctx.provider,
       model: ctx.model,
       complete: ctx.complete,
+      onAuxiliaryCall: ctx.onAuxiliaryCall,
     });
     this.lastDecision = decision;
+    st.lastDecision = decision;
     // Only cache a verdict the judge actually produced. Caching a failure
     // would carry one transport error across a whole topic — and a verdict for
     // a query the session has already moved past must not become the new
     // topic's cadence carry.
-    if (decision === "judge_ran" && query === st.lastQuery) {
+    // Nor a verdict about entries the store has since changed.
+    if (
+      decision === "judge_ran" &&
+      query === st.lastQuery &&
+      generation === this.storeGeneration
+    ) {
       st.judgedIds = new Set(kept.map((e) => memoryId(e.type, e.name)));
     }
     return kept;
@@ -771,8 +888,7 @@ export class MemoryGraphService {
       EPISODE_DECAY_FLOOR + 0.15 * Math.log(uses + 1),
     );
     return (
-      score *
-      Math.max(floor, Math.pow(0.5, ageDays / EPISODE_HALF_LIFE_DAYS))
+      score * Math.max(floor, Math.pow(0.5, ageDays / EPISODE_HALF_LIFE_DAYS))
     );
   }
 

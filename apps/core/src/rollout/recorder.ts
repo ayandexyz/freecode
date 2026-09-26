@@ -13,6 +13,8 @@ import type {
   CacheWarmEvent,
   DenySource,
   ModelErrorEvent,
+  MemoryAuxiliaryEvent,
+  MemoryExposureEvent,
   ModelRequestEvent,
   ModelResponseEvent,
   RedirectTriggeredEvent,
@@ -429,6 +431,32 @@ export class RolloutRecorder {
     );
   }
 
+  recordMemoryAuxiliary(
+    turnId: string | undefined,
+    fields: Omit<MemoryAuxiliaryEvent, keyof BaseEvent | "type" | "turnId">,
+  ): void {
+    this.write(
+      this.makeEvent("memory.auxiliary", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields,
+      }),
+    );
+  }
+
+  recordMemoryExposure(
+    turnId: string,
+    fields: Omit<MemoryExposureEvent, keyof BaseEvent | "type" | "turnId">,
+  ): void {
+    this.write(
+      this.makeEvent("memory.exposure", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields,
+      }),
+    );
+  }
+
   // ===========================================================================
   // PUBLIC: trajectory redirection events
   // The advice text itself is never written here — see the note in types.ts.
@@ -478,10 +506,19 @@ export class RolloutRecorder {
 
   recordPokeTriggered(
     turnId: string,
-    fields: { pokeIndex: number; maxPerRun: number; remaining: number; retry?: boolean },
+    fields: {
+      pokeIndex: number;
+      maxPerRun: number;
+      remaining: number;
+      retry?: boolean;
+    },
   ): void {
     this.write(
-      this.makeEvent("poke.triggered", { aggregateID: this.sessionId, turnId, fields }),
+      this.makeEvent("poke.triggered", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields,
+      }),
     );
   }
 
@@ -490,14 +527,23 @@ export class RolloutRecorder {
     fields: { messageId: string; remaining: number },
   ): void {
     this.write(
-      this.makeEvent("message.steered", { aggregateID: this.sessionId, turnId, fields }),
+      this.makeEvent("message.steered", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields,
+      }),
     );
   }
 
   recordSessionNavigate(
     fields: Omit<SessionNavigateEvent, keyof BaseEvent | "type">,
   ): void {
-    this.write(this.makeEvent("session.navigate", { aggregateID: this.sessionId, fields }));
+    this.write(
+      this.makeEvent("session.navigate", {
+        aggregateID: this.sessionId,
+        fields,
+      }),
+    );
   }
 
   // --- checkpoints (spec 2026-09-23-checkpoints-rewind, §7) ------------------
@@ -505,7 +551,12 @@ export class RolloutRecorder {
   recordCheckpointCaptured(
     fields: Omit<CheckpointCapturedEvent, keyof BaseEvent | "type">,
   ): void {
-    this.write(this.makeEvent("checkpoint.captured", { aggregateID: this.sessionId, fields }));
+    this.write(
+      this.makeEvent("checkpoint.captured", {
+        aggregateID: this.sessionId,
+        fields,
+      }),
+    );
   }
 
   recordCheckpointSkipped(reason: CheckpointSkippedEvent["reason"]): void {
@@ -520,11 +571,20 @@ export class RolloutRecorder {
   recordCheckpointRestored(
     fields: Omit<CheckpointRestoredEvent, keyof BaseEvent | "type">,
   ): void {
-    this.write(this.makeEvent("checkpoint.restored", { aggregateID: this.sessionId, fields }));
+    this.write(
+      this.makeEvent("checkpoint.restored", {
+        aggregateID: this.sessionId,
+        fields,
+      }),
+    );
   }
 
-  recordCacheWarm(fields: Omit<CacheWarmEvent, keyof BaseEvent | "type">): void {
-    this.write(this.makeEvent("cache.warm", { aggregateID: this.sessionId, fields }));
+  recordCacheWarm(
+    fields: Omit<CacheWarmEvent, keyof BaseEvent | "type">,
+  ): void {
+    this.write(
+      this.makeEvent("cache.warm", { aggregateID: this.sessionId, fields }),
+    );
   }
 
   recordPokeSkipped(turnId: string, reason: string, remaining: number): void {
@@ -548,7 +608,11 @@ export class RolloutRecorder {
     },
   ): void {
     this.write(
-      this.makeEvent("todo.signal", { aggregateID: this.sessionId, turnId, fields }),
+      this.makeEvent("todo.signal", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields,
+      }),
     );
   }
 

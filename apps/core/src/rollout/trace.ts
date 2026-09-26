@@ -92,6 +92,24 @@ export interface ToolSpan {
   failed?: boolean;
 }
 
+/** A background or retrieval model call made by the memory system. */
+export interface MemoryAuxiliarySpan {
+  turnId?: string;
+  purpose: "retrieval_judge" | "extraction" | "consolidation" | "final_flush";
+  provider: string;
+  /** Missing on old or failed events; it deliberately prices as unknown. */
+  model?: string;
+  startedAt: number;
+  duration_ms: number;
+  outcome: "succeeded" | "failed";
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  authMode?: "oauth";
+}
+
 /**
  * A call that was refused before it ran, from `function.denied`.
  *
@@ -117,16 +135,31 @@ export interface Trace {
   endedAt: number;
   wall_ms: number;
   modelSpans: ModelSpan[];
+  /** Memory retrieval and maintenance calls, separate from foreground turns. */
+  auxiliarySpans: MemoryAuxiliarySpan[];
   /** Tools that RAN. A refused call is in `deniedSpans`, never here. */
   toolSpans: ToolSpan[];
   /** Calls refused before execution. Empty on logs predating the event. */
   deniedSpans: DeniedSpan[];
   /** Sum of model call time; the number that usually explains a slow session. */
   model_ms: number;
+  /** Wall time spent in memory retrieval or maintenance model calls. */
+  memory_ms: number;
   tool_ms: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  memoryInputTokens: number;
+  memoryOutputTokens: number;
+  memoryCacheReadTokens: number;
+  /** Provider requests that actually contained the dynamic memory block. */
+  memoryExposures: number;
+  /** Distinct agent turns among those exposures. */
+  memoryExposureTurns: number;
+  /** UTF-8 bytes sent in the dynamic memory block across all exposures. */
+  memoryExposureBytes: number;
+  /** Local estimate only; it is never added to provider token usage. */
+  memoryEstimatedTokens: number;
   /** A request open longer than `HANG_THRESHOLD_MS` — genuinely stuck. */
   hung: boolean;
   /** A request open but still within budget — normal during `--follow`. */
@@ -164,6 +197,7 @@ export function buildTrace(
   now?: number,
 ): Trace {
   const modelSpans: ModelSpan[] = [];
+  const auxiliarySpans: MemoryAuxiliarySpan[] = [];
   const toolSpans: ToolSpan[] = [];
   const deniedSpans: DeniedSpan[] = [];
   const open: ModelSpan[] = [];
@@ -171,6 +205,10 @@ export function buildTrace(
   let redirectsSkipped = 0;
   let compactions = 0;
   let compactedTokens = 0;
+  let memoryExposures = 0;
+  let memoryExposureBytes = 0;
+  let memoryEstimatedTokens = 0;
+  const memoryExposureTurns = new Set<string>();
   // Two indexes over the same pending calls. `byId` is exact; `byTool` is the
   // fallback for logs written before `callId` existed, and pops OLDEST-FIRST so
   // two concurrent calls to the same tool still yield ascending call order.
@@ -276,6 +314,41 @@ export function buildTrace(
           reason: event.reason,
         });
         break;
+      case "memory.auxiliary":
+        auxiliarySpans.push({
+          ...(event.turnId ? { turnId: event.turnId } : {}),
+          purpose: event.purpose,
+          provider: event.provider,
+          ...(event.model ? { model: event.model } : {}),
+          startedAt: Math.max(0, event.timestamp - event.duration_ms),
+          duration_ms: event.duration_ms,
+          outcome: event.outcome,
+          ...(event.inputTokens === undefined
+            ? {}
+            : { inputTokens: event.inputTokens }),
+          ...(event.outputTokens === undefined
+            ? {}
+            : { outputTokens: event.outputTokens }),
+          ...(event.cacheReadTokens === undefined
+            ? {}
+            : { cacheReadTokens: event.cacheReadTokens }),
+          ...(event.cacheWriteTokens === undefined
+            ? {}
+            : { cacheWriteTokens: event.cacheWriteTokens }),
+          ...(event.reasoningTokens === undefined
+            ? {}
+            : { reasoningTokens: event.reasoningTokens }),
+          ...(event.authMode ? { authMode: event.authMode } : {}),
+        });
+        break;
+      case "memory.exposure":
+        if (event.injected) {
+          memoryExposures++;
+          memoryExposureTurns.add(event.turnId);
+          memoryExposureBytes += event.blockBytes;
+          memoryEstimatedTokens += event.estimatedTokens;
+        }
+        break;
       case "redirect.triggered":
         redirects++;
         break;
@@ -314,13 +387,22 @@ export function buildTrace(
     endedAt,
     wall_ms: Math.max(0, (now ?? endedAt) - startedAt),
     modelSpans,
+    auxiliarySpans,
     toolSpans,
     deniedSpans,
     model_ms: modelSpans.reduce((n, s) => n + s.duration_ms, 0),
+    memory_ms: auxiliarySpans.reduce((n, s) => n + s.duration_ms, 0),
     tool_ms: toolSpans.reduce((n, s) => n + s.duration_ms, 0),
     inputTokens: sum(modelSpans, "inputTokens"),
     outputTokens: sum(modelSpans, "outputTokens"),
     cacheReadTokens: sum(modelSpans, "cacheReadTokens"),
+    memoryInputTokens: sum(auxiliarySpans, "inputTokens"),
+    memoryOutputTokens: sum(auxiliarySpans, "outputTokens"),
+    memoryCacheReadTokens: sum(auxiliarySpans, "cacheReadTokens"),
+    memoryExposures,
+    memoryExposureTurns: memoryExposureTurns.size,
+    memoryExposureBytes,
+    memoryEstimatedTokens,
     // Only spans past the threshold count. An in-flight request is not a hang.
     hung: open.some((s) => s.status === "hung"),
     inFlight: open.some((s) => s.status === "in_flight"),
@@ -349,6 +431,6 @@ function takeOpen(
   return span;
 }
 
-function sum(spans: ModelSpan[], key: keyof ModelSpan): number {
+function sum<T extends object>(spans: T[], key: keyof T): number {
   return spans.reduce((n, s) => n + ((s[key] as number | undefined) ?? 0), 0);
 }

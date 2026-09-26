@@ -157,3 +157,33 @@ test("an empty baseline does not divide by zero", () => {
   const c = compareReports(before, after, { stuck: true });
   assert.ok(Number.isFinite(c.rows[1].delta));
 });
+
+test("cost is not compared when either side has an unpriced trial", () => {
+  // Pending memory work leaves a trial's costUsd undefined. Summing only the
+  // priced trials would make that side look cheaper — a fake saving.
+  const base = summarise(report([trial({ costUsd: 1 }), trial({ costUsd: 1 })]));
+  const cand = report([trial({ costUsd: 1 }), trial({ costUsd: undefined })]);
+  assert.equal(summarise(cand).unpricedTrials, 1);
+  assert.equal(base.unpricedTrials, 0);
+  const rows = compareReports(
+    report([trial({ costUsd: 1 }), trial({ costUsd: 1 })]),
+    cand,
+  ).rows;
+  assert.ok(!rows.some((r) => r.metric === "cost (est.)"));
+});
+
+test("a partial trial cost counts as unpriced", () => {
+  const cand = report([trial({ costUsd: 0.5, costPartial: true })]);
+  assert.equal(summarise(cand).unpricedTrials, 1);
+  const rows = compareReports(report([trial({ costUsd: 1 })]), cand).rows;
+  assert.ok(!rows.some((r) => r.metric === "cost (est.)"));
+});
+
+test("fully priced sides still get a cost row", () => {
+  const rows = compareReports(
+    report([trial({ costUsd: 1 })]),
+    report([trial({ costUsd: 0.5 })]),
+  ).rows;
+  const cost = rows.find((r) => r.metric === "cost (est.)");
+  assert.equal(cost?.delta, -0.5);
+});

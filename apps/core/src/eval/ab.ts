@@ -35,6 +35,7 @@ export class AbError extends Error {}
  *   FREECODE_DISABLE_MEMORY_EXTRACTION `shouldExtract`, every turn
  *   FREECODE_DISABLE_MEMORY_JUDGE      `loadMemorySettings`, every call
  *   FREECODE_DISABLE_MEMORY_CONSOLIDATION `shouldConsolidate`, every call
+ *   FREECODE_DISABLE_MEMORY_RECALL     `loadMemorySettings`, every request
  *   FREECODE_BASH_COMPRESS             `maybeCompressOutput`, every tool call
  *   FREECODE_READ_LINE_NUMBERS         read's `execute`, every call
  *   FREECODE_EPHEMERAL_TAIL            `executeTurn`, every iteration
@@ -59,6 +60,7 @@ export const VARIABLE_ENV_KEYS = [
   "FREECODE_DISABLE_MEMORY_EXTRACTION",
   "FREECODE_DISABLE_MEMORY_JUDGE",
   "FREECODE_DISABLE_MEMORY_CONSOLIDATION",
+  "FREECODE_DISABLE_MEMORY_RECALL",
   "FREECODE_BASH_COMPRESS",
   "FREECODE_READ_LINE_NUMBERS",
   "FREECODE_EPHEMERAL_TAIL",
@@ -174,6 +176,22 @@ export interface SideTally {
    * of `FREECODE_BASH_COMPRESS` reported quality and silently dropped these.
    */
   costUsd?: number;
+  /**
+   * Trials whose cost is unknown (unpriced model, or memory work still pending
+   * when the trial ended). When non-zero, `costUsd` is a lower bound and must
+   * not be compared against another side as if it were a total.
+   */
+  unpricedTrials?: number;
+  /**
+   * Per-operation cost breakdown for priced trials. Today only
+   * `consolidation` is populated (the controlled pre-final pass in
+   * `evals/memory-consolidation.jsonl`), so a verdict can report the merge
+   * call's cost separately from the trial's model spend.
+   *
+   * `undefined` (key absent) when no priced trial reported the operation —
+   * not `0`, so "we did not measure" stays distinct from "we measured zero".
+   */
+  costByOperation?: Record<string, number>;
 }
 
 /** Legacy reports had only reason strings; new trials carry `infra`. */
@@ -188,7 +206,16 @@ export function isInfrastructureFailure(t: Pick<TrialResult, "reason" | "infra">
 export function tallyOf(
   trials: Pick<
     TrialResult,
-    "passed" | "reason" | "infra" | "turns" | "repeatedCalls" | "inputTokens" | "outputTokens" | "costUsd"
+    | "passed"
+    | "reason"
+    | "infra"
+    | "turns"
+    | "repeatedCalls"
+    | "inputTokens"
+    | "outputTokens"
+    | "costUsd"
+    | "costPartial"
+    | "costByOperation"
   >[],
 ): SideTally {
   const tally: SideTally = { passed: 0, ran: 0, turns: 0, repeatedCalls: 0, tokens: 0 };
@@ -204,6 +231,19 @@ export function tallyOf(
     tally.repeatedCalls += t.repeatedCalls;
     tally.tokens += t.inputTokens + t.outputTokens;
     if (t.costUsd !== undefined) tally.costUsd = (tally.costUsd ?? 0) + t.costUsd;
+    if (t.costUsd === undefined || t.costPartial) {
+      tally.unpricedTrials = (tally.unpricedTrials ?? 0) + 1;
+    }
+    if (t.costByOperation) {
+      tally.costByOperation = tally.costByOperation ?? {};
+      for (const [op, cost] of Object.entries(t.costByOperation)) {
+        // Skip `null` (the runner marks a partially-priced operation so the
+        // ledger can flag it), and skip `undefined` (key present, no value).
+        // Both would pollute the sum with a NaN.
+        if (cost === null || cost === undefined) continue;
+        tally.costByOperation[op] = (tally.costByOperation[op] ?? 0) + cost;
+      }
+    }
   }
   return tally;
 }

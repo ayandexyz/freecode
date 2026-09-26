@@ -45,6 +45,37 @@ describe("SessionStore", () => {
     assert.deepEqual(messages[0].parts[0], { type: "text", content: "hello" });
   });
 
+  it("counts user turns in metadata, not tool or assistant log entries", async () => {
+    const sessionId = await store.createSession({
+      title: "Test",
+      projectPath: "/tmp/test",
+      provider: "claude",
+    });
+    const now = Date.now();
+    await store.appendMessage(sessionId, {
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", content: "first" }],
+      timestamp: now,
+    });
+    await store.appendMessage(sessionId, {
+      id: "assistant-1",
+      role: "assistant",
+      parts: [{ type: "text", content: "answer" }],
+      timestamp: now + 1,
+    });
+    await store.appendMessage(sessionId, {
+      id: "user-2",
+      role: "user",
+      parts: [{ type: "text", content: "second" }],
+      timestamp: now + 2,
+    });
+
+    const meta = await store.getMeta(sessionId);
+    assert.equal(meta?.turnCount, 2);
+    assert.equal(meta?.lastTurnAt, now + 2);
+  });
+
   it("marks message as interrupted", async () => {
     const sessionId = await store.createSession({
       title: "Test",

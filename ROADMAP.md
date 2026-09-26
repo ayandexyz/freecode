@@ -136,17 +136,11 @@ profiles, either complete that map or replace it with a per-subagent tool
 allowlist that rides the existing rules evaluation rather than sitting beside
 it.
 
-## Effect/Layer DI
-
-**Status:** Skipped - requires significant architectural change using Effect framework
-
-**Reference:** opencode's `packages/opencode/src/effect/` directory for `makeRuntime<I, S, E>()` pattern
-
 ## Memory: knowledge-graph roadmap (docs audit 2026-08-23)
 
-- [ ] **Consolidation / episodic → semantic promotion.** `rollout/` has every past
-      turn on disk; nothing mines it. Extraction only ever sees the live transcript,
-      so a fact that only becomes clear on the fifth repetition is never learned.
+- [ ] **Learning from archived sessions.** Extraction reads live transcripts;
+      consolidation merges saved memories but does not mine old transcripts.
+      Backfill remains separate from the shipped consolidation pass (see below).
 - [ ] **Bi-temporal validity** — valid-time vs transaction-time, so "the host ran
       Apache until March" is expressible instead of only replaceable. Entries carry
       `createdAt`/`updatedAt` (transaction time) only.
@@ -175,12 +169,141 @@ D12–D14). These are actionable independently of that spec's phases.
   reads the live transcript, and the spec's end-of-session flush (D4) does not
   go back for them. codex's answer is a bounded, leased, parallel Phase 1 at
   startup.
-- **An LLM retrieval judge, deferred not rejected.** The spec declines waku's
-  gate on cost, which is right for waku's shape but not for jcode's: a listwise
-  rerank on the existing one-turn-behind prefetch adds no loop latency, and
-  jcode's "cadence carry" (re-surface the last judged set without re-running)
-  bounds the call rate. jcode treats the *absence* of the judge as a measured
-  degradation (`memory_judge_metrics.rs`). Revisit once D14 reports a baseline.
+
+## Memory: long-horizon evaluation (after spec 2026-09-25 §7.1)
+
+The existing `memory-sessions` suite measures capture and recall over 2–3
+sessions. Its completed work and results live in
+[`2026-09-25-memory-efficiency-and-graph-explorer.md`](docs/specs/2026-09-25-memory-efficiency-and-graph-explorer.md)
+§7. The following are measurement projects, not missing production features.
+Build and validate the harnesses first; run paid experiments afterward.
+
+1. [x] **Consolidation comparison harness.** Built 2026-09-26 as
+   `evals/memory-consolidation.jsonl` plus `consolidateBeforeFinal` in the
+   eval runner. Seed identical isolated stores
+   with duplicates, complementary facts, corrections, and unrelated controls.
+   Run the production consolidator on one copy, then freeze both stores and
+   score the same held-out tasks at the same injection byte budget. Use
+   fixture-only eligible session history and project-local scheduling settings;
+   preserve production defaults. Record whether consolidation actually ran,
+   its outcome, merge counts, retained facts, and its model cost. A skipped or
+   failed pass must not count as a successful consolidation experiment.
+2. [x] **Consolidation experiment.** Two fixtures, two verdicts (full detail
+   in spec §7.2 and `EVAL.md`). `consolidate-production-endpoint` (pure
+   near-duplicate merge): a 5-trial replicate reversed the earlier 3-trial
+   "−4.7% cost" reading — candidate cost went +10% and pass rate was NOT
+   preserved (one candidate-only failure right after a merge+delete) —
+   **rejected**. `consolidate-stale-then-corrected` (stale vs. corrected
+   memory, plus a distractor/control that must not be touched): two
+   independent 3-trial runs both went 3/3 on both arms and consolidation was
+   consistently cheaper — **kept**. `storeSize` and `costByOperation` are now
+   in the ledger; rendered recall and irrelevant bytes at trial level remain
+   unaddressed (would need a per-turn recording channel). Net: consolidation
+   earns its cost when there is a real conflict to supersede, not proven (and
+   showed one regression) when there is only a near-duplicate to fold.
+3. [x] **Long-horizon harness.** Built 2026-09-26: `TrialResult.memorySnapshots`
+   / `teachingCostUsd` (`eval/types.ts`, `eval/runner.ts`), the `sessions[]` +
+   `sessionFollowUps[][]` fixture shape (`eval/dataset.ts`), and
+   `evals/memory-long-horizon.jsonl` (5 cases, up to 12 sessions each,
+   dilution/correction/gap/assembly/control). Evidence: `dataset.test.ts`
+   ("the shipped long-horizon suite is valid"), `runner.test.ts` (6/6).
+4. [x] **Savings-curve experiment.** Run 2026-09-26 (MiniMax-M3, 3 trials,
+   two paired comparisons; `evals/experiments.jsonl`
+   `2026-09-26-memory-long-horizon-{1,2}`, both **kept**; full numbers in
+   spec §7.3, suite doc in `EVAL.md`). Memory off passed 3/15, learning +
+   scheduled consolidation 10/15 (cost per passed probe −66%); consolidation
+   off (still learning) 8/15, on-schedule 11/15 (a further −41%). No
+   break-even in teaching cost itself at any of the 1/3/6/9/12 checkpoints —
+   learning costs more to teach, session over session, and the entire return
+   is the final probe passing. The memory tool stayed callable with
+   auto-recall/extraction off (2 voluntary writes, no effect since recall was
+   off). One case (`long-incremental-assembly`) never passed in any arm
+   (0/12). Its fixture confound is fixed (`595b9dd3`); the re-run is still
+   0/3 vs 0/3 and now fails on memory — last-taught fact not retained,
+   consolidation dropping an earlier one — filed in `TODO.md`.
+5. [x] **External-corpus adapter.** Built and validated 2026-09-26,
+   `apps/core/src/eval/longmemeval-adapter.ts` + `.test.ts` (12/12, no model
+   calls). Licence check: `xiaowu0162/longmemeval` (containing the
+   `longmemeval_s` split this item names) is deprecated by its own
+   maintainer for noisy sessions; the adapter targets the replacement,
+   `xiaowu0162/longmemeval-cleaned`'s `longmemeval_s_cleaned` split — both
+   MIT. Pinned: revision `98d7416c`, file `longmemeval_s_cleaned.json`,
+   sha256 `d6f21ea9…c3a442`, 277 MB (`LONGMEMEVAL_SOURCE` in the adapter —
+   re-check `revisionSha` before #6, a dataset can move without a version
+   bump). Ingestion goes straight through `extractMemories` per haystack
+   session in chronological order — no live agent turn per session, since the
+   haystack is fixed historical dialogue and replaying it through our own
+   agent would substitute invented replies for the recorded ones. Answer
+   leakage is guarded on the scored question only (never the haystack, where
+   the taught fact is supposed to appear — an early version of this guard
+   wrongly fired there and had to be fixed). Ingestion cost and scored-turn
+   cost are tracked separately, matching the item's ask.
+
+   **One paid smoke run (2026-09-26, MiniMax-M3), a real finding, not just a
+   mechanics check:** a synthetic 4-session haystack (one session: "I just
+   adopted a beagle puppy... I named him Biscuit") ingested cleanly
+   ($0.00046, 4/4 sessions) but saved **zero** memories, and the live scored
+   turn — asked "what is the name of my dog?" in a fresh session — correctly
+   answered that it had no information, rather than hallucinating. The
+   mechanics are sound (chronological order, cost separation, no leak); the
+   substance is that `extractMemories`'s production prompt is scoped to
+   "durable memories from a coding session" across four types (user,
+   feedback, project, reference), and on this one trial with this one model
+   did not judge a personal biographical fact worth saving. LongMemEval's
+   question types are general-assistant-shaped (preferences, biographical
+   detail, plans), not coding-project-shaped — **running the real corpus as
+   the production prompt stands today would likely measure a domain-scope
+   gap, not a retrieval or consolidation failure.** This is a single trial,
+   not a replicate — but it is exactly what "validate with tiny synthetic
+   fixtures before running the corpus" is for. #6 was run anyway, with that
+   caveat stated up front, and confirmed it at scale.
+6. [x] **External evaluation.** Run 2026-09-26 as an **adapted subset, not
+   an official LongMemEval score** — full method, deviations and per-sample
+   detail in spec §7.4; reproduce with `pnpm bench:longmemeval`
+   (`scripts/longmemeval.ts`). 24 of 500 questions, stratified over all six
+   question types (seed 20260926), MiniMax-M3 as the agent. Result:
+   **answerable questions 1/18, and that one was answered from world
+   knowledge (a Borges quote), not memory — memory-attributable recall
+   0/18**; abstention questions 5/5 (the model honestly says it has no
+   record, which is the right answer there). The cause is upstream of
+   retrieval: `extractMemories` kept **4 memories from 1,090 ingested
+   sessions** (0.4%), so recall had nothing to find. This confirms the #5
+   smoke finding at scale — the production extraction prompt is scoped to
+   coding sessions, and LongMemEval's personal-assistant facts do not clear
+   it. Not tuned on (the prompt was not changed to chase this number).
+   Whether FreeCode's memory *should* capture this kind of fact is a product
+   scope question, not a bug — it is recorded, not decided.
+
+Completion requires both a working harness and a recorded experiment for
+each question. Remove completed entries from this roadmap only after moving
+their method and results into the spec, `EVAL.md`, and experiment ledger.
+
+## Memory graph explorer (moved out of the memory-efficiency spec, 2026-09-25)
+
+Presentation only: none of this changes what is injected or what it costs.
+Measured state at audit: 79 nodes, 6 disconnected components (27/16/16/11/6/3),
+68 of 75 edges are cluster memberships.
+
+- [ ] **Layout.** Repulsion `-180`, link distance `60`, strength `0.5`, and
+      `forceCenter` only translates, so components drift apart. Add gentle
+      `forceX`/`forceY` attraction and size-aware component packing; make link
+      distance intentional per edge type, or delete the comment claiming
+      weight-dependent distance (it is not implemented).
+- [ ] **Real fit-to-view.** `fitToView()` recentres and reheats but never fits
+      bounds. Fit after settling and on reset, accounting for the detail
+      panel; handle resize without restarting the layout.
+- [ ] **Navigation.** One/two-hop local view of a selected memory, node/edge
+      filters, labels by zoom/hover/selection, cluster hubs hidden by default
+      with an inspect toggle, keyboard focus states.
+- [ ] **Honest search labels.** Explorer search bypasses the judge, session
+      carry, episode decay, and the byte budget; label results "retrieval
+      candidates", not "what was injected".
+- [ ] **Injection inspector.** Show a recorded request's candidates, judge
+      outcome, rendered subset, and budget drops, read from recorded state
+      only (opening the page must never trigger a paid judge call).
+
+Ships via `graph-ui.tar.gz` + `freecode memory ui-install`; a source-only
+change does not reach installed binaries.
 
 ## Long-running sessions (OpenHands comparison — 2026-09-01)
 

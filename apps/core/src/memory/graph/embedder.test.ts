@@ -86,3 +86,30 @@ test("a success resets the failure count", async () => {
 
 // Leave the module on the real loader for anything that runs after this file.
 test.after(() => resetEmbedderForTests());
+
+test("fixed-length padding is turned off once the model loads", async () => {
+  // fastembed pads every input to 512 tokens. We embed one text at a time, so
+  // padding buys nothing and cost ~150 ms per query on the hot path, blocking
+  // the event loop past the 60 ms cold budget (spec 2026-09-25 §4.3). The
+  // vectors are identical without it (cosine 1.000000, measured).
+  let disabled = 0;
+  resetEmbedderForTests(async () => ({
+    EmbeddingModel: { AllMiniLML6V2: "stub" },
+    FlagEmbedding: {
+      init: async () => ({
+        tokenizer: { disablePadding: () => void disabled++ },
+        embed: async function* () {
+          yield [Float32Array.from([1, 0, 0])];
+        },
+      }),
+    },
+  }));
+  await embed("a");
+  await embed("b");
+  assert.equal(disabled, 1, "once per model, not per call");
+});
+
+test("a model without a reachable tokenizer still embeds", async () => {
+  resetEmbedderForTests(stubModule({}));
+  assert.deepEqual(Array.from(await embed("x")), [1, 0, 0]);
+});

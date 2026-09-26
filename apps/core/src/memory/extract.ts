@@ -11,6 +11,7 @@ import { AUTHORABLE_MEMORY_TYPES, type MemoryType } from "./mem-types.js";
 import { containsSecret } from "./graph/secret-filter.js";
 import { BusEvents } from "../bus/index.js";
 import { logger } from "../utils/logger.js";
+import type { MemoryAuxiliaryObserver } from "./auxiliary.js";
 
 // A runaway extractor fills the store with noise faster than anything cleans it
 // up, and there is no consolidation pass yet. Bound it hard.
@@ -45,6 +46,8 @@ export interface ExtractInput {
   sessionId?: string;
   /** Test seam; defaults to a one-shot provider call. */
   complete?: (system: string, prompt: string) => Promise<string>;
+  /** Reports provider usage when this path makes a real auxiliary call. */
+  onAuxiliaryCall?: MemoryAuxiliaryObserver;
 }
 
 interface Proposal {
@@ -77,7 +80,8 @@ function parseProposals(raw: string): Proposal[] {
     const type = typeof p.type === "string" ? p.type.toLowerCase() : "";
     // Episodes are machine-written (D5); an extractor proposal claiming to be
     // one is exactly the self-narration failure mode the tool refuses too.
-    if (!(AUTHORABLE_MEMORY_TYPES as readonly string[]).includes(type)) continue;
+    if (!(AUTHORABLE_MEMORY_TYPES as readonly string[]).includes(type))
+      continue;
     if (
       typeof p.name !== "string" ||
       typeof p.description !== "string" ||
@@ -101,14 +105,34 @@ async function oneShot(
 ): Promise<string> {
   const provider = getProvider(input.provider as ProviderId);
   if (!provider) return "";
-  const result = await provider.execute({
-    prompt,
-    system,
-    model: input.model,
-    quietModelFallback: true,
-    maxTokens: 1024,
-  });
-  return result.content ?? "";
+  const startedAt = Date.now();
+  try {
+    const result = await provider.execute({
+      prompt,
+      system,
+      model: input.model,
+      quietModelFallback: true,
+      maxTokens: 1024,
+    });
+    input.onAuxiliaryCall?.({
+      purpose: "extraction",
+      provider: input.provider,
+      model: result.model || input.model,
+      duration_ms: Date.now() - startedAt,
+      outcome: "succeeded",
+      usage: result.usage,
+    });
+    return result.content ?? "";
+  } catch (error) {
+    input.onAuxiliaryCall?.({
+      purpose: "extraction",
+      provider: input.provider,
+      model: input.model,
+      duration_ms: Date.now() - startedAt,
+      outcome: "failed",
+    });
+    throw error;
+  }
 }
 
 /**

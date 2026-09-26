@@ -81,6 +81,16 @@ export interface KnownGap {
   target: string;
 }
 
+/** One memory in a case's frozen fixture store (spec 2026-09-25 §6). */
+export interface EvalMemory {
+  type: "user" | "feedback" | "project" | "reference" | "episode";
+  name: string;
+  description: string;
+  content: string;
+  tags?: string[];
+  supersedes?: string[];
+}
+
 export interface EvalCase {
   id: string;
   prompt: string;
@@ -196,6 +206,33 @@ export interface EvalCase {
    * lets it run in a mutating agent mode at all.
    */
   files?: Record<string, string>;
+  /**
+   * Memories seeded into the trial's own store (its sandbox project), frozen
+   * for the trial: extraction and consolidation are off, so both sides of an
+   * `eval ab` read the same corpus. Requires `files` — without a sandbox the
+   * store would be the developer's real one.
+   */
+  memories?: EvalMemory[];
+  /**
+   * Earlier sessions, run before `prompt` on the same sandbox project and
+   * therefore the same memory store (spec 2026-09-25 §7). Each is one prompt
+   * in its own fresh session, ended the way the daemon ends one — including
+   * the session-end extraction flush — so memory can learn between sessions.
+   * Only the final session (`prompt` + `followUps`) is scored; tokens and cost
+   * are summed across all of them. Requires `files`.
+   */
+  sessions?: string[];
+  /** Extra prompts in each earlier session. Used when an evaluation needs the
+   * production scheduler's minimum completed-turn gate to be meaningful. */
+  sessionFollowUps?: string[][];
+  /**
+   * Run the production consolidation path once after `sessions` and before the
+   * scored prompt. This is deliberately a fixture-only eval mechanism: the
+   * case supplies a protected project-local settings file that makes the pass
+   * due, while a paired A/B side can still disable it with
+   * `FREECODE_DISABLE_MEMORY_CONSOLIDATION=1`.
+   */
+  consolidateBeforeFinal?: boolean;
   /** Shell command run in the sandbox after the turn; exit code is the score. */
   verify?: string;
   /**
@@ -251,6 +288,78 @@ export interface TrialResult {
    * would silently read as a saving.
    */
   costUsd?: number;
+  /**
+   * True when `costUsd` is a lower bound: some call in the trial was unpriced
+   * or reported no usage (a failed memory call). Comparisons treat it like an
+   * unpriced trial.
+   */
+  costPartial?: boolean;
+  /**
+   * `costUsd` split by operation — foreground agent turns vs each memory
+   * operation (spec 2026-09-25 §5). `null` = ran, price unknown.
+   */
+  costByOperation?: Record<string, number | null>;
+  /** False when background memory work outlived the evaluation drain budget. */
+  memoryCostComplete?: boolean;
+  /** Unfinished memory jobs mean the full runtime cost is unknown. */
+  memoryJobsPending?: number;
+  /**
+   * Memories in the trial's store when it ended — set only for a case with
+   * `sessions`, where it is how much the earlier sessions taught.
+   */
+  memoriesCaptured?: number;
+  /**
+   * Memories in the trial's store at trial end. Reported for any case that
+   * had a store (seeded `memories` or earlier `sessions`), so a
+   * consolidation-comparison case can show the post-pass store size on both
+   * arms — without this, "candidate −4.7%" cost is the only signal that the
+   * merge actually changed anything.
+   */
+  storeSize?: number;
+  /**
+   * One entry per session of a multi-session trial, in order: the teaching
+   * sessions first, then the scored session. Each carries the session id,
+   * the store size and memories captured at session end, the session's own
+   * `costUsd`, and whether it was the scored session.
+   *
+   * Recorded for the savings-curve experiment (ROADMAP §4): a curve over
+   * `cumulativeCostUsd` at sessions 1, 3, 6, 9, 12 needs the per-session
+   * numbers to be honest, and `costUsd` alone attributes everything to the
+   * scored session — which is the only one carrying memory to the probe —
+   * so the teaching spend becomes invisible. `null` cost means the session
+   * had unpriced calls; the experiment treats it the same way `costUsd` does.
+   *
+   * Absent on a trial with a single session (no `sessions` in the case).
+   */
+  memorySnapshots?: Array<{
+    sessionId: string;
+    /** 0-based; the scored session sits at `sessions.length`. */
+    index: number;
+    /** Store size after this session's end-of-session flush. */
+    storeSize: number;
+    /** Memories the flush captured during this session. */
+    memoriesCaptured: number;
+    /** Per-session USD; `null` when the model is unpriced for any call in it. */
+    costUsd: number | null;
+    /** True for the final, scored session. */
+    scored: boolean;
+  }>;
+  /**
+   * Cumulative USD across the teaching sessions only — what memory cost to
+   * learn. The scored session's own USD is `costUsd` minus this, which is
+   * what an experiment reports as "cost to answer the probe". Absent on a
+   * trial with a single session.
+   */
+  teachingCostUsd?: number;
+  /** Result of the controlled pre-final consolidation, when requested. */
+  consolidation?: {
+    ran: boolean;
+    merged?: number;
+    promoted?: number;
+    episodes?: number;
+    deleted?: number;
+    ok?: boolean;
+  };
   /**
    * The session this trial ran in. Carried so an exported score can LINK to
    * the trace it graded (spec §12.4) — without it, scores and runs land in the

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as path from "path";
-import { DatasetError, parseSuite, staleUnmeasured } from "./dataset.js";
+import { DatasetError, loadSuite, parseSuite, staleUnmeasured } from "./dataset.js";
 import { FAILURE_CATEGORIES } from "./types.js";
 import type { EvalCase, FailureCategory } from "./types.js";
 
@@ -486,8 +486,9 @@ test("case ids are unique ACROSS suites, not just within one", () => {
 const CATEGORIES_WITHOUT_CASES: FailureCategory[] = [
   // `compaction-boundary` left this list once `env` + `expectCompaction` made
   // the path reachable on purpose rather than by accident (spec
-  // `2026-08-29-eval-case-registry.md` §9.1).
-  "memory-recall",
+  // `2026-08-29-eval-case-registry.md` §9.1). `memory-recall` left it with
+  // `evals/memory.jsonl`, once cases could carry a frozen `memories` fixture
+  // (spec `2026-09-25-memory-efficiency-and-graph-explorer.md` §6).
   "resume",
   "mcp-failure",
 ];
@@ -708,5 +709,215 @@ test("the shipped security suite is valid, sandboxed, and guards its checkers", 
         `${kase.id}: fixture URL host '${host}' must use the .invalid TLD`,
       );
     }
+  }
+});
+
+// -- memory fixtures (spec 2026-09-25 §6) -------------------------------------
+
+const MEM = `{"type":"project","name":"uses-pnpm","description":"d","content":"c"}`;
+const SANDBOXED = `"files":{"a.txt":"x"},"expectTool":"read"`;
+
+test("a memory fixture parses and keeps its fields", () => {
+  const [c] = parseSuite(
+    `{"id":"m","prompt":"p",${REQUIRED},${SANDBOXED},"memories":[{"type":"feedback","name":"no-force","description":"d","content":"c","tags":["git"]}]}`,
+  );
+  assert.deepEqual(c.memories, [
+    { type: "feedback", name: "no-force", description: "d", content: "c", tags: ["git"] },
+  ]);
+});
+
+test("memories without a sandbox are refused: that store is the real one", () => {
+  assert.throws(
+    () => parseSuite(`{"id":"m","prompt":"p",${REQUIRED},"expectTool":"read","memories":[${MEM}]}`),
+    (e: Error) => e instanceof DatasetError && /requires 'files'/.test(e.message),
+  );
+});
+
+test("a malformed memory is refused at load", () => {
+  const bad = [
+    `{"type":"secret","name":"x","description":"d","content":"c"}`,
+    `{"type":"project","name":"../escape","description":"d","content":"c"}`,
+    `{"type":"project","name":"x","description":"","content":"c"}`,
+    `{"type":"project","name":"x","description":"d","content":"c","tags":"git"}`,
+  ];
+  for (const m of bad) {
+    assert.throws(
+      () => parseSuite(`{"id":"m","prompt":"p",${REQUIRED},${SANDBOXED},"memories":[${m}]}`),
+      DatasetError,
+      m,
+    );
+  }
+  assert.throws(
+    () => parseSuite(`{"id":"m","prompt":"p",${REQUIRED},${SANDBOXED},"memories":[${MEM},${MEM}]}`),
+    /duplicate memory/,
+  );
+});
+
+// -- multi-session cases (spec 2026-09-25 §7) ----------------------------------
+
+test("earlier sessions parse, in order", () => {
+  const [c] = parseSuite(
+    `{"id":"s","prompt":"p",${REQUIRED},${SANDBOXED},"sessions":["first","second"]}`,
+  );
+  assert.deepEqual(c.sessions, ["first", "second"]);
+});
+
+test("sessions without a sandbox are refused: they would learn into the real store", () => {
+  assert.throws(
+    () => parseSuite(`{"id":"s","prompt":"p",${REQUIRED},"expectTool":"read","sessions":["a"]}`),
+    (e: Error) => e instanceof DatasetError && /requires 'files'/.test(e.message),
+  );
+});
+
+test("sessions must be a non-empty array of non-empty strings", () => {
+  for (const bad of [`[]`, `[""]`, `"a"`, `[1]`]) {
+    assert.throws(
+      () => parseSuite(`{"id":"s","prompt":"p",${REQUIRED},${SANDBOXED},"sessions":${bad}}`),
+      DatasetError,
+      bad,
+    );
+  }
+});
+
+// -- controlled consolidation comparison fixtures ---------------------------
+
+const CONSOLIDATION_SETTINGS =
+  `".freecode/settings.json":"{\\"memory\\":{\\"autoConsolidate\\":true,` +
+  `\\"consolidateMinSessions\\":1,\\"consolidateMinHours\\":0}}"`;
+
+test("a consolidation comparison fixture requires the real scheduler settings", () => {
+  const [c] = parseSuite(
+    `{"id":"c","prompt":"p",${REQUIRED},"expectTool":"read",` +
+      `"files":{"a.txt":"x",${CONSOLIDATION_SETTINGS}},` +
+      `"immutable":[".freecode/settings.json"],"memories":[${MEM}],` +
+      `"sessions":["teach"],"sessionFollowUps":[["confirm"]],"consolidateBeforeFinal":true}`,
+  );
+  assert.equal(c.consolidateBeforeFinal, true);
+  assert.deepEqual(c.sessionFollowUps, [["confirm"]]);
+});
+
+test("a consolidation comparison fixture rejects a private force shape", () => {
+  const base =
+    `{"id":"c","prompt":"p",${REQUIRED},${SANDBOXED},` +
+    `"memories":[${MEM}],"sessions":["teach"],"sessionFollowUps":[["confirm"]],"consolidateBeforeFinal":true}`;
+  assert.throws(() => parseSuite(base), /requires immutable/);
+  assert.throws(
+    () =>
+      parseSuite(
+        `{"id":"c","prompt":"p",${REQUIRED},"expectTool":"read",` +
+          `"files":{"a.txt":"x",${CONSOLIDATION_SETTINGS}},` +
+          `"immutable":[".freecode/settings.json"],"memories":[${MEM}],` +
+          `"sessions":["teach"],"sessionFollowUps":[["confirm"]],"consolidateBeforeFinal":false}`,
+      ),
+    /must be true/,
+  );
+});
+
+test("a sessions-only consolidation fixture needs no seeded memories", () => {
+  // The long-horizon harness (ROADMAP §4) has no pre-seeded corpus — learning
+  // happens through the teaching sessions themselves — so `memories` must be
+  // optional here, unlike the memory-consolidation suite above.
+  const [c] = parseSuite(
+    `{"id":"c","prompt":"p",${REQUIRED},"expectTool":"read",` +
+      `"files":{"a.txt":"x",${CONSOLIDATION_SETTINGS}},` +
+      `"immutable":[".freecode/settings.json"],` +
+      `"sessions":["teach"],"sessionFollowUps":[["confirm"]],"consolidateBeforeFinal":true}`,
+  );
+  assert.equal(c.consolidateBeforeFinal, true);
+  assert.equal(c.memories, undefined);
+});
+
+test("a consolidation fixture still requires sessions", () => {
+  assert.throws(
+    () =>
+      parseSuite(
+        `{"id":"c","prompt":"p",${REQUIRED},"expectTool":"read",` +
+          `"files":{"a.txt":"x",${CONSOLIDATION_SETTINGS}},` +
+          `"immutable":[".freecode/settings.json"],"consolidateBeforeFinal":true}`,
+      ),
+    /requires files and sessions/,
+  );
+});
+
+test("the shipped consolidation comparison suite is valid", () => {
+  // `loadSuite` resolves through `evalsDir()`, which is CWD-relative unless
+  // `FREECODE_EVALS_DIR` points at the repo's `evals/` — same setup the
+  // shipped-suite loops above use, kept inline so this test stays hermetic.
+  const dir = path.resolve(import.meta.dirname, "../../../../evals");
+  const previous = process.env.FREECODE_EVALS_DIR;
+  process.env.FREECODE_EVALS_DIR = dir;
+  try {
+    // Two cases: the production-endpoint merge fixture and the
+    // stale-then-corrected supersede fixture. They share the suite name so the
+    // runner groups them but pair them in two A/B runs (one per case id).
+    const cases = loadSuite("memory-consolidation");
+    assert.equal(cases.length, 2);
+    const ids = cases.map((c) => c.id).sort();
+    assert.deepEqual(ids, [
+      "consolidate-production-endpoint",
+      "consolidate-stale-then-corrected",
+    ]);
+  } finally {
+    if (previous === undefined) delete process.env.FREECODE_EVALS_DIR;
+    else process.env.FREECODE_EVALS_DIR = previous;
+  }
+});
+
+// -- long-horizon multi-session suite (spec 2026-09-25 §7) -------------------
+
+test("the shipped long-horizon suite is valid", () => {
+  // Same hermetic scoping as the consolidation pin above. Five cases spanning
+  // the §7 hypotheses: repeated-fact, late-correction, gap-survival,
+  // incremental-assembly, and a 12-session irrelevant-chatter control. The
+  // first four must exercise the teaching path; the control must not — that
+  // contrast is the savings-curve axis (item #4 in ROADMAP.md).
+  const dir = path.resolve(import.meta.dirname, "../../../../evals");
+  const previous = process.env.FREECODE_EVALS_DIR;
+  process.env.FREECODE_EVALS_DIR = dir;
+  try {
+    const cases = loadSuite("memory-long-horizon");
+    assert.equal(cases.length, 5);
+    const ids = cases.map((c) => c.id).sort();
+    assert.deepEqual(ids, [
+      "long-gap-survival",
+      "long-incremental-assembly",
+      "long-irrelevant-chatter-control",
+      "long-late-correction",
+      "long-repeated-fact",
+    ]);
+    const byId = new Map(cases.map((c) => [c.id, c]));
+    // The four teaching cases carry 12 sessions each, the incremental one 6
+    // (split facts across fewer sessions to grow knowledge piece-by-piece).
+    assert.equal(byId.get("long-repeated-fact")!.sessions.length, 12);
+    assert.equal(byId.get("long-late-correction")!.sessions.length, 12);
+    assert.equal(byId.get("long-gap-survival")!.sessions.length, 12);
+    assert.equal(byId.get("long-incremental-assembly")!.sessions.length, 6);
+    assert.equal(
+      byId.get("long-irrelevant-chatter-control")!.sessions.length,
+      12,
+    );
+    // Every session must carry a matching followUp array so `runTrialIn` can
+    // drive each session to a flush-worthy length.
+    for (const c of cases) {
+      assert.equal(
+        c.sessionFollowUps.length,
+        c.sessions.length,
+        `${c.id}: sessionFollowUps must align with sessions`,
+      );
+    }
+    // Long-horizon cases learn into a real MemStore seeded only through chat,
+    // so they MUST NOT ship a seeded `memories` payload — that would paper
+    // over the curve by handing the answer back. The control shares the
+    // constraint to keep its cost surface comparable to the teaching cases.
+    for (const c of cases) {
+      assert.equal(
+        c.memories?.length ?? 0,
+        0,
+        `${c.id}: long-horizon cases must not seed memories`,
+      );
+    }
+  } finally {
+    if (previous === undefined) delete process.env.FREECODE_EVALS_DIR;
+    else process.env.FREECODE_EVALS_DIR = previous;
   }
 });

@@ -376,7 +376,7 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
       // The efficiency totals — for a harness experiment these ARE the
       // result: quality holding is the precondition, cost moving is the point.
       const sum = (side: "baseline" | "candidate", paired = false) => {
-        let tokens = 0, turns = 0, repeated = 0;
+        let tokens = 0, turns = 0, repeated = 0, unpriced = 0;
         let cost: number | undefined;
         for (const c of report.cases) {
           const tally = paired ? c.comparable?.[side] : c[side];
@@ -385,8 +385,9 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
           turns += tally.turns;
           repeated += tally.repeatedCalls;
           if (tally.costUsd !== undefined) cost = (cost ?? 0) + tally.costUsd;
+          unpriced += tally.unpricedTrials ?? 0;
         }
-        return { tokens, turns, repeated, cost };
+        return { tokens, turns, repeated, cost, unpriced };
       };
       const rawB = sum("baseline"), rawC = sum("candidate");
       const b = sum("baseline", true);
@@ -396,13 +397,20 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
       console.log(`Infrastructure failures: baseline ${failures("baseline")}, candidate ${failures("candidate")}. Affected cases are inconclusive.`);
       const pct = (from: number, to: number) =>
         from > 0 ? ` (${(((to - from) / from) * 100).toFixed(1)}%)` : "";
-      const money = (v: number | undefined) =>
-        v === undefined ? "unpriced" : `$${v.toFixed(4)}`;
-      console.log(`All attempts: tokens ${rawB.tokens} → ${rawC.tokens} · cost ${money(rawB.cost)} → ${money(rawC.cost)} · turns ${rawB.turns} → ${rawC.turns}`);
+      // A side with unpriced trials has a lower-bound cost, not a total: say
+      // so, and never print a percentage that would read as a saving.
+      const money = (s: { cost: number | undefined; unpriced: number }) =>
+        s.cost === undefined
+          ? "unpriced"
+          : `${s.unpriced ? "≥" : ""}$${s.cost.toFixed(4)}` +
+            (s.unpriced ? ` (${s.unpriced} unpriced)` : "");
+      const costComparable = (x: typeof b, y: typeof b) =>
+        x.cost !== undefined && y.cost !== undefined && x.unpriced === 0 && y.unpriced === 0;
+      console.log(`All attempts: tokens ${rawB.tokens} → ${rawC.tokens} · cost ${money(rawB)} → ${money(rawC)} · turns ${rawB.turns} → ${rawC.turns}`);
       console.log(
         `Comparable pairs (${pairs}): tokens ${b.tokens} → ${cd.tokens}${pct(b.tokens, cd.tokens)} · ` +
-          `cost ${money(b.cost)} → ${money(cd.cost)}` +
-          (b.cost !== undefined && cd.cost !== undefined ? pct(b.cost, cd.cost) : "") +
+          `cost ${money(b)} → ${money(cd)}` +
+          (costComparable(b, cd) ? pct(b.cost!, cd.cost!) : "") +
           ` · turns ${b.turns} → ${cd.turns} · ` +
           `repeatedCalls ${b.repeated} → ${cd.repeated}`,
       );

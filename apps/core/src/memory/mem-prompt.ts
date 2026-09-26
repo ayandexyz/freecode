@@ -118,7 +118,7 @@ export function buildMemoryGuidanceBlock(): string {
     "history, CLAUDE.md — or anything else derivable by reading the project.",
     "",
     "Link related memories with [[their-name]]. Saving an existing name updates it;",
-    "use `memory(action: \"list\")` first if you are unsure one already covers it.",
+    'use `memory(action: "list")` first if you are unsure one already covers it.',
     "Relevant memories are surfaced to you automatically — you rarely need to list.",
   ].join("\n");
 }
@@ -130,77 +130,60 @@ export const MAX_MEMORY_BLOCK_BYTES = 2048;
 
 const bytes = (s: string): number => Buffer.byteLength(s, "utf-8");
 
-// Lean per-turn block for memories the graph service surfaced as relevant to
-// the current context. Kept compact (no full usage preamble) since it is
-// injected every turn; the "how to use memory" guidance lives elsewhere.
-//
-// Entries are rendered in the order given, which is cascade-score order
-// (`retrieveScored`). Once the byte budget is spent, the remainder degrade to a
-// one-line `- name — description`, and past that they are dropped: a weakly
-// relevant memory is worth its description even when it is not worth its body.
-export function renderRetrievedMemories(entries: MemoryEntry[]): string {
-  if (entries.length === 0) return "";
+export interface RenderedMemories {
+  /** The block appended to the request, or empty when nothing fits. */
+  text: string;
+  /** Exact entries represented in `text`, in retrieval relevance order. */
+  entries: MemoryEntry[];
+  /** Entries rendered with their full body. */
+  fullCount: number;
+  /** Entries degraded to a one-line summary (every episode is one). */
+  summaryCount: number;
+}
 
+function promptHeader(): string[] {
   // Measurement escape hatch (same pattern as FREECODE_EPHEMERAL_TAIL):
   // `FREECODE_MEMORY_PROMPT=legacy` reverts to the pre-2026-09-07 header so
   // `eval ab` can price the two wordings side by side. Re-read every call —
   // the ab runner flips it per side after boot.
-  const header =
-    process.env.FREECODE_MEMORY_PROMPT === "legacy"
-      ? [
-          "# Relevant memories",
-          "",
-          "Memories surfaced as relevant to the current request (verify before relying on them):",
-        ]
-      : [
-    "# Relevant memories",
-    "",
-    "Background recall, surfaced automatically. It may be stale — verify against",
-    "the code before relying on it, and when the code disagrees, the code wins.",
-    "Do NOT narrate, restate, or re-acknowledge these in your visible replies:",
-    "this block repeats on every request, so reacting to it each time floods the",
-    "transcript. Act on it silently; mention a memory only if the user asks.",
-  ];
+  return process.env.FREECODE_MEMORY_PROMPT === "legacy"
+    ? [
+        "# Relevant memories",
+        "",
+        "Memories surfaced as relevant to the current request (verify before relying on them):",
+      ]
+    : [
+        "# Relevant memories",
+        "",
+        "Background recall, surfaced automatically. It may be stale — verify against",
+        "the code before relying on it, and when the code disagrees, the code wins.",
+        "Do NOT narrate, restate, or re-acknowledge these in your visible replies:",
+        "this block repeats on every request, so reacting to it each time floods the",
+        "transcript. Act on it silently; mention a memory only if the user asks.",
+      ];
+}
 
-  // Citation footer (spec D12). Goes on this block, never on the cached
-  // guidance block: it must not enter the static prefix, and it is pointless
-  // when nothing was surfaced. Costs ~30 output tokens on turns that cite.
-  const footer = [
-    "",
-    "If any of the above shaped your answer, end your reply with:",
-    "<memory-used>type/name, type/name</memory-used>",
-  ];
+const CITATION_FOOTER = [
+  "",
+  "If any of the above shaped your answer, end your reply with:",
+  "<memory-used>type/name, type/name</memory-used>",
+];
 
-  // Group by type for readability, but keep each group in the order it arrived
-  // so the byte budget still sheds the least relevant entries first.
+function renderBlock(
+  entries: MemoryEntry[],
+  full: ReadonlySet<MemoryEntry>,
+  summaries: ReadonlySet<MemoryEntry>,
+): string {
   const byType = new Map<MemoryType, MemoryEntry[]>();
   for (const entry of entries) {
+    if (!full.has(entry) && !summaries.has(entry)) continue;
     const list = byType.get(entry.type) ?? [];
     list.push(entry);
     byType.set(entry.type, list);
   }
+  if (byType.size === 0) return "";
 
-  // Decide per entry whether it gets its body, before rendering anything: the
-  // budget is spent in relevance order across the whole block, not per section,
-  // otherwise the last section would always be the one that degrades.
-  //
-  // Episodes are never given a body (D5): they are one sentence by
-  // construction, so a full-body render is the same text with extra ceremony.
-  const full = new Set<MemoryEntry>();
-  let budget =
-    MAX_MEMORY_BLOCK_BYTES -
-    bytes(header.join("\n")) -
-    bytes(footer.join("\n"));
-  for (const entry of entries) {
-    if (entry.type === "episode") continue;
-    const cost = bytes(`\n\n### ${entry.name}\n${entry.content}`);
-    if (cost <= budget) {
-      full.add(entry);
-      budget -= cost;
-    }
-  }
-
-  const lines = [...header];
+  const lines = [...promptHeader()];
   for (const type of [
     "user",
     "feedback",
@@ -210,47 +193,82 @@ export function renderRetrievedMemories(entries: MemoryEntry[]): string {
     const typeEntries = byType.get(type) ?? [];
     if (typeEntries.length === 0) continue;
 
-    lines.push("");
-    lines.push(`## ${type.charAt(0).toUpperCase() + type.slice(1)}`);
+    lines.push("", `## ${type.charAt(0).toUpperCase() + type.slice(1)}`);
     for (const entry of typeEntries) {
       if (full.has(entry)) {
-        lines.push("");
-        lines.push(`### ${entry.name}`);
-        lines.push(entry.content);
+        lines.push("", `### ${entry.name}`, entry.content);
       } else {
-        const summary = `- ${entry.name} — ${entry.description}`;
-        // A summary line still has to fit; past that, drop silently. The model
-        // is told these are "surfaced as relevant", not "all of them".
-        if (bytes(summary) + 1 <= budget) {
-          lines.push(summary);
-          budget -= bytes(summary) + 1;
-        }
+        lines.push(`- ${entry.name} — ${entry.description}`);
       }
     }
   }
 
-  // Episodes render last and always as one dated line, newest first (D5). They
-  // answer "what happened, when", so the date is the load-bearing part and the
-  // ordering is chronological rather than by relevance.
   const episodes = (byType.get("episode") ?? [])
     .slice()
     .sort((a, b) => (b.happened_at ?? "").localeCompare(a.happened_at ?? ""));
   if (episodes.length > 0) {
-    const section = ["", "## Episode"];
-    let pending = bytes(section.join("\n"));
-    const rendered: string[] = [];
-    for (const e of episodes) {
-      const line = `- ${e.happened_at ?? "undated"} — ${e.description}`;
-      if (pending + bytes(line) + 1 > budget) break;
-      rendered.push(line);
-      pending += bytes(line) + 1;
-    }
-    if (rendered.length > 0) {
-      lines.push(...section, ...rendered);
-      budget -= pending;
+    lines.push("", "## Episode");
+    for (const entry of episodes) {
+      // The name is the citation identity (`episode/<name>`), same shape as
+      // the other types' summary lines; without it an episode that shaped an
+      // answer could never be credited.
+      lines.push(
+        `- ${entry.name} (${entry.happened_at ?? "undated"}) — ${entry.description}`,
+      );
     }
   }
 
-  lines.push(...footer);
+  lines.push(...CITATION_FOOTER);
   return lines.join("\n");
+}
+
+// Lean per-turn block for memories the graph service surfaced as relevant to
+// the current context. Kept compact (no full usage preamble) since it is
+// injected every turn; the "how to use memory" guidance lives elsewhere.
+//
+// Entries are rendered in the order given, which is cascade-score order
+// (`retrieveScored`). Once the byte budget is spent, the remainder degrade to a
+// one-line `- name — description`, and past that they are dropped: a weakly
+// relevant memory is worth its description even when it is not worth its body.
+export function renderRetrievedMemoriesDetailed(
+  entries: MemoryEntry[],
+): RenderedMemories {
+  if (entries.length === 0) {
+    return { text: "", entries: [], fullCount: 0, summaryCount: 0 };
+  }
+
+  // Try entries in retrieval relevance order and validate each prospective
+  // block as a whole. This accounts for all section headings, separators, and
+  // the citation footer instead of approximating their byte cost.
+  const full = new Set<MemoryEntry>();
+  const summaries = new Set<MemoryEntry>();
+  for (const entry of entries) {
+    const preferFull = entry.type !== "episode";
+    if (preferFull) {
+      full.add(entry);
+      if (
+        bytes(renderBlock(entries, full, summaries)) <= MAX_MEMORY_BLOCK_BYTES
+      )
+        continue;
+      full.delete(entry);
+    }
+
+    summaries.add(entry);
+    if (bytes(renderBlock(entries, full, summaries)) <= MAX_MEMORY_BLOCK_BYTES)
+      continue;
+    summaries.delete(entry);
+  }
+
+  const text = renderBlock(entries, full, summaries);
+  return {
+    text,
+    entries: entries.filter((entry) => full.has(entry) || summaries.has(entry)),
+    fullCount: full.size,
+    summaryCount: summaries.size,
+  };
+}
+
+/** Backward-compatible string API for callers that do not need attribution. */
+export function renderRetrievedMemories(entries: MemoryEntry[]): string {
+  return renderRetrievedMemoriesDetailed(entries).text;
 }

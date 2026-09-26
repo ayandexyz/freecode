@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MemoryStore } from "../mem-store.js";
 import { MemoryGraphService } from "./index.js";
+import { drainMemoryJobs } from "../background-jobs.js";
 import type { MemoryEntry } from "../mem-types.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -62,6 +63,10 @@ test("cold turn returns freshly retrieved memories within budget", async () => {
   try {
     const first = await service.prepareMemories("S", "database schema");
     assert.deepEqual(names(first), ["database schema"]);
+    assert.deepEqual(service.preparationFor("S"), {
+      state: "fresh",
+      judgeDecision: "not_configured",
+    });
   } finally {
     cleanup();
   }
@@ -86,10 +91,12 @@ test("slow retrieval: cold turn is empty, next turn is one-turn-behind filled", 
   try {
     const cold = await service.prepareMemories("S", "slow topic");
     assert.deepEqual(names(cold), [], "cold turn returns empty when retrieval exceeds budget");
+    assert.equal(service.preparationFor("S").state, "pending");
 
     await sleep(300); // let the background retrieval land
     const warm = await service.prepareMemories("S", "slow topic");
     assert.deepEqual(names(warm), ["slow topic"], "next turn injects the now-ready set");
+    assert.equal(service.preparationFor("S").state, "fresh");
   } finally {
     cleanup();
   }
@@ -122,6 +129,26 @@ test("disposeSession drops a session's cache (next turn is cold again)", async (
     await service.prepareMemories("S", "q");
     // A dropped cache means we retrieved again for the same query.
     assert.ok(calls.includes("q"));
+  } finally {
+    cleanup();
+  }
+});
+
+test("a prefetch that outlives the cold budget is drainable", async () => {
+  // The judge runs inside this prefetch. If it were untracked, an eval trial
+  // would stop waiting before the judge's cost was recorded and still report
+  // a complete total (spec 2026-09-25 §5).
+  const { service, cleanup } = svc(200); // well past the 60ms cold budget
+  try {
+    await service.prepareMemories("drain-S", "slow topic");
+    assert.equal(service.preparationFor("drain-S").state, "pending");
+
+    const short = await drainMemoryJobs("drain-S", 10);
+    assert.deepEqual(short, { pending: 1, timedOut: true });
+
+    const full = await drainMemoryJobs("drain-S", 2_000);
+    assert.deepEqual(full, { pending: 0, timedOut: false });
+    assert.equal(service.preparationFor("drain-S").state, "fresh");
   } finally {
     cleanup();
   }

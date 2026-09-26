@@ -28,7 +28,11 @@ import type {
   HookContext,
   AgentMode,
 } from "./types.js";
-import type { SystemBlock, ExecuteUsage, ExecuteOptions } from "../providers/types.js";
+import type {
+  SystemBlock,
+  ExecuteUsage,
+  ExecuteOptions,
+} from "../providers/types.js";
 import { subscriptionAuth } from "../providers/config.js";
 import {
   getCacheWarmer,
@@ -78,7 +82,12 @@ import { logger } from "../utils/logger.js";
 import { envInt } from "../utils/env.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
-import { getTodos, isOpenTodo, renderTodoPromptBlock, type TodoItem } from "../tools/todo.js";
+import {
+  getTodos,
+  isOpenTodo,
+  renderTodoPromptBlock,
+  type TodoItem,
+} from "../tools/todo.js";
 import {
   MAX_TRUNCATED_TOOL_RETRIES,
   repeatedCallReminder,
@@ -115,12 +124,14 @@ import { ensureWatching } from "../context/tree-watcher.js";
 import { MemoryService } from "../compaction/index.js";
 import { getMaxTurnTokens } from "../compaction/tokens.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
-import { renderRetrievedMemories } from "../memory/mem-prompt.js";
+import { renderRetrievedMemoriesDetailed } from "../memory/mem-prompt.js";
 import { CitationStreamFilter, parseCitations } from "../memory/citations.js";
 import { runConsolidationIfDue } from "../memory/consolidate-run.js";
 import { getSessionManager } from "../session/manager.js";
 import type { MemoryEntry } from "../memory/mem-types.js";
 import { extractMemories } from "../memory/extract.js";
+import { trackMemoryJob } from "../memory/background-jobs.js";
+import type { MemoryAuxiliaryCall } from "../memory/auxiliary.js";
 import { loadMemorySettings, shouldExtract } from "../memory/extract-policy.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
 import type { CompactOptions } from "../compaction/service.js";
@@ -474,12 +485,28 @@ export class AgentLoop {
   private lastVerifierReport: string | undefined;
   // Last rendered memory block, so a run reset clears stale injected memory.
   private lastMemoryBlock: string | undefined = undefined;
+  // Candidate count remains distinct from rendered count: the byte budget can
+  // omit a relevant candidate, and only the latter reaches a provider request.
+  private lastMemoryCandidateCount = 0;
+  private lastMemoryPreparation: {
+    state: "fresh" | "carried" | "pending" | "empty" | "unjudged" | "disabled";
+    judgeDecision:
+      | "judge_ran"
+      | "disabled"
+      | "no_candidates"
+      | "no_provider"
+      | "unparseable"
+      | "failed"
+      | "cadence_carry"
+      | "not_configured";
+  } = { state: "empty", judgeDecision: "not_configured" };
   // User text a memory_injected notice was last emitted for — dedupes the
   // stream event across the many inner-loop turns of one user request.
   private lastMemoryEmittedFor: string | undefined = undefined;
   // What the last provider call was shown, so a citation in its reply can be
   // verified against it rather than trusted (spec D12).
   private lastInjectedMemories: MemoryEntry[] = [];
+  private lastMemoryRenderCounts = { fullCount: 0, summaryCount: 0 };
   // Ids already credited for the current injection. A model that repeats the
   // citation tag across several inner-loop replies must bump useCount once per
   // show, or useCount/injectedCount stops being a precision estimate.
@@ -965,7 +992,10 @@ export class AgentLoop {
             const last = this.recentToolCalls[this.recentToolCalls.length - 1];
             if (last) {
               this.pendingReminders.push(
-                repeatedCallReminder(last.tool, this.state.loopHealth.repeatedTools + 1),
+                repeatedCallReminder(
+                  last.tool,
+                  this.state.loopHealth.repeatedTools + 1,
+                ),
               );
             }
           }
@@ -1576,15 +1606,20 @@ export class AgentLoop {
       return;
     }
 
-    void extractMemories({
-      transcript: text,
-      projectPath: this.state.projectPath,
-      provider,
-      sessionId: this.state.sessionId,
-      // No model: extraction is a small classification job, so let the provider
-      // pick its default rather than billing the session's (possibly large)
-      // main model for it.
-    }).catch(() => {
+    const turnId = `turn-${this.state.turnCount}`;
+    void trackMemoryJob(
+      this.state.sessionId,
+      extractMemories({
+        transcript: text,
+        projectPath: this.state.projectPath,
+        provider,
+        sessionId: this.state.sessionId,
+        onAuxiliaryCall: (call) => this.recordMemoryAuxiliary(turnId, call),
+        // No model: extraction is a small classification job, so let the provider
+        // pick its default rather than billing the session's (possibly large)
+        // main model for it.
+      }),
+    ).catch(() => {
       // extractMemories already swallows; this guards the promise itself.
     });
   }
@@ -1595,26 +1630,52 @@ export class AgentLoop {
   private kickMemoryConsolidation(provider: string): void {
     if (!this.memoryExtraction || this.abort.signal.aborted) return;
 
-    void (async () => {
-      try {
-        const manager = await getSessionManager();
-        const metas = await manager.list({
-          projectPath: this.state.projectPath,
-        });
-        await runConsolidationIfDue({
-          projectPath: this.state.projectPath,
-          provider,
-          sessionId: this.state.sessionId,
-          sessions: metas.map((m) => ({
-            id: m.id,
-            lastTurnAt: m.lastTurnAt,
-            turnCount: m.turnCount,
-          })),
-        });
-      } catch (error) {
-        logger.debug("[MemoryConsolidate] could not start", { error });
-      }
-    })();
+    const turnId = `turn-${this.state.turnCount}`;
+    void trackMemoryJob(
+      this.state.sessionId,
+      (async () => {
+        try {
+          const manager = await getSessionManager();
+          const metas = await manager.list({
+            projectPath: this.state.projectPath,
+          });
+          await runConsolidationIfDue({
+            projectPath: this.state.projectPath,
+            provider,
+            sessionId: this.state.sessionId,
+            sessions: metas.map((m) => ({
+              id: m.id,
+              lastTurnAt: m.lastTurnAt,
+              turnCount: m.turnCount,
+            })),
+            onAuxiliaryCall: (call) => this.recordMemoryAuxiliary(turnId, call),
+          });
+        } catch (error) {
+          logger.debug("[MemoryConsolidate] could not start", { error });
+        }
+      })(),
+    );
+  }
+
+  private recordMemoryAuxiliary(
+    turnId: string | undefined,
+    call: MemoryAuxiliaryCall,
+  ): void {
+    this.recorder.recordMemoryAuxiliary(turnId, {
+      purpose: call.purpose,
+      provider: call.provider,
+      model: call.model,
+      duration_ms: call.duration_ms,
+      outcome: call.outcome,
+      inputTokens: call.usage?.inputTokens,
+      outputTokens: call.usage?.outputTokens,
+      cacheReadTokens: call.usage?.cacheReadInputTokens,
+      cacheWriteTokens:
+        call.usage?.cacheWriteInputTokens ??
+        call.usage?.cacheCreationInputTokens,
+      reasoningTokens: call.usage?.reasoningTokens,
+      authMode: subscriptionAuth(call.provider),
+    });
   }
 
   private async executeTurn(
@@ -1705,29 +1766,52 @@ export class AgentLoop {
       // Omitting the context is the judge's designed off switch (graph/index.ts
       // "omit it and judging is skipped entirely"), so a provider that cannot
       // afford the call reuses that path rather than adding a second one.
+      const memorySettings = loadMemorySettings(context.projectPath);
       const judgeEnabled =
-        loadMemorySettings(context.projectPath).retrievalJudge &&
+        memorySettings.retrievalJudge &&
         allowsAuxiliaryCalls(provider as ProviderId);
-      const retrievedMemories = await memGraph.prepareMemories(
-        this.state.sessionId,
-        currentUserText,
-        judgeEnabled ? { provider, model } : undefined,
-      );
-      this.lastMemoryBlock = renderRetrievedMemories(retrievedMemories);
+      // The judge is asynchronous and can finish after later turns begin, so
+      // capture its originating turn rather than reading mutable loop state in
+      // the callback.
+      const memoryTurnId = `turn-${this.state.turnCount}`;
+      // Automatic recall off (`memory.autoRecall` / FREECODE_DISABLE_MEMORY_RECALL):
+      // no retrieval, no judge call, no block. The `memory` tool and the static
+      // guidance stay, so this isolates what automatic injection is worth.
+      const retrievedMemories = !memorySettings.autoRecall
+        ? []
+        : await memGraph.prepareMemories(
+            this.state.sessionId,
+            currentUserText,
+            judgeEnabled
+              ? {
+                  provider,
+                  model,
+                  onAuxiliaryCall: (call) =>
+                    this.recordMemoryAuxiliary(memoryTurnId, call),
+                }
+              : undefined,
+          );
+      const renderedMemories =
+        renderRetrievedMemoriesDetailed(retrievedMemories);
+      this.lastMemoryCandidateCount = retrievedMemories.length;
+      this.lastMemoryPreparation = memorySettings.autoRecall
+        ? memGraph.preparationFor(this.state.sessionId)
+        : { state: "disabled", judgeDecision: "disabled" };
+      this.lastMemoryBlock = renderedMemories.text;
       const memoryBlock = this.lastMemoryBlock;
       // UI visibility for the otherwise-silent auto-injection path: fire once
       // per user message that gets a hit (not every inner-loop turn — the
       // dedup key is the query text, so repeat calls with an unchanged
       // request don't spam the notice).
       if (
-        retrievedMemories.length > 0 &&
+        renderedMemories.entries.length > 0 &&
         currentUserText !== this.lastMemoryEmittedFor
       ) {
         this.lastMemoryEmittedFor = currentUserText;
         this.citedThisInjection.clear();
         BusEvents.stream(this.state.sessionId, {
           type: "memory_injected",
-          memories: retrievedMemories.map((e) => ({
+          memories: renderedMemories.entries.map((e) => ({
             type: e.type,
             name: e.name,
           })),
@@ -1735,11 +1819,15 @@ export class AgentLoop {
         // Usage attribution (spec D12) counts *shows*, not inner-loop turns —
         // it shares the once-per-user-message key above so injectedCount stays
         // a denominator you can divide useCount by.
-        memGraph.recordInjected(retrievedMemories);
+        memGraph.recordInjected(renderedMemories.entries);
       }
       // What was on screen when the model answered, so a citation in the reply
       // can be checked against it rather than trusted (D12).
-      this.lastInjectedMemories = retrievedMemories;
+      this.lastInjectedMemories = renderedMemories.entries;
+      this.lastMemoryRenderCounts = {
+        fullCount: renderedMemories.fullCount,
+        summaryCount: renderedMemories.summaryCount,
+      };
       // Persistent task list: re-rendered from the todo store every turn (not
       // from history), so the plan survives context compaction and a process
       // restart / session.resume. The model never loses remaining work.
@@ -2272,6 +2360,23 @@ export class AgentLoop {
     const turnId = `turn-${this.state.turnCount}`;
     const resolvedModel = model ?? "(provider default)";
     const startedAt = Date.now();
+    const memoryBlock = this.lastMemoryBlock ?? "";
+    const injected =
+      memoryBlock.length > 0 && ephemeralTail.includes(memoryBlock);
+    const blockBytes = injected ? Buffer.byteLength(memoryBlock, "utf-8") : 0;
+    this.recorder.recordMemoryExposure(turnId, {
+      blockBytes,
+      // This is deliberately only a display diagnostic. It must never be
+      // summed into provider usage, which already includes the full block.
+      estimatedTokens: Math.ceil(blockBytes / 4),
+      candidateCount: this.lastMemoryCandidateCount,
+      renderedCount: injected ? this.lastInjectedMemories.length : 0,
+      fullCount: injected ? this.lastMemoryRenderCounts.fullCount : 0,
+      summaryCount: injected ? this.lastMemoryRenderCounts.summaryCount : 0,
+      injected,
+      preparation: this.lastMemoryPreparation.state,
+      judgeDecision: this.lastMemoryPreparation.judgeDecision,
+    });
     this.recorder.recordModelRequest(turnId, {
       provider,
       model: resolvedModel,
@@ -2516,14 +2621,16 @@ export class AgentLoop {
           inputTokens: u?.inputTokens,
           outputTokens: u?.outputTokens,
           cacheReadTokens: u?.cacheReadInputTokens,
-          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
+          cacheWriteTokens:
+            u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
           authMode: subscriptionAuth(r.provider),
         });
         recordDailyUsage({
           inputTokens: u?.inputTokens ?? 0,
           outputTokens: u?.outputTokens ?? 0,
           cacheReadTokens: u?.cacheReadInputTokens ?? 0,
-          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens ?? 0,
+          cacheWriteTokens:
+            u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens ?? 0,
         });
         // The cold-cache warning keys off the last send; a refresh is one.
         noteSendAndCheckCold(sessionId, r.provider);
@@ -2532,10 +2639,12 @@ export class AgentLoop {
           state: "warm",
           message: `Prompt cache refreshed (${r.phase}, ~$${r.decision.warmCostUsd.toFixed(3)})`,
           cacheReadTokens: u?.cacheReadInputTokens,
-          cacheWriteTokens: u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
+          cacheWriteTokens:
+            u?.cacheWriteInputTokens ?? u?.cacheCreationInputTokens,
         });
       },
-      onStopped: (reason) => logger.debug(`[CacheWarmer] ${sessionId}: ${reason}`),
+      onStopped: (reason) =>
+        logger.debug(`[CacheWarmer] ${sessionId}: ${reason}`),
     });
   }
 
@@ -3213,14 +3322,20 @@ export class AgentLoop {
     if (settings.confidenceGate.enabled && spikes.length > 0) {
       this.pendingReminders.push(
         confidenceSpikeReminder(
-          spikes as Extract<(typeof signals)[number], { kind: "confidence_spike" }>[],
+          spikes as Extract<
+            (typeof signals)[number],
+            { kind: "confidence_spike" }
+          >[],
         ),
       );
     }
     if (settings.hillClimbGate.enabled && lows.length > 0) {
       this.pendingReminders.push(
         hillClimbReminder(
-          lows as Extract<(typeof signals)[number], { kind: "hill_climb_low" }>[],
+          lows as Extract<
+            (typeof signals)[number],
+            { kind: "hill_climb_low" }
+          >[],
           settings.hillClimbGate.threshold,
         ),
       );
@@ -3260,7 +3375,9 @@ export class AgentLoop {
   private async drainSteers(): Promise<boolean> {
     if (this.pendingSteers.length === 0) return false;
     const all = process.env.FREECODE_STEERING_MODE === "all";
-    const batch = all ? this.pendingSteers.splice(0) : this.pendingSteers.splice(0, 1);
+    const batch = all
+      ? this.pendingSteers.splice(0)
+      : this.pendingSteers.splice(0, 1);
     const turnId = `turn-${this.state.turnCount}`;
     // The user changed the task, so the last poke's "no progress"
     // fingerprint no longer describes this list — an unchanged list after a
@@ -3347,7 +3464,11 @@ export class AgentLoop {
     // keep working (or silently give up on an open list).
     const notice = pokeNotice(decision, remaining, max, this.pokeState.pokes);
     if (notice) {
-      BusEvents.stream(this.state.sessionId, { type: "notice", level: "info", content: notice });
+      BusEvents.stream(this.state.sessionId, {
+        type: "notice",
+        level: "info",
+        content: notice,
+      });
       logger.debug(`[AgentLoop] Auto-poke: ${notice}`);
     }
     return decision.poke;
@@ -3589,7 +3710,10 @@ export class AgentLoop {
    * checkpoint is a convenience, and failing to take one must not fail the
    * turn it was taken for (spec §4.1).
    */
-  private async captureCheckpoint(entryId: string, prompt: string): Promise<void> {
+  private async captureCheckpoint(
+    entryId: string,
+    prompt: string,
+  ): Promise<void> {
     if (!this.checkpointsEnabled) {
       this.recorder.recordCheckpointSkipped("subagent");
       return;

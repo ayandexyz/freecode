@@ -32,6 +32,8 @@ export interface SideTotals {
   repeatedCalls: number;
   /** `undefined` when nothing priced — "free" and "unknown" stay distinct. */
   costUsd?: number;
+  /** Trials with no price; non-zero makes `costUsd` a lower bound. */
+  unpricedTrials?: number;
 }
 
 export interface ExperimentRecord {
@@ -95,6 +97,10 @@ function totalsOf(cases: AbCaseResult[], side: "baseline" | "candidate") {
     totals.repeatedCalls += c[side].repeatedCalls;
     if (c[side].costUsd !== undefined) {
       totals.costUsd = (totals.costUsd ?? 0) + c[side].costUsd!;
+    }
+    if (c[side].unpricedTrials) {
+      totals.unpricedTrials =
+        (totals.unpricedTrials ?? 0) + c[side].unpricedTrials!;
     }
   }
   return totals;

@@ -134,3 +134,43 @@ test("parseKeepIndices digs the array out of a wrapper object", () => {
   assert.deepEqual(parseKeepIndices('{"keep":[1]}', 3), [1]);
   assert.deepEqual(parseKeepIndices("The answer is [2].", 3), [2]);
 });
+
+// -- judge input (spec 2026-09-25 §6.1: the judge dropped relevant rules) ----
+
+async function promptFor(candidates: MemoryEntry[]): Promise<{ system: string; prompt: string }> {
+  let seen = { system: "", prompt: "" };
+  await judgeMemories({
+    query: "node test.mjs fails with module not found. Make it pass.",
+    candidates,
+    provider: "test",
+    complete: async (system, prompt) => {
+      seen = { system, prompt };
+      return "[]";
+    },
+  });
+  return seen;
+}
+
+test("the judge sees a short excerpt of each body, not the description alone", async () => {
+  const rule: MemoryEntry = {
+    ...mem("never-npm-install"),
+    description: "Never run npm install here",
+    content: "Dependencies are vendored in vendor/. Import from ./vendor/<name>/index.mjs instead.",
+  };
+  const { prompt } = await promptFor([rule]);
+  assert.match(prompt, /^1\. \[project\] Never run npm install here$/m, "numbered line unchanged");
+  assert.match(prompt, /^ {3}Dependencies are vendored in vendor\//m, "excerpt on its own line");
+});
+
+test("the excerpt is bounded and single-line", async () => {
+  const long: MemoryEntry = { ...mem("long"), content: `first line\n\n${"x".repeat(5000)}` };
+  const { prompt } = await promptFor([long]);
+  const excerpt = prompt.split("\n").find((l) => l.startsWith("   "))!;
+  assert.ok(excerpt.length <= 3 + 160, `excerpt was ${excerpt.length} chars`);
+  assert.ok(excerpt.startsWith("   first line x"), "newlines collapsed");
+});
+
+test("the judge is told that rules constraining the work count as relevant", async () => {
+  const { system } = await promptFor([mem("a")]);
+  assert.match(system, /convention|forbidden|how the work/i);
+});

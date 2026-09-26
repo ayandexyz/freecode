@@ -742,3 +742,64 @@ anchors). Detector gained a one-sample deferral for provider blips
       case's verdict depends on the code, not on what the developer did
       yesterday. Until then, cross-day gate deltas on trajectory are partly
       memory-store drift.
+
+## Found running the release gate on feat/memory-efficiency (2026-09-26)
+
+- [ ] **`bash` runs in the process cwd, not the session's project.**
+      `agent/loop.ts:3043` builds the tool context with `cwd: process.cwd()`
+      beside `projectPath: this.state.projectPath` (unchanged since May), and
+      `tools/bash.ts` runs in `ctx.cwd`. So a sandboxed eval case's shell
+      commands execute in the developer's repo — a `coding` trial on
+      2026-09-26 ran `node dump.mjs | grep -c ERR > answer.txt` and wrote
+      `answer.txt` (`0`) into the repo root ("Cannot find module
+      '/home/ayan-de/Projects/freecode/dump.mjs'"). The case still passed via
+      absolute paths, so scores were unaffected, but the isolation `CLAUDE.md`
+      describes for fixture cases does not hold for `bash`. In production it
+      bites a daemon serving a session whose `projectPath` differs from where
+      it started. Fix is `cwd: this.state.projectPath ?? process.cwd()`
+      (and the orchestrator default); it changes every `bash` call's cwd, so
+      it wants a test plus an `eval ab` per `CLAUDE.md`.
+- [ ] **The judged gate compares across a judge switch.** `baselineFor`
+      (`eval/report.ts:100`) refuses a baseline from a different `authMode`
+      but not from a different `judge`. With Gemini out of quota the judged
+      gate ran on `anthropic/claude-haiku-4-5` and reported "regression: 4/6
+      vs baseline 6/6" against Gemini-graded history. Key the baseline on
+      `SuiteReport.judge` the way it already keys on `authMode`.
+- [ ] **Haiku 4.5 misapplies the `answer-quality` rubric.** It scored
+      `admit-what-is-not-there` 1–2 for correct, tool-free answers ("made
+      claims without reading any files") that Gemini scored 5/5 seventeen
+      times; the rubric says to penalise only a claim the tool list
+      *contradicts*. Do not use it as the judged-gate judge until
+      `freecode eval calibrate` has human labels showing it agrees.
+- [ ] **`frustrated-user-gets-no-padding` answers from `CLAUDE.md` without
+      reading.** 3/3 tool-free with memory recall off too, occasionally wrong
+      ("nothing is written to history") or self-contradicting ("No… Yes") —
+      the same flakiness Gemini scored 0/1/3 on 2026-09-06/08. Pre-existing,
+      not this branch; a candidate for `evals/quarantine.txt` with that reason.
+
+## Found running the memory long-horizon savings-curve experiment (2026-09-26)
+
+`evals/memory-long-horizon.jsonl`, `long-incremental-assembly` (three tax
+rates taught across six sessions, one probe that needs all three). Its fixture
+confound — `regions.mjs` was immutable although the teaching says "the rate
+table lives in regions.mjs" — is fixed (`595b9dd3`), and an oracle solution
+passes `verify`. The re-run (`evals/experiments.jsonl`
+`2026-09-26-memory-long-horizon-3`, rejected) is still 0/3 vs 0/3, now for
+memory reasons. Evidence is store sizes plus the model's stated recall; the
+stores are deleted after each trial, so contents were not read directly —
+set `FREECODE_EVAL_KEEP_SANDBOX=1` and keep the store to confirm.
+
+- [ ] **The last-taught fact is not retained.** Session 6 ("the region table
+      also needs ap-northeast-1 at 10 percent") grew the store in 0 of 3
+      candidate trials. In the one trial where consolidation did nothing, the
+      model used the first two rates correctly and had no ap-northeast-1 —
+      so the fact was either never extracted or overwritten in place under an
+      existing memory name (`extract.ts` saves over a same-name entry rather
+      than merging content). Distinguish the two before fixing.
+- [ ] **Consolidation lost a fact it had.** In 2 of 3 candidate trials the
+      forced pass merged 2 and deleted 2 memories right before the scored
+      turn, and the probe then used a rate taught earlier wrongly
+      (us-east-1 = 0) or not at all (eu-west-2 missing). Same shape as spec
+      §7.2's rejected `consolidate-production-endpoint` result — a merge that
+      drops content from the entries it folds together. Check what the merge
+      prompt keeps when combining entries that each hold part of a table.

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   shouldExtract,
   resetExtractPolicy,
+  loadMemorySettings,
   DEFAULT_INTERVAL_RUNS,
 } from "./extract-policy.js";
 
@@ -245,5 +246,79 @@ test("force does NOT bypass 'the model already saved this run'", () => {
     assert.match(decision.reason, /already saved/);
   } finally {
     cleanup();
+  }
+});
+
+// -- automatic recall switch (spec 2026-09-25 §6) -----------------------------
+
+test("automatic recall is on by default", () => {
+  const { root, cleanup } = project();
+  try {
+    assert.equal(loadMemorySettings(root).autoRecall, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("settings can turn automatic recall off", () => {
+  const { root, cleanup } = project({ memory: { autoRecall: false } });
+  try {
+    assert.equal(loadMemorySettings(root).autoRecall, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("the recall env var wins over settings, and is re-read per call", () => {
+  // Re-read per call is what lets `eval ab` flip it between trials.
+  const { root, cleanup } = project({ memory: { autoRecall: true } });
+  try {
+    process.env.FREECODE_DISABLE_MEMORY_RECALL = "1";
+    assert.equal(loadMemorySettings(root).autoRecall, false);
+    delete process.env.FREECODE_DISABLE_MEMORY_RECALL;
+    assert.equal(loadMemorySettings(root).autoRecall, true);
+  } finally {
+    delete process.env.FREECODE_DISABLE_MEMORY_RECALL;
+    cleanup();
+  }
+});
+
+// -- retrieval judge default (spec 2026-09-25 §6.2) ---------------------------
+// Off by default: head to head the fixed judge was quality- and cost-neutral,
+// and it is a network call. The env var is two-way so `eval ab` can still
+// select either side whatever the settings file says.
+
+test("the retrieval judge is off by default", () => {
+  const { root, cleanup } = project();
+  try {
+    assert.equal(loadMemorySettings(root).retrievalJudge, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("settings can turn the judge on", () => {
+  const { root, cleanup } = project({ memory: { retrievalJudge: true } });
+  try {
+    assert.equal(loadMemorySettings(root).retrievalJudge, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("FREECODE_DISABLE_MEMORY_JUDGE is two-way and beats settings", () => {
+  const on = project({ memory: { retrievalJudge: true } });
+  const off = project();
+  try {
+    process.env.FREECODE_DISABLE_MEMORY_JUDGE = "1";
+    assert.equal(loadMemorySettings(on.root).retrievalJudge, false);
+    process.env.FREECODE_DISABLE_MEMORY_JUDGE = "0";
+    assert.equal(loadMemorySettings(off.root).retrievalJudge, true);
+    process.env.FREECODE_DISABLE_MEMORY_JUDGE = "";
+    assert.equal(loadMemorySettings(off.root).retrievalJudge, false, "empty is unset");
+  } finally {
+    delete process.env.FREECODE_DISABLE_MEMORY_JUDGE;
+    on.cleanup();
+    off.cleanup();
   }
 });

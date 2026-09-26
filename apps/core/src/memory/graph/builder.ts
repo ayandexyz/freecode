@@ -23,7 +23,7 @@ function tagId(tag: string): string {
 // Resolve a bare `[[name]]` / supersedes name to a memory id. Names are unique
 // per type; if the same name exists under multiple types, pick deterministically
 // by MEMORY_TYPES order so rebuilds are stable.
-function resolveName(
+export function resolveName(
   name: string,
   byName: Map<string, MemoryEntry[]>,
 ): string | undefined {

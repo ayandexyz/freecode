@@ -6,7 +6,12 @@
 // errored is called out rather than left for the reader to spot.
 // =============================================================================
 
-import { formatUsd, pricesAsOf, totalUsd } from "../providers/pricing.js";
+import { formatUsd, pricesAsOf } from "../providers/pricing.js";
+import {
+  auxiliaryUsageUnavailable,
+  traceCost,
+  traceCostByOperation,
+} from "./cost.js";
 import { HANG_THRESHOLD_MS, type ModelSpan, type Trace } from "./trace.js";
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
@@ -115,6 +120,16 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
     if (span.duration_ms < threshold) continue;
     rows.push({ at: span.startedAt, lines: renderModelSpan(span) });
   }
+  for (const span of trace.auxiliarySpans) {
+    if (span.duration_ms < threshold) continue;
+    rows.push({
+      at: span.startedAt,
+      lines: [
+        `${dim(clock(span.startedAt))} ${dim(formatDuration(span.duration_ms).padStart(7))} ` +
+          `${dim("memory ")}${span.purpose} ${dim(`${span.provider}/${span.model ?? "unknown"}`)}`,
+      ],
+    });
+  }
   if (opts.showTools && threshold === 0) {
     for (const span of trace.toolSpans) {
       rows.push({
@@ -143,14 +158,36 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
 
   out.push("");
   out.push(bold("where the time went"));
-  const other = Math.max(0, trace.wall_ms - trace.model_ms - trace.tool_ms);
+  const other = Math.max(
+    0,
+    trace.wall_ms - trace.model_ms - trace.memory_ms - trace.tool_ms,
+  );
   out.push(
     `  model   ${formatDuration(trace.model_ms).padStart(8)}  ${pct(trace.model_ms, trace.wall_ms)}  ${dim(`${trace.modelSpans.length} calls`)}`,
   );
+  if (trace.auxiliarySpans.length > 0) {
+    out.push(
+      `  memory  ${formatDuration(trace.memory_ms).padStart(8)}  ${pct(trace.memory_ms, trace.wall_ms)}  ${dim(`${trace.auxiliarySpans.length} calls`)}`,
+    );
+  }
+  if (trace.memoryExposures > 0) {
+    out.push(
+      dim(
+        `  memory context  ${count(trace.memoryExposureBytes)} bytes, ~${count(trace.memoryEstimatedTokens)} tokens; ${trace.memoryExposures} request exposures across ${trace.memoryExposureTurns} turns`,
+      ),
+    );
+  }
   const denied = trace.deniedSpans.length;
   out.push(
     `  tools   ${formatDuration(trace.tool_ms).padStart(8)}  ${pct(trace.tool_ms, trace.wall_ms)}  ${dim(`${trace.toolSpans.length} calls${denied ? `, ${denied} denied` : ""}`)}`,
   );
+  if (trace.auxiliarySpans.length > 0) {
+    out.push(
+      dim(
+        `  memory tokens  in=${count(trace.memoryInputTokens)} out=${count(trace.memoryOutputTokens)} cached=${count(trace.memoryCacheReadTokens)}`,
+      ),
+    );
+  }
   out.push(
     `  other   ${formatDuration(other).padStart(8)}  ${pct(other, trace.wall_ms)}  ${dim("user input, idle")}`,
   );
@@ -161,11 +198,13 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
   );
   // Silent when nothing in the session is priced — a "cost $0.00" line for an
   // unpriced model is worse than no line, because it reads as free.
-  const cost = totalUsd(trace.modelSpans);
+  const cost = traceCost(trace);
   // Subscription calls have no per-token price at all (OAuth spec §5), so they
   // are what the missing dollars ARE — say "subscription" rather than leaving
   // the reader to read an unexplained `*`, or no line, as free.
-  const subscription = trace.modelSpans.some((s) => s.authMode === "oauth");
+  const subscription = [...trace.modelSpans, ...trace.auxiliarySpans].some(
+    (s) => s.authMode === "oauth",
+  );
   if (cost) {
     const why = cost.partial
       ? subscription
@@ -179,6 +218,20 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
     );
   } else if (subscription) {
     out.push(dim(`  cost    subscription ${dim("(no per-token price)")}`));
+  }
+  // Split only when memory spent something: a session without auxiliary calls
+  // has one operation, and the line above already is its total.
+  if (trace.auxiliarySpans.length > 0) {
+    const parts = Object.entries(traceCostByOperation(trace)).map(
+      ([op, c]) => `${op}=${c ? formatUsd(c) : "unpriced"}`,
+    );
+    const noUsage = trace.auxiliarySpans.filter(auxiliaryUsageUnavailable).length;
+    out.push(
+      dim(
+        `  by op   ${parts.join(" ")}` +
+          (noUsage > 0 ? ` ${yellow(`(${noUsage} memory call(s) reported no usage)`)}` : ""),
+      ),
+    );
   }
   // Only when something happened: a line reading "redirects 0" on every
   // healthy session is noise, and the feature is off by default.

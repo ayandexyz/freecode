@@ -42,6 +42,8 @@ export type RolloutEvent =
   | ModelFirstTokenEvent
   | ModelResponseEvent
   | ModelErrorEvent
+  | MemoryAuxiliaryEvent
+  | MemoryExposureEvent
   | RedirectTriggeredEvent
   | RedirectSkippedEvent
   | PokeTriggeredEvent
@@ -259,6 +261,65 @@ export interface ModelErrorEvent extends BaseEvent {
   error: string;
 }
 
+/**
+ * A provider call made by persistent-memory maintenance or retrieval. It is
+ * deliberately distinct from `model.response`: these calls may complete after
+ * the foreground model turn and must be included in memory cost reports
+ * without changing the turn's prompt/response accounting.
+ */
+export interface MemoryAuxiliaryEvent extends BaseEvent {
+  type: "memory.auxiliary";
+  turnId?: string;
+  purpose: "retrieval_judge" | "extraction" | "consolidation" | "final_flush";
+  provider: string;
+  model?: string;
+  duration_ms: number;
+  outcome: "succeeded" | "failed";
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  /** Auth mode captured when the auxiliary call completed. */
+  authMode?: "oauth";
+}
+
+/**
+ * What a single provider request actually carried from automatic memory.
+ *
+ * This is intentionally request-level: one user turn can issue several model
+ * calls after tools or an overflow retry, and each resend consumes context.
+ * It contains counts only, never memory text or identities.
+ */
+export interface MemoryExposureEvent extends BaseEvent {
+  type: "memory.exposure";
+  turnId: string;
+  blockBytes: number;
+  /** A local diagnostic estimate; provider input usage remains authoritative. */
+  estimatedTokens: number;
+  candidateCount: number;
+  renderedCount: number;
+  /** Of `renderedCount`: entries sent with their full body. */
+  fullCount: number;
+  /** Of `renderedCount`: entries degraded to a one-line summary. */
+  summaryCount: number;
+  injected: boolean;
+  /**
+   * `unjudged`: retrieval's candidates, sent before the judge's verdict landed
+   * (cold path only). `disabled`: automatic recall is off for this request.
+   */
+  preparation: "fresh" | "carried" | "pending" | "empty" | "unjudged" | "disabled";
+  judgeDecision:
+    | "judge_ran"
+    | "disabled"
+    | "no_candidates"
+    | "no_provider"
+    | "unparseable"
+    | "failed"
+    | "cadence_carry"
+    | "not_configured";
+}
+
 // ============================================================================
 // Trajectory redirection events
 // (spec 2026-08-26-trajectory-redirection.md, §6)
@@ -409,7 +470,12 @@ export interface CheckpointCapturedEvent extends BaseEvent {
 
 export interface CheckpointSkippedEvent extends BaseEvent {
   type: "checkpoint.skipped";
-  reason: "disabled" | "not_a_git_repo" | "capture_failed" | "subagent" | "synthetic";
+  reason:
+    | "disabled"
+    | "not_a_git_repo"
+    | "capture_failed"
+    | "subagent"
+    | "synthetic";
 }
 
 export interface CheckpointRestoredEvent extends BaseEvent {

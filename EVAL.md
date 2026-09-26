@@ -108,6 +108,18 @@ spend of all attempts. Efficiency deltas use only matching trial indices where
 both sides completed without infrastructure failure (`comparable` per case).
 Do not interpret lower total spend from failed requests as an improvement.
 
+**Unknown cost is never compared.** A trial's `costUsd` is left undefined when
+background memory work (extraction, consolidation, the retrieval judge) is
+still running after the drain budget (`FREECODE_EVAL_MEMORY_DRAIN_TIMEOUT_MS`,
+default 10s; the trial records `memoryJobsPending`), and is marked
+`costPartial` when some call in it was unpriced or a memory call reported no
+usage. Both count as **unpriced**. A side with any unpriced trial prints its
+cost as `≥$x (N unpriced)` with no percentage, and `eval --compare` drops the
+cost row — the side with more unknowns would otherwise read as cheaper. Each
+trial also carries `costByOperation` (`agent`, `retrieval_judge`,
+`extraction`, `consolidation`, `final_flush`; `null` = ran at an unknown
+price). Grader spend stays in `judgeCostUsd`, outside `costUsd`.
+
 The symbol-search fixture was isolated on 2026-09-21 because the original
 answer appeared in project instructions. Older runs of that case used a
 different input and are not directly comparable.
@@ -121,6 +133,145 @@ totals, commit, and `"verdict": null`. Decide it the calibration way — edit th
 field to `"kept"` or `"rejected"` (optionally add a `"note"`), and commit the
 ledger: rejected entries are the ones most worth the history. `freecode eval
 experiments` lists the ledger and nags about undecided entries.
+
+### Is memory worth it? — the `memory` suite
+
+`evals/memory.jsonl` exists to be run **paired**, memory off against memory on.
+Run alone it only says the agent can do the tasks. Two runs answer the two
+questions:
+
+```bash
+# Does automatic recall help at all? (judge off: the default since 2026-09-25)
+pnpm eval ab memory --baseline env:FREECODE_DISABLE_MEMORY_RECALL=1 \
+  --candidate env:FREECODE_DISABLE_MEMORY_JUDGE=1 --trials 3 --hypothesis "..."
+
+# Does the retrieval judge pay for itself? (`=0` forces it on; the var is two-way)
+pnpm eval ab memory --baseline env:FREECODE_DISABLE_MEMORY_RECALL=1 \
+  --candidate env:FREECODE_DISABLE_MEMORY_JUDGE=0 --trials 3 --hypothesis "..."
+```
+
+- `FREECODE_DISABLE_MEMORY_RECALL=1` (or `memory.autoRecall: false`) turns off
+  automatic retrieval and injection only; the `memory` tool and the static
+  guidance stay. Every request then records `memory.exposure` with
+  `preparation: "disabled"`, so an off trial never looks like an empty store.
+- Each case carries a `memories` fixture. It needs `files`, since only a
+  sandboxed case has its own store. It is seeded into the trial's sandbox
+  project with its index already built (a real project has its `.graph/`
+  sidecar on disk; a cold one would miss the first request) and frozen for the
+  trial: extraction and consolidation are off on both sides.
+- Checks are inline `node -e`, not a `check.mjs`: a checker in the sandbox
+  would show the no-memory side the expected answer.
+- The `control-*` cases carry only unrelated memories. Their cost delta is the
+  price of the block when it cannot help, and their pass rate is where
+  negative transfer would show.
+- Read cost on **comparable pairs**, with `costByOperation` separating the
+  agent from the judge. Cost is ~$0.01 per trial on MiniMax-M3, so both runs
+  together cost under $1.
+
+### Does memory learn? — the `memory-sessions` suite
+
+`evals/memory-sessions.jsonl` lets memory learn instead of seeding it. A case's
+`sessions` run first, each in its own fresh session on the same sandbox (and so
+the same, initially empty, store), and each ends the way the daemon ends one,
+including the session-end extraction flush (`session/session-flush.ts`, the
+code the daemon runs). Only the final `prompt` is scored; tokens and cost are
+summed over every session, so extraction's cost is in the number, and
+`memoriesCaptured` says what the store held at the end.
+
+```bash
+pnpm eval ab memory-sessions \
+  --baseline env:FREECODE_DISABLE_MEMORY_RECALL=1,env:FREECODE_DISABLE_MEMORY_EXTRACTION=1 \
+  --candidate env:FREECODE_DISABLE_MEMORY_RECALL=0 --trials 3 --hypothesis "..."
+```
+
+Earlier sessions teach through conversation and are told not to edit: files
+persist across a trial's sessions, so a fact written to disk would be findable
+without memory. Consolidation cannot fire inside a trial (one run per project
+per day, after 5 sessions), so this measures capture and recall, not merging.
+
+### Does consolidation help? — the `memory-consolidation` suite
+
+`evals/memory-consolidation.jsonl` seeds the same isolated memory fixture on
+both sides, performs a two-turn teaching session, then has the candidate
+run the production consolidation scheduler before the final scored task. Its
+fixture pins the scheduler to one eligible session and zero hours, and locks
+that project-local setting. Extraction remains off, so the store is identical
+until the consolidation pass. The baseline disables it through the usual
+per-call environment gate.
+
+```bash
+pnpm eval ab memory-consolidation \
+  --baseline env:FREECODE_DISABLE_MEMORY_CONSOLIDATION=1 \
+  --candidate env:FREECODE_DISABLE_MEMORY_CONSOLIDATION= --trials 3 \
+  --hypothesis "..."
+```
+
+The candidate's `TrialResult.consolidation` says whether a pass actually ran
+and how many entries it merged, promoted, created, or deleted. Its
+`costByOperation.consolidation` contains the merge call's cost. A skipped,
+failed, or partially priced pass is evidence of an incomplete experiment, not
+a zero-cost consolidation result.
+
+Two fixtures ship, and they landed different verdicts. On
+`consolidate-production-endpoint` (pure near-duplicate merge), the 3-trial
+run looked like a 4.7% cost win, but a 5-trial replicate reversed it: cost
+went up 10% and one candidate trial failed a task the baseline passed, right
+after consolidation had merged and deleted a memory — **rejected**. On
+`consolidate-stale-then-corrected` (a stale memory superseded by a corrected
+one, plus a distractor and control that must not be touched), two independent
+3-trial runs both went 3/3 on both arms and consolidation was consistently
+cheaper (tokens -24% to -33%, cost -33% to -40%) — **kept**. Full detail and
+the exact numbers are in spec §7.2. The earliest records in the ledger
+(`memory-consolidation-1..3`) are invalid harness attempts: their candidate
+`consolidation.ran` is false and they must not be used.
+
+### Does memory pay off over 12 sessions? — the `memory-long-horizon` suite
+
+`evals/memory-long-horizon.jsonl` (5 cases) extends `memory-sessions` from
+2–3 teaching sessions to up to 12, with real dilution (the same fact stated
+four times across eight distractor sessions), a late correction (a fact
+contradicted in session 8), a long gap (facts in sessions 1–3, probed after
+nine unrelated sessions), fragmented assembly (three facts split across six
+sessions), and an irrelevant-chatter control. Every case has `sessions` +
+`consolidateBeforeFinal: true` and a pinned per-project schedule
+(`consolidateMinSessions:1`, `consolidateMinHours:0`), so the harness's one
+forced consolidation pass (`runner.ts`'s `consolidateBeforeFinal` branch) is
+genuinely deterministic — no reliance on the real once-a-day cadence. `eval
+ab` is two-armed, so the three-arm comparison ROADMAP.md's savings-curve
+experiment asks for runs as two paired comparisons sharing arm C:
+
+```bash
+# Arm A (memory fully off) vs arm C (learning + consolidation on schedule)
+pnpm eval ab memory-long-horizon \
+  --baseline "env:FREECODE_DISABLE_MEMORY_RECALL=1,env:FREECODE_DISABLE_MEMORY_EXTRACTION=1,env:FREECODE_DISABLE_MEMORY_CONSOLIDATION=1" \
+  --candidate "env:FREECODE_DISABLE_MEMORY_RECALL=,env:FREECODE_DISABLE_MEMORY_EXTRACTION=,env:FREECODE_DISABLE_MEMORY_CONSOLIDATION=" \
+  --trials 3 --hypothesis "..."
+
+# Arm B (learning, consolidation off) vs arm C (learning + consolidation on schedule)
+pnpm eval ab memory-long-horizon \
+  --baseline "env:FREECODE_DISABLE_MEMORY_RECALL=,env:FREECODE_DISABLE_MEMORY_EXTRACTION=,env:FREECODE_DISABLE_MEMORY_CONSOLIDATION=1" \
+  --candidate "env:FREECODE_DISABLE_MEMORY_RECALL=,env:FREECODE_DISABLE_MEMORY_EXTRACTION=,env:FREECODE_DISABLE_MEMORY_CONSOLIDATION=" \
+  --trials 3 --hypothesis "..."
+```
+
+Each `TrialResult.memorySnapshots` records per-teaching-session cost and store
+size in order, so a cumulative-cost-at-session-N curve (the savings curve)
+comes out of the saved `--out` report with no extra runs — see spec §7.3 for
+the worked table. There is no per-checkpoint pass/fail, only per-checkpoint
+cost: the harness scores one probe, at the end of the last teaching session.
+
+First run (2026-09-26, MiniMax-M3, 3 trials, both comparisons —
+`2026-09-26-memory-long-horizon-1` and `-2`, both **kept**): memory off passed
+3/15, learning + scheduled consolidation 10/15 (cost per passed probe -66%);
+consolidation off (still learning) passed 8/15, on-schedule 11/15 (cost per
+passed probe -41% on top of that). No break-even in teaching cost itself —
+learning costs 20–50% more by session 12 regardless of arm; the return is
+entirely the final probe passing. `long-incremental-assembly` never passed in
+any of the 4 arms (0/12). Its fixture confound (an immutable `regions.mjs`
+the teaching tells the model to edit) is fixed in `595b9dd3`; the re-run is
+still 0/3 vs 0/3 (`-3`, rejected), now for memory reasons — the last-taught
+fact is not retained, and consolidation dropped an earlier one in 2 of 3
+trials. See `TODO.md`. Full numbers: spec §7.3.
 
 ## 3. Grow the suite — `freecode eval add <session-id>`
 
@@ -188,6 +339,7 @@ for a real suite run.
 ```bash
 freecode trace [id] [--follow|--slow N|--tools|--json|--list|--otlp]  # where a turn's time went
 pnpm bench:recall                                                     # memory retrieval benchmark
+pnpm bench:inject                                                     # what memory the model actually receives + lifecycle scenarios
 pnpm bench:agents                                                     # vs other agents — AGENT-BENCH.md
 ```
 

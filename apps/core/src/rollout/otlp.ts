@@ -19,8 +19,9 @@
 // =============================================================================
 
 import { createHash } from "crypto";
-import { pricesAsOf, priceUsd, totalUsd } from "../providers/pricing.js";
-import type { ModelSpan, Trace } from "./trace.js";
+import { pricesAsOf, priceUsd } from "../providers/pricing.js";
+import { traceCost } from "./cost.js";
+import type { MemoryAuxiliarySpan, ModelSpan, Trace } from "./trace.js";
 
 type AttrValue = string | number | boolean;
 interface OtlpAttr {
@@ -42,9 +43,14 @@ interface OtlpAttr {
  * a rate in [0,1], so rounding turns a 50% pass rate into a perfect one. Both
  * failures are silent and both look like good news.
  */
-const FRACTIONAL = new Set(["gen_ai.usage.cost", "gen_ai.evaluation.score.value"]);
+const FRACTIONAL = new Set([
+  "gen_ai.usage.cost",
+  "gen_ai.evaluation.score.value",
+]);
 
-export function attrs(record: Record<string, AttrValue | undefined>): OtlpAttr[] {
+export function attrs(
+  record: Record<string, AttrValue | undefined>,
+): OtlpAttr[] {
   const out: OtlpAttr[] = [];
   for (const [key, value] of Object.entries(record)) {
     if (value === undefined) continue;
@@ -106,7 +112,12 @@ function modelSpanToOtlp(
       // An estimate from a table with a vintage, not a bill — `pricing.ts`.
       // Absent, rather than 0, when the model is unpriced: a collector cannot
       // tell a real zero from a missing price, so it must not see one.
-      "gen_ai.usage.cost": priceUsd(span.provider, span.model, span, span.authMode),
+      "gen_ai.usage.cost": priceUsd(
+        span.provider,
+        span.model,
+        span,
+        span.authMode,
+      ),
       // Not part of the convention, but the fields that actually explain a
       // slow or hung call — which is the whole point of exporting this.
       "freecode.turn_id": span.turnId,
@@ -129,6 +140,44 @@ function modelSpanToOtlp(
   };
 }
 
+function memorySpanToOtlp(
+  span: MemoryAuxiliarySpan,
+  traceId: string,
+  parentSpanId: string,
+  index: number,
+  sessionId: string,
+) {
+  const failed = span.outcome === "failed";
+  return {
+    traceId,
+    spanId: hexId(`${traceId}:memory:${index}`, 8),
+    parentSpanId,
+    name: `memory ${span.purpose}`,
+    kind: 3,
+    startTimeUnixNano: nano(span.startedAt),
+    endTimeUnixNano: nano(span.startedAt + span.duration_ms),
+    attributes: attrs({
+      "gen_ai.operation.name": "chat",
+      "gen_ai.system": span.provider,
+      "gen_ai.request.model": span.model,
+      "gen_ai.usage.input_tokens": span.inputTokens,
+      "gen_ai.usage.output_tokens": span.outputTokens,
+      "gen_ai.usage.cache_read_input_tokens": span.cacheReadTokens,
+      "gen_ai.usage.cache_creation_input_tokens": span.cacheWriteTokens,
+      "gen_ai.conversation.id": sessionId,
+      "gen_ai.usage.cost": span.model
+        ? priceUsd(span.provider, span.model, span, span.authMode)
+        : undefined,
+      "freecode.turn_id": span.turnId,
+      "freecode.memory_purpose": span.purpose,
+      "freecode.memory_outcome": span.outcome,
+    }),
+    status: failed
+      ? { code: STATUS_ERROR, message: "memory call failed" }
+      : { code: STATUS_OK },
+  };
+}
+
 /**
  * Session cost, or `undefined` when nothing in it could be priced. A partial
  * total is still emitted — most of a session priced is more useful than
@@ -136,7 +185,7 @@ function modelSpanToOtlp(
  * can tell a complete figure from an incomplete one.
  */
 function sessionCost(trace: Trace): number | undefined {
-  return totalUsd(trace.modelSpans)?.usd;
+  return traceCost(trace)?.usd;
 }
 
 /** Builds the OTLP `ExportTraceServiceRequest` body for a session. */
@@ -162,13 +211,21 @@ export function traceToOtlp(trace: Trace, serviceName = "freecode"): unknown {
         "gen_ai.agent.name": serviceName,
         "gen_ai.conversation.id": trace.sessionId,
         "session.id": trace.sessionId,
-        "gen_ai.usage.input_tokens": trace.inputTokens,
-        "gen_ai.usage.output_tokens": trace.outputTokens,
-        "gen_ai.usage.cache_read_input_tokens": trace.cacheReadTokens,
+        "gen_ai.usage.input_tokens":
+          trace.inputTokens + trace.memoryInputTokens,
+        "gen_ai.usage.output_tokens":
+          trace.outputTokens + trace.memoryOutputTokens,
+        "gen_ai.usage.cache_read_input_tokens":
+          trace.cacheReadTokens + trace.memoryCacheReadTokens,
         "gen_ai.usage.cost": sessionCost(trace),
-        "freecode.cost_partial": totalUsd(trace.modelSpans)?.partial,
+        "freecode.cost_partial": traceCost(trace)?.partial,
         "freecode.prices_as_of": pricesAsOf(),
         "freecode.model_ms": trace.model_ms,
+        "freecode.memory_ms": trace.memory_ms,
+        "freecode.memory_exposures": trace.memoryExposures,
+        "freecode.memory_exposure_turns": trace.memoryExposureTurns,
+        "freecode.memory_exposure_bytes": trace.memoryExposureBytes,
+        "freecode.memory_estimated_tokens": trace.memoryEstimatedTokens,
         "freecode.tool_ms": trace.tool_ms,
         "freecode.hung": trace.hung,
         "freecode.in_flight": trace.inFlight,
@@ -177,6 +234,9 @@ export function traceToOtlp(trace: Trace, serviceName = "freecode"): unknown {
     },
     ...trace.modelSpans.map((span, i) =>
       modelSpanToOtlp(span, traceId, rootSpanId, i, trace.sessionId),
+    ),
+    ...trace.auxiliarySpans.map((span, i) =>
+      memorySpanToOtlp(span, traceId, rootSpanId, i, trace.sessionId),
     ),
     ...trace.toolSpans.map((span, i) => ({
       traceId,

@@ -13,7 +13,10 @@
 > write side `specs/2026-08-09-memory-write-path.md` ·
 > viewer `specs/2026-08-04-memory-graph-explorer-design.md`
 >
-> Last updated 2026-08-23 — consolidation, episodes, the retrieval judge, the
+> Last updated 2026-09-25 — memory cost accounting, the injection bench,
+> store-consistent injection, the recall switch, and the paired memory eval
+> (spec `specs/2026-09-25-memory-efficiency-and-graph-explorer.md`). Earlier,
+> 2026-08-23: consolidation, episodes, the retrieval judge, the
 > citation loop, and the recall benchmark all landed. Spec:
 > `specs/2026-08-23-memory-consolidation.md`; results and method:
 > `apps/core/src/memory/bench/README.md`.
@@ -212,6 +215,29 @@ changed system byte re-sends the whole conversation).
 instantly and refreshes in the background; the loop never blocks. A cold turn
 (session's first message, or right after a topic change cleared the set) waits
 `COLD_BUDGET_MS = 60` for the fresh result, then falls back to background.
+The budget is only enforceable because the query embedding no longer blocks
+the event loop: fastembed padded every input to 512 tokens (~150 ms,
+synchronous); the embedder disables that padding, so a query embeds in ~4 ms
+with identical vectors (2026-09-25).
+
+**The prepared set follows the store.** A save or delete synchronously patches
+every session holding that memory: a delete removes it, an edit swaps in the
+saved version, and the session re-judges it (the carried verdict was about the
+old text). A prefetch already in flight when the store changed discards its
+result and retries, so it cannot publish pre-change entries. Sessions not
+holding the memory are untouched, so an unrelated save costs no judge call.
+
+**Supersession before judging.** Each retrieved candidate is replaced by the
+newest live record in its `supersedes` chain (`graph/supersession.ts`), so the
+model never sees obsolete guidance beside, or instead of, its replacement. A
+mutual or cyclic chain keeps both; a missing target changes nothing. Search and
+the explorer still show the old record.
+
+**Switching recall off.** `memory.autoRecall: false` or
+`FREECODE_DISABLE_MEMORY_RECALL=1` stops retrieval and injection; the `memory`
+tool and static guidance stay. Requests then record `memory.exposure` with
+`preparation: "disabled"`. This is the off side of `pnpm eval ab memory`
+(EVAL.md); its first run is in spec `2026-09-25-…` §6.1.
 
 **Per session, not per project.** The graph and vectors are shared per project,
 but the surfaced set is keyed by `sessionId` so two sessions never clobber each
@@ -244,6 +270,31 @@ irrelevant ones — overlapping — and a within-query z-score overlaps too. Tha
 a property of bi-encoder similarity between short texts, not a bad constant. The
 judge runs on the background prefetch (no added loop latency) behind a cadence
 carry (fires on topic change, not per message) and **fails closed**.
+
+Because it is a network call it never fits the 60 ms cold budget, so on a
+cold miss the request carries retrieval's candidates unjudged (`preparation:
+"unjudged"`) and the verdict governs from the next request; a judged stash is
+never swapped for unjudged candidates. The judge sees each candidate's
+description plus a 160-char body excerpt, and is told that conventions,
+forbidden commands, formats, units, and past decisions a task could run into
+are relevant. Both changes came from the paired eval (below): before them the
+first request never carried memory and the judge dropped rules like "never
+run npm install".
+
+**Does memory pay?** Measured with `pnpm eval ab memory` (EVAL.md) on
+MiniMax-M3: recall on passed 23–24/24 tasks vs 12–13/24 with recall off,
+across four runs; with the fixed judge, tokens −19% and cost per passed task
+−45% at the same total spend, and the control tasks were unaffected. The judge
+itself is neutral head to head (23/24 off vs 22/24 on, within noise), so it
+is **off by default** since 2026-09-25: `memory.retrievalJudge: true` or
+`FREECODE_DISABLE_MEMORY_JUDGE=0` turns it on (the env var is two-way and beats
+the settings files). Recorded in `docs/DECISIONS.md`.
+
+**Does it learn?** `pnpm eval ab memory-sessions` lets memory learn from
+earlier sessions (daemon session-end flush included) instead of seeding it:
+final-session tasks 13/15 with learning vs 4/15 without, a stated-then-
+corrected fact used correctly 3/3, cost per passed task −65%, and extraction
+3.9% of spend. Consolidation is not exercised by it (spec §7.1). Spec §6.1–6.2 has the tables.
 
 **`RetrievalOutcome`** names every path — `fused`, `lexical_only`,
 `empty_by_floor`, `empty_query`, `empty_store`, `error` — so a silent fallback is
@@ -311,7 +362,7 @@ byte-identical regardless of store contents.
 `sk-ant-*`, `sk-*`, `AKIA*`/`ASIA*`, `ghp_*`, `github_pat_*`, `xox[baprs]-*`,
 `AIza*`, `glpat-*`, and `key=value` assignments of secret-looking names.
 
-It is enforced at **two** points, and the second one was a real hole:
+It is enforced at **four** points:
 
 1. **Before embedding** (`graph/index.ts`, `onChange` + `syncVectors`; both also prune a pre-existing vector when content turns secret-bearing) — original behaviour.
 2. **Before writing**, in the tool, the extractor, consolidation, and the
@@ -323,8 +374,15 @@ It is enforced at **two** points, and the second one was a real hole:
    (`nodeDetailForExplorer`) — a secret-bearing file that reached disk by any
    other route (hand-edit, older binary) is redacted, never served over the
    localhost HTTP API.
+4. **Before anything model-bound** — the judge prompt and the injected block
+   (`modelSafe` in `graph/index.ts`, applied to every prefetch result and to
+   the stash patch on an edit). Before 2026-09-25 a secret-bearing file that
+   bypassed the writers was never embedded but still reached the prompt through
+   BM25; `pnpm bench:inject` found it.
 
-Vectors never leave the machine. There is no network call anywhere in retrieval.
+Vectors never leave the machine. Retrieval itself makes no network call; the
+optional retrieval judge sends candidate descriptions and 160-char body
+excerpts (never a secret-bearing memory's) to the session's provider.
 
 ---
 
@@ -421,11 +479,14 @@ and `tools/memory.ts` are over it too and would decompose cleanly if they grow.
 3. **Consolidation is unmeasured in the field.** Its value claim — better recall
    at constant token cost — is testable with `pnpm bench:recall` and has not been
    tested against a real store.
-4. **The benchmark corpus is self-written.** It catches regressions and proves
-   little about absolute quality. LongMemEval-S is the intended external corpus
+4. **The benchmark corpus and the memory eval suite are self-written.** They
+   catch regressions and prove little about absolute quality. LongMemEval-S is the intended external corpus
    and is not wired up.
-5. **The judge's real-model accuracy is unknown.** Every judge figure in the spec
-   comes from `--judge=oracle`, a perfect reader, and is therefore a ceiling.
+5. **The judge's per-memory accuracy is unmeasured.** The retrieval benches use
+   `--judge=oracle`, a perfect reader, so their judge figures are a ceiling.
+   Its end-to-end effect *is* measured (the paired memory eval: neutral against
+   no judge), but only on an 8-case suite with a small store, where the block
+   rarely fills; its value with a large store is untested.
 6. **Citation is self-reported** and therefore biased — a model may credit a
    memory it ignored. It ranks and retains; nothing deletes on it alone.
 7. **Consolidation-side tuning values are guesses.** `minHours 24`,

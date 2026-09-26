@@ -27,6 +27,7 @@ import {
   type ConsolidationResult,
 } from "./consolidate.js";
 import { logger } from "../utils/logger.js";
+import type { MemoryAuxiliaryObserver } from "./auxiliary.js";
 
 // Per-project episode retention (spec D6.2). Overflow is handed to the model to
 // fold anything durable into a semantic memory, then deleted by us.
@@ -40,6 +41,7 @@ export interface RunConsolidationInput {
   sessions: SessionSummary[];
   rateLimited?: boolean;
   complete?: (system: string, prompt: string) => Promise<string>;
+  onAuxiliaryCall?: MemoryAuxiliaryObserver;
 }
 
 /**
@@ -75,7 +77,9 @@ function assemble(
     .sort((a, b) => {
       const ua = service.usageFor(a).useCount;
       const ub = service.usageFor(b).useCount;
-      return ua - ub || (a.happened_at ?? "").localeCompare(b.happened_at ?? "");
+      return (
+        ua - ub || (a.happened_at ?? "").localeCompare(b.happened_at ?? "")
+      );
     });
   const overflowEpisodes = episodes
     .slice(0, Math.max(0, episodes.length - MAX_EPISODES))
@@ -115,7 +119,9 @@ function assemble(
     .slice()
     .sort((a, b) => b.lastTurnAt - a.lastTurnAt)
     .slice(0, 20)
-    .map((s) => `- ${new Date(s.lastTurnAt).toISOString().slice(0, 10)} ${s.id}`)
+    .map(
+      (s) => `- ${new Date(s.lastTurnAt).toISOString().slice(0, 10)} ${s.id}`,
+    )
     .join("\n");
 
   const prompt = [
@@ -187,6 +193,7 @@ export async function runConsolidationIfDue(
       overflowEpisodes,
       sessionId: input.sessionId,
       complete: input.complete,
+      onAuxiliaryCall: input.onAuxiliaryCall,
     });
 
     if (!result.ok) {

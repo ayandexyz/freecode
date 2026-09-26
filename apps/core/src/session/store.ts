@@ -479,6 +479,25 @@ class SessionStoreImpl implements SessionStore {
       flag: "a",
     });
     if (leaf) await this.setPendingLeaf(sessionId, null, projectPath);
+    // `turnCount` is session metadata, not a count of JSONL entries: an agent
+    // turn usually appends a user entry, several tool entries, and a final
+    // assistant entry. Consolidation's cadence intentionally counts completed
+    // user turns, so advance it once here and keep `lastTurnAt` aligned with
+    // the same durable event. Without this, every session stayed at zero and
+    // the production consolidation gate was permanently unreachable.
+    if (entry.role === "user") {
+      const meta = await this.getMeta(sessionId, projectPath);
+      if (meta) {
+        await this.updateMeta(
+          sessionId,
+          {
+            turnCount: meta.turnCount + 1,
+            lastTurnAt: entry.timestamp,
+          },
+          projectPath,
+        );
+      }
+    }
   }
 
   private async readEntries(
