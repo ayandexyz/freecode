@@ -282,9 +282,9 @@ function validateConsolidationFixture(
   if (raw !== true) {
     throw new DatasetError(`${where}: 'consolidateBeforeFinal' must be true`);
   }
-  if (!files || !memories || !sessions) {
+  if (!files || !sessions) {
     throw new DatasetError(
-      `${where}: 'consolidateBeforeFinal' requires files, memories, and sessions`,
+      `${where}: 'consolidateBeforeFinal' requires files and sessions`,
     );
   }
   if (!sessions.every((_session, index) => (sessionFollowUps?.[index]?.length ?? 0) >= 1)) {

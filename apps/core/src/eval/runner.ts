@@ -114,14 +114,23 @@ export async function runTrial(
   // `dataset.ts` guarantees `memories` implies a sandbox.
   // Fixtures freeze automatic writers. Consolidation cases release only that
   // one gate after their teaching sessions, then call the production scheduler
-  // explicitly once; extraction stays disabled throughout.
+  // explicitly once; extraction stays disabled throughout — the corpus is
+  // pre-seeded via `memories`, so organic extraction would contaminate it.
+  //
+  // A `sessions`-only consolidation fixture (spec 2026-09-25 §7, ROADMAP §4)
+  // has no pre-seeded corpus to protect: the whole point is letting extraction
+  // build the store across the teaching sessions. Only consolidation itself
+  // is frozen during teaching, so the forced pass below is genuinely the
+  // FIRST one, not one of several the production per-turn gate already ran.
   const restoreMemoryEnv = kase.memories
     ? applyEnv(
         kase.consolidateBeforeFinal
           ? { FREECODE_DISABLE_MEMORY_EXTRACTION: "1", FREECODE_DISABLE_MEMORY_CONSOLIDATION: "1" }
           : FROZEN_MEMORY_ENV,
       )
-    : () => {};
+    : kase.sessions && kase.consolidateBeforeFinal
+      ? applyEnv({ FREECODE_DISABLE_MEMORY_CONSOLIDATION: "1" })
+      : () => {};
   let removeMemories = () => {};
   try {
     if (kase.memories && sandbox) {

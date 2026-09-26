@@ -813,6 +813,32 @@ test("a consolidation comparison fixture rejects a private force shape", () => {
   );
 });
 
+test("a sessions-only consolidation fixture needs no seeded memories", () => {
+  // The long-horizon harness (ROADMAP §4) has no pre-seeded corpus — learning
+  // happens through the teaching sessions themselves — so `memories` must be
+  // optional here, unlike the memory-consolidation suite above.
+  const [c] = parseSuite(
+    `{"id":"c","prompt":"p",${REQUIRED},"expectTool":"read",` +
+      `"files":{"a.txt":"x",${CONSOLIDATION_SETTINGS}},` +
+      `"immutable":[".freecode/settings.json"],` +
+      `"sessions":["teach"],"sessionFollowUps":[["confirm"]],"consolidateBeforeFinal":true}`,
+  );
+  assert.equal(c.consolidateBeforeFinal, true);
+  assert.equal(c.memories, undefined);
+});
+
+test("a consolidation fixture still requires sessions", () => {
+  assert.throws(
+    () =>
+      parseSuite(
+        `{"id":"c","prompt":"p",${REQUIRED},"expectTool":"read",` +
+          `"files":{"a.txt":"x",${CONSOLIDATION_SETTINGS}},` +
+          `"immutable":[".freecode/settings.json"],"consolidateBeforeFinal":true}`,
+      ),
+    /requires files and sessions/,
+  );
+});
+
 test("the shipped consolidation comparison suite is valid", () => {
   // `loadSuite` resolves through `evalsDir()`, which is CWD-relative unless
   // `FREECODE_EVALS_DIR` points at the repo's `evals/` — same setup the
