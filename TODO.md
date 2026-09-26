@@ -742,3 +742,25 @@ anchors). Detector gained a one-sample deferral for provider blips
       case's verdict depends on the code, not on what the developer did
       yesterday. Until then, cross-day gate deltas on trajectory are partly
       memory-store drift.
+
+## Found running the memory long-horizon savings-curve experiment (2026-09-26)
+
+`evals/memory-long-horizon.jsonl`, `long-incremental-assembly`: paid runs
+(`evals/experiments.jsonl` `2026-09-26-memory-long-horizon-1` and `-2`) show
+0/12 passes total, across all four arms (memory off, learning only, learning +
+consolidation off, learning + consolidation on schedule) — the only case in
+the suite with zero passes anywhere.
+
+- [ ] **The case is confounded, not necessarily unlearnable.** `regions.mjs`
+      seeds an empty `RATES = {}` table, which invites the model to populate
+      the per-region rates there instead of inline in `tax.mjs`; two of the
+      four arms failed with `modified immutable regions.mjs` rather than a
+      logic error (the other two failed on genuine rate-table bugs: `unknown
+      region` and `NaN == 888`). The `immutable` fix in commit `bf672ee1`
+      correctly left `regions.mjs` immutable (the prompt never asks to edit
+      it), but the fixture itself tempts the edit it then punishes. Fix by
+      either seeding `regions.mjs` with a non-empty placeholder that makes
+      "don't touch this file" obvious, or by stating in the prompt that region
+      rates must be read from `regions.mjs`, not written to it. Re-run this one
+      case after the fix; do not fold its 0/12 into a "memory doesn't help
+      fragmented-fact assembly" conclusion until it has been.

@@ -225,6 +225,52 @@ the exact numbers are in spec §7.2. The earliest records in the ledger
 (`memory-consolidation-1..3`) are invalid harness attempts: their candidate
 `consolidation.ran` is false and they must not be used.
 
+### Does memory pay off over 12 sessions? — the `memory-long-horizon` suite
+
+`evals/memory-long-horizon.jsonl` (5 cases) extends `memory-sessions` from
+2–3 teaching sessions to up to 12, with real dilution (the same fact stated
+four times across eight distractor sessions), a late correction (a fact
+contradicted in session 8), a long gap (facts in sessions 1–3, probed after
+nine unrelated sessions), fragmented assembly (three facts split across six
+sessions), and an irrelevant-chatter control. Every case has `sessions` +
+`consolidateBeforeFinal: true` and a pinned per-project schedule
+(`consolidateMinSessions:1`, `consolidateMinHours:0`), so the harness's one
+forced consolidation pass (`runner.ts`'s `consolidateBeforeFinal` branch) is
+genuinely deterministic — no reliance on the real once-a-day cadence. `eval
+ab` is two-armed, so the three-arm comparison ROADMAP.md's savings-curve
+experiment asks for runs as two paired comparisons sharing arm C:
+
+```bash
+# Arm A (memory fully off) vs arm C (learning + consolidation on schedule)
+pnpm eval ab memory-long-horizon \
+  --baseline "env:FREECODE_DISABLE_MEMORY_RECALL=1,env:FREECODE_DISABLE_MEMORY_EXTRACTION=1,env:FREECODE_DISABLE_MEMORY_CONSOLIDATION=1" \
+  --candidate "env:FREECODE_DISABLE_MEMORY_RECALL=,env:FREECODE_DISABLE_MEMORY_EXTRACTION=,env:FREECODE_DISABLE_MEMORY_CONSOLIDATION=" \
+  --trials 3 --hypothesis "..."
+
+# Arm B (learning, consolidation off) vs arm C (learning + consolidation on schedule)
+pnpm eval ab memory-long-horizon \
+  --baseline "env:FREECODE_DISABLE_MEMORY_RECALL=,env:FREECODE_DISABLE_MEMORY_EXTRACTION=,env:FREECODE_DISABLE_MEMORY_CONSOLIDATION=1" \
+  --candidate "env:FREECODE_DISABLE_MEMORY_RECALL=,env:FREECODE_DISABLE_MEMORY_EXTRACTION=,env:FREECODE_DISABLE_MEMORY_CONSOLIDATION=" \
+  --trials 3 --hypothesis "..."
+```
+
+Each `TrialResult.memorySnapshots` records per-teaching-session cost and store
+size in order, so a cumulative-cost-at-session-N curve (the savings curve)
+comes out of the saved `--out` report with no extra runs — see spec §7.3 for
+the worked table. There is no per-checkpoint pass/fail, only per-checkpoint
+cost: the harness scores one probe, at the end of the last teaching session.
+
+First run (2026-09-26, MiniMax-M3, 3 trials, both comparisons —
+`2026-09-26-memory-long-horizon-1` and `-2`, both **kept**): memory off passed
+3/15, learning + scheduled consolidation 10/15 (cost per passed probe -66%);
+consolidation off (still learning) passed 8/15, on-schedule 11/15 (cost per
+passed probe -41% on top of that). No break-even in teaching cost itself —
+learning costs 20–50% more by session 12 regardless of arm; the return is
+entirely the final probe passing. `long-incremental-assembly` never passed in
+any of the 4 arms (0/12) — a fixture confound (an empty seeded table invites
+an edit its own immutable guard then punishes), not a memory verdict; see
+`TODO.md`. Full numbers: spec §7.3.
+
 ## 3. Grow the suite — `freecode eval add <session-id>`
 
 ```bash

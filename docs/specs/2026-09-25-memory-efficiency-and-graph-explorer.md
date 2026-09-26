@@ -392,6 +392,86 @@ finding — not "consolidation helps," but "it helps when there is something to
 supersede, and needs more evidence (and possibly a guard against
 merge-immediately-before-read) when there is only a near-duplicate to fold."
 
+### 7.3 Long-horizon savings-curve results (2026-09-26, MiniMax-M3, 3 trials)
+
+ROADMAP.md's "Savings-curve experiment" (memory-long-horizon #4), run against
+`evals/memory-long-horizon.jsonl` (5 cases, up to 12 teaching sessions each,
+ending in one scored probe; `evals/experiments.jsonl`
+`2026-09-26-memory-long-horizon-{1,2}`). Two paired runs, both `--trials 3`,
+judge off (the default), same model on every arm:
+
+**Arm A (recall + extraction off) vs arm C (learning + consolidation on an
+explicit per-project schedule, `consolidateMinSessions:1`,
+`consolidateMinHours:0`):**
+
+| | memory off | learning + scheduled consolidation |
+| --- | ---: | ---: |
+| passed | 3/15 | **10/15** |
+| total cost | $0.7394 | $0.8433 (+14%) |
+| **cost per passed probe** | $0.2465 | **$0.0843 (−66%)** |
+
+Per case (passed/3): `long-repeated-fact` 0→3, `long-gap-survival` 0→3,
+`long-late-correction` 0→2, `long-incremental-assembly` 0→0 (unchanged-fail,
+see caveat below), `long-irrelevant-chatter-control` 3→2 (one candidate
+failure, an unrelated sign-flip bug — `verify exit 1: -6 == 6` — not a memory
+symptom).
+
+**Arm B (learning, consolidation off) vs arm C (learning + consolidation on
+schedule)**, isolating consolidation's own contribution at this horizon:
+
+| | consolidation off | consolidation on schedule |
+| --- | ---: | ---: |
+| passed | 8/15 | **11/15** |
+| total cost | $0.9409 | $0.7683 (−18%) |
+| **cost per passed probe** | $0.1176 | **$0.0698 (−41%)** |
+
+Per case: `long-repeated-fact` 1→3, `long-late-correction` 1→2 (inconclusive
+per the CLI's own delta label), `long-gap-survival` 3→3 unchanged-pass but
+cheaper, `long-incremental-assembly` 0→0, `long-irrelevant-chatter-control`
+3→3 unchanged-pass, no negative transfer this run.
+
+**Savings curve.** `memorySnapshots` on every trial gives cumulative teaching
+cost at any session count without re-running. Averaged over the 3 trials of
+`long-repeated-fact` (arm A vs arm C):
+
+| session | 1 | 3 | 6 | 9 | 12 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| memory off | $0.0046 | $0.0156 | $0.0324 | $0.0429 | $0.0545 |
+| learning + consolidation | $0.0045 | $0.0195 | $0.0400 | $0.0564 | $0.0769 |
+
+The pattern held on all five cases: **no break-even in teaching cost itself**
+— learning consistently costs 20–50% more by session 12 than memory off,
+session over session, because extraction (and later, consolidation) runs on
+top of the same teaching turns. The entire return is in the final probe: the
+off arm pays for 12 sessions and then fails the task it was there for, so its
+effective cost-per-passed-probe is what's actually large. There is no session
+count in this suite where cheaper *teaching* offsets that — the win is
+"answer correctly at all," not "answer correctly for less."
+
+**Verdicts: both kept** (`evals/experiments.jsonl`). Memory learning across a
+long, diluted, corrected, gapped horizon extends the short-horizon
+`memory-sessions` result (§7.1, −65% cost/passed-task at 2–3 sessions) to 12
+sessions with real distractors and a correction: −66% cost per passed probe.
+Scheduled consolidation adds a further, independent win on top of plain
+learning at this horizon (−41% cost per passed probe), extending the
+single-fixture `consolidate-stale-then-corrected` result (§7.2) rather than
+contradicting the rejected `consolidate-production-endpoint` one — the
+long-horizon cases have real corrections and dilution to resolve, which is
+exactly the condition under which §7.2 found consolidation earns its cost.
+
+**Two caveats, not swept under the rug.** The control case regressed once
+(3/3 → 2/3) on a coding mistake unrelated to memory content, which is within
+single-run noise at n=3 — the same lesson §7.2 already drew from
+`consolidate-production-endpoint` reversing between 3 and 5 trials. And
+`long-incremental-assembly` never passed once across all four arms (0/12
+total); at least two of those failures were the model populating an empty,
+seeded `RATES = {}` table in an immutable sibling file rather than a memory
+failure — a fixture confound, filed in `TODO.md`, not evidence that memory
+cannot assemble fragmented facts. **Not measured**: single-trial noise at this
+horizon (3 trials, not the 5-trial replicate that reversed §7.2's other
+fixture), the external corpus, and a wider consolidation schedule than "every
+eligible session."
+
 ## 8. Completion checklist
 
 - [x] Full runtime memory cost is measurable, including background calls.
