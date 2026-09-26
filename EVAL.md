@@ -212,13 +212,18 @@ and how many entries it merged, promoted, created, or deleted. Its
 failed, or partially priced pass is evidence of an incomplete experiment, not
 a zero-cost consolidation result.
 
-The first valid run, `2026-09-25-memory-consolidation-4` on MiniMax-M3, kept
-the endpoint task at 3/3 on both sides. Consolidation ran in every candidate
-trial: two merged one duplicate and deleted one superseded memory; one made no
-change. Its calls cost $0.00076–$0.00087 each. Candidate total cost was 4.7%
-lower in this three-trial sample, which is too small and narrow to establish a
-benefit. The three earlier records in the ledger are invalid harness attempts:
-their candidate `consolidation.ran` is false and they must not be used.
+Two fixtures ship, and they landed different verdicts. On
+`consolidate-production-endpoint` (pure near-duplicate merge), the 3-trial
+run looked like a 4.7% cost win, but a 5-trial replicate reversed it: cost
+went up 10% and one candidate trial failed a task the baseline passed, right
+after consolidation had merged and deleted a memory — **rejected**. On
+`consolidate-stale-then-corrected` (a stale memory superseded by a corrected
+one, plus a distractor and control that must not be touched), two independent
+3-trial runs both went 3/3 on both arms and consolidation was consistently
+cheaper (tokens -24% to -33%, cost -33% to -40%) — **kept**. Full detail and
+the exact numbers are in spec §7.2. The earliest records in the ledger
+(`memory-consolidation-1..3`) are invalid harness attempts: their candidate
+`consolidation.ran` is false and they must not be used.
 
 ## 3. Grow the suite — `freecode eval add <session-id>`
 

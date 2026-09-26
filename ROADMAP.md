@@ -188,16 +188,19 @@ Build and validate the harnesses first; run paid experiments afterward.
    preserve production defaults. Record whether consolidation actually ran,
    its outcome, merge counts, retained facts, and its model cost. A skipped or
    failed pass must not count as a successful consolidation experiment.
-2. [ ] **Consolidation experiment.** Initial valid run
-   `2026-09-25-memory-consolidation-4`: 3/3 on both sides; consolidation ran
-   in all candidate trials (two 1→1 merges, one no-op), each call cost
-   $0.00076–$0.00087, and total candidate cost was −4.7% in this small sample.
-   It is not a conclusion: the harness does not yet report rendered recall,
-   irrelevant bytes, or store size. Compare task pass rate, rendered recall,
-   irrelevant bytes, store size, and total cost including the merge call.
-   Record provider/model, retrieval mode, fixture revision, and three trials
-   per side in the experiment ledger. Keep a no-benefit result as evidence;
-   fewer files alone is not success.
+2. [x] **Consolidation experiment.** Two fixtures, two verdicts (full detail
+   in spec §7.2 and `EVAL.md`). `consolidate-production-endpoint` (pure
+   near-duplicate merge): a 5-trial replicate reversed the earlier 3-trial
+   "−4.7% cost" reading — candidate cost went +10% and pass rate was NOT
+   preserved (one candidate-only failure right after a merge+delete) —
+   **rejected**. `consolidate-stale-then-corrected` (stale vs. corrected
+   memory, plus a distractor/control that must not be touched): two
+   independent 3-trial runs both went 3/3 on both arms and consolidation was
+   consistently cheaper — **kept**. `storeSize` and `costByOperation` are now
+   in the ledger; rendered recall and irrelevant bytes at trial level remain
+   unaddressed (would need a per-turn recording channel). Net: consolidation
+   earns its cost when there is a real conflict to supersede, not proven (and
+   showed one regression) when there is only a near-duplicate to fold.
 3. [ ] **Long-horizon harness.** Extend session evaluation to at least 12
    fresh sessions sharing one isolated project per trial, with scored probes
    along the way. Include repeated facts, later corrections, distractors,

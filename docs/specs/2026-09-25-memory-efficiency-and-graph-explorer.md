@@ -363,13 +363,34 @@ hours), and the production scheduler between teaching and the scored task.
 and auxiliary-call cost are recorded on the final session trace; a skipped pass
 is an invalid candidate, not a zero-cost result.
 
-The first valid three-trial run (`2026-09-25-memory-consolidation-4`,
-MiniMax-M3) passed the endpoint task 3/3 on both arms. Consolidation ran 3/3:
-two passes merged one duplicate and deleted one superseded memory; one was a
-successful no-op. The call cost $0.00076–$0.00087 per candidate trial. Total
-candidate cost was 4.7% lower, within a sample too small and narrow to claim a
-benefit. The harness still needs rendered-recall, irrelevant-byte, and
-store-size metrics before the roadmap experiment is complete.
+Two fixtures, two different answers (`evals/experiments.jsonl`, MiniMax-M3,
+`storeSize`/`costByOperation` now surfaced in the ledger — rendered recall is
+still the one unaddressed metric):
+
+- `consolidate-production-endpoint` (near-duplicate merge only, nothing to
+  supersede): the 3-trial run (`-4`) read as a 4.7% cost win, but the 5-trial
+  replicate (`-5`) reversed it — candidate cost was 10% *higher*
+  ($0.0752 vs $0.0683) and pass rate was NOT preserved: one candidate trial
+  failed (`localhost` survived unfixed) on a run where consolidation had
+  merged and deleted a memory right before the scored prompt. `storeSize` did
+  not shrink by a consistent amount (2/3/2/3/3 across candidate trials — two
+  were no-ops). **Verdict: rejected.** The earlier small-sample "win" was
+  noise, and there is a real, if infrequent, failure mode when a merge lands
+  immediately before the store is read for the final task.
+- `consolidate-stale-then-corrected` (a stale memory that disagrees with a
+  corrected one, plus a same-surface distractor and an unrelated control):
+  two independent 3-trial runs (`-6`, `2026-09-26-...-1`) both went 3/3 on
+  both arms, six-for-six on the candidate side. Consolidation deleted the
+  stale memory in every candidate trial, never touched the distractor or
+  control (no failure ever implicated them), and was consistently cheaper —
+  tokens -24% to -33%, cost -33% to -40%, fewer turns. **Verdict: kept.**
+
+Net: consolidation reliably fixes a stale-vs-corrected conflict and is worth
+its cost there, but merging near-duplicates that had nothing to supersede
+shows no proven benefit and one demonstrated regression. That split is the
+finding — not "consolidation helps," but "it helps when there is something to
+supersede, and needs more evidence (and possibly a guard against
+merge-immediately-before-read) when there is only a near-duplicate to fold."
 
 ## 8. Completion checklist
 
