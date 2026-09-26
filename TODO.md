@@ -743,6 +743,26 @@ anchors). Detector gained a one-sample deferral for provider blips
       yesterday. Until then, cross-day gate deltas on trajectory are partly
       memory-store drift.
 
+## Found running the release gate on feat/memory-efficiency (2026-09-26)
+
+- [ ] **The judged gate compares across a judge switch.** `baselineFor`
+      (`eval/report.ts:100`) refuses a baseline from a different `authMode`
+      but not from a different `judge`. With Gemini out of quota the judged
+      gate ran on `anthropic/claude-haiku-4-5` and reported "regression: 4/6
+      vs baseline 6/6" against Gemini-graded history. Key the baseline on
+      `SuiteReport.judge` the way it already keys on `authMode`.
+- [ ] **Haiku 4.5 misapplies the `answer-quality` rubric.** It scored
+      `admit-what-is-not-there` 1–2 for correct, tool-free answers ("made
+      claims without reading any files") that Gemini scored 5/5 seventeen
+      times; the rubric says to penalise only a claim the tool list
+      *contradicts*. Do not use it as the judged-gate judge until
+      `freecode eval calibrate` has human labels showing it agrees.
+- [ ] **`frustrated-user-gets-no-padding` answers from `CLAUDE.md` without
+      reading.** 3/3 tool-free with memory recall off too, occasionally wrong
+      ("nothing is written to history") or self-contradicting ("No… Yes") —
+      the same flakiness Gemini scored 0/1/3 on 2026-09-06/08. Pre-existing,
+      not this branch; a candidate for `evals/quarantine.txt` with that reason.
+
 ## Found running the memory long-horizon savings-curve experiment (2026-09-26)
 
 `evals/memory-long-horizon.jsonl`, `long-incremental-assembly` (three tax
