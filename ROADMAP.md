@@ -220,17 +220,51 @@ Build and validate the harnesses first; run paid experiments afterward.
    off). One case (`long-incremental-assembly`) never passed in any arm
    (0/12) — a fixture confound (an empty seeded table invites an edit its own
    immutable guard punishes), filed in `TODO.md`, not a memory verdict.
-5. [ ] **External-corpus adapter.** Check LongMemEval-S's dataset licence and
-   official protocol before download or redistribution. Pin source revision,
-   checksum, and sample IDs; ingest history chronologically into fresh stores,
-   keeping answers and scoring metadata out of prompts and memory. Separate
-   ingestion, retrieval, and answer-scoring costs. Validate the adapter with
-   tiny synthetic fixtures before running the corpus.
-6. [ ] **External evaluation.** Run the pinned held-out sample using the
-   documented scoring protocol, report separately from internal suites, and
-   never tune on it. State sampling, category coverage, model, and any
-   deviations from the official protocol; do not claim a comparable official
-   score for an adapted subset.
+5. [x] **External-corpus adapter.** Built and validated 2026-09-26,
+   `apps/core/src/eval/longmemeval-adapter.ts` + `.test.ts` (12/12, no model
+   calls). Licence check: `xiaowu0162/longmemeval` (containing the
+   `longmemeval_s` split this item names) is deprecated by its own
+   maintainer for noisy sessions; the adapter targets the replacement,
+   `xiaowu0162/longmemeval-cleaned`'s `longmemeval_s_cleaned` split — both
+   MIT. Pinned: revision `98d7416c`, file `longmemeval_s_cleaned.json`,
+   sha256 `d6f21ea9…c3a442`, 277 MB (`LONGMEMEVAL_SOURCE` in the adapter —
+   re-check `revisionSha` before #6, a dataset can move without a version
+   bump). Ingestion goes straight through `extractMemories` per haystack
+   session in chronological order — no live agent turn per session, since the
+   haystack is fixed historical dialogue and replaying it through our own
+   agent would substitute invented replies for the recorded ones. Answer
+   leakage is guarded on the scored question only (never the haystack, where
+   the taught fact is supposed to appear — an early version of this guard
+   wrongly fired there and had to be fixed). Ingestion cost and scored-turn
+   cost are tracked separately, matching the item's ask.
+
+   **One paid smoke run (2026-09-26, MiniMax-M3), a real finding, not just a
+   mechanics check:** a synthetic 4-session haystack (one session: "I just
+   adopted a beagle puppy... I named him Biscuit") ingested cleanly
+   ($0.00046, 4/4 sessions) but saved **zero** memories, and the live scored
+   turn — asked "what is the name of my dog?" in a fresh session — correctly
+   answered that it had no information, rather than hallucinating. The
+   mechanics are sound (chronological order, cost separation, no leak); the
+   substance is that `extractMemories`'s production prompt is scoped to
+   "durable memories from a coding session" across four types (user,
+   feedback, project, reference), and on this one trial with this one model
+   did not judge a personal biographical fact worth saving. LongMemEval's
+   question types are general-assistant-shaped (preferences, biographical
+   detail, plans), not coding-project-shaped — **running the real corpus as
+   the production prompt stands today would likely measure a domain-scope
+   gap, not a retrieval or consolidation failure.** This is a single trial,
+   not a replicate — but it is exactly what "validate with tiny synthetic
+   fixtures before running the corpus" is for. Decide before #6: run anyway
+   and report the (honestly caveated) low recall as "coding-scoped memory on
+   out-of-domain content," or hold #6 until there is a decision on whether
+   LongMemEval-S is even the right external measure for this product's
+   memory system.
+6. [ ] **External evaluation.** Blocked on the #5 decision above. Run the
+   pinned held-out sample using the documented scoring protocol (GPT-4o
+   judge, `evaluate_qa.py` — a different judge than this repo's own), report
+   separately from internal suites, and never tune on it. State sampling,
+   category coverage, model, and any deviations from the official protocol;
+   do not claim a comparable official score for an adapted subset.
 
 Completion requires both a working harness and a recorded experiment for
 each question. Remove completed entries from this roadmap only after moving
