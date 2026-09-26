@@ -254,17 +254,24 @@ Build and validate the harnesses first; run paid experiments afterward.
    the production prompt stands today would likely measure a domain-scope
    gap, not a retrieval or consolidation failure.** This is a single trial,
    not a replicate — but it is exactly what "validate with tiny synthetic
-   fixtures before running the corpus" is for. Decide before #6: run anyway
-   and report the (honestly caveated) low recall as "coding-scoped memory on
-   out-of-domain content," or hold #6 until there is a decision on whether
-   LongMemEval-S is even the right external measure for this product's
-   memory system.
-6. [ ] **External evaluation.** Blocked on the #5 decision above. Run the
-   pinned held-out sample using the documented scoring protocol (GPT-4o
-   judge, `evaluate_qa.py` — a different judge than this repo's own), report
-   separately from internal suites, and never tune on it. State sampling,
-   category coverage, model, and any deviations from the official protocol;
-   do not claim a comparable official score for an adapted subset.
+   fixtures before running the corpus" is for. #6 was run anyway, with that
+   caveat stated up front, and confirmed it at scale.
+6. [x] **External evaluation.** Run 2026-09-26 as an **adapted subset, not
+   an official LongMemEval score** — full method, deviations and per-sample
+   detail in spec §7.4; reproduce with `pnpm bench:longmemeval`
+   (`scripts/longmemeval.ts`). 24 of 500 questions, stratified over all six
+   question types (seed 20260926), MiniMax-M3 as the agent. Result:
+   **answerable questions 1/18, and that one was answered from world
+   knowledge (a Borges quote), not memory — memory-attributable recall
+   0/18**; abstention questions 5/5 (the model honestly says it has no
+   record, which is the right answer there). The cause is upstream of
+   retrieval: `extractMemories` kept **4 memories from 1,090 ingested
+   sessions** (0.4%), so recall had nothing to find. This confirms the #5
+   smoke finding at scale — the production extraction prompt is scoped to
+   coding sessions, and LongMemEval's personal-assistant facts do not clear
+   it. Not tuned on (the prompt was not changed to chase this number).
+   Whether FreeCode's memory *should* capture this kind of fact is a product
+   scope question, not a bug — it is recorded, not decided.
 
 Completion requires both a working harness and a recorded experiment for
 each question. Remove completed entries from this roadmap only after moving

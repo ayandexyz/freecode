@@ -17,6 +17,9 @@ import {
   LONGMEMEVAL_SOURCE,
 } from "./longmemeval-adapter.js";
 
+// Matches the REAL longmemeval_s_cleaned.json shape (checked against the
+// pinned file): haystack_sessions[i] is itself a turn array, matched by
+// index to the parallel haystack_session_ids[i] / haystack_dates[i].
 function rawSample(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     question_id: "q1",
@@ -24,23 +27,17 @@ function rawSample(overrides: Partial<Record<string, unknown>> = {}) {
     question_type: "single-session-user",
     question_date: "2024/03/01",
     answer: "oat milk latte",
+    haystack_session_ids: ["s2", "s1"],
+    haystack_dates: ["2024/02/10 (Sat)", "2024/01/05 (Fri)"],
     haystack_sessions: [
-      {
-        session_id: "s2",
-        date: "2024/02/10",
-        turns: [
-          { role: "user", content: "I switched my morning drink recently." },
-          { role: "assistant", content: "Noted, what did you switch to?" },
-        ],
-      },
-      {
-        session_id: "s1",
-        date: "2024/01/05",
-        turns: [
-          { role: "user", content: "Every morning I have a coffee." },
-          { role: "assistant", content: "Good to know." },
-        ],
-      },
+      [
+        { role: "user", content: "I switched my morning drink recently." },
+        { role: "assistant", content: "Noted, what did you switch to?" },
+      ],
+      [
+        { role: "user", content: "Every morning I have a coffee." },
+        { role: "assistant", content: "Good to know." },
+      ],
     ],
     answer_session_ids: ["s2"],
     ...overrides,
@@ -67,13 +64,17 @@ test("rejects a sample with no question_id", () => {
 
 test("rejects a haystack turn with an unknown role", () => {
   const raw = rawSample({
-    haystack_sessions: [
-      {
-        session_id: "s1",
-        date: "2024/01/01",
-        turns: [{ role: "system", content: "x" }],
-      },
-    ],
+    haystack_session_ids: ["s1"],
+    haystack_dates: ["2024/01/01"],
+    haystack_sessions: [[{ role: "system", content: "x" }]],
+  });
+  assert.throws(() => parseLongMemEvalSample(raw), LongMemEvalAdapterError);
+});
+
+test("rejects mismatched parallel-array lengths", () => {
+  const raw = rawSample({
+    haystack_session_ids: ["s1"],
+    haystack_dates: ["2024/01/01", "2024/01/02"],
   });
   assert.throws(() => parseLongMemEvalSample(raw), LongMemEvalAdapterError);
 });
@@ -89,10 +90,9 @@ test("sessionsChronological sorts by date regardless of input order", () => {
 
 test("an unparseable date sorts last, not first", () => {
   const raw = rawSample({
-    haystack_sessions: [
-      { session_id: "good", date: "2024/01/01", turns: [] },
-      { session_id: "bad", date: "not-a-date", turns: [] },
-    ],
+    haystack_session_ids: ["good", "bad"],
+    haystack_dates: ["2024/01/01", "not-a-date"],
+    haystack_sessions: [[], []],
   });
   const s = parseLongMemEvalSample(raw);
   const ordered = sessionsChronological(s);

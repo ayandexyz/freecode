@@ -472,6 +472,82 @@ horizon (3 trials, not the 5-trial replicate that reversed §7.2's other
 fixture), the external corpus, and a wider consolidation schedule than "every
 eligible session."
 
+### 7.4 External corpus: LongMemEval-S, adapted subset (2026-09-26)
+
+**Reported separately from every internal suite, and not a LongMemEval
+score.** ROADMAP "Memory: long-horizon evaluation" #5 (adapter) and #6
+(run). Reproduce with `pnpm bench:longmemeval run <corpus> <out>` then
+`judge <out> <provider> <model> <corpus>` (`scripts/longmemeval.ts`).
+
+**Source.** `xiaowu0162/longmemeval-cleaned`, split `longmemeval_s_cleaned`,
+MIT, revision `98d7416c24c7…`, file sha256 `d6f21ea9…c3a442` (verified after
+download; pinned in `LONGMEMEVAL_SOURCE`). The `longmemeval_s` split ROADMAP
+originally named lives in `xiaowu0162/longmemeval`, which its maintainer
+deprecated for noisy history sessions. The 277 MB file is not in the repo.
+
+**Method.** 24 of 500 questions, stratified proportionally over the six
+question types (multi-session 6, temporal-reasoning 6, knowledge-update 4,
+single-session-user 3, single-session-assistant 3, single-session-preference
+2; mulberry32 seed 20260926). Per question, a fresh sandbox store: every
+haystack session (38–62 per question, ~8.6 KB of transcript each) is sent
+chronologically through the production `extractMemories` — no live agent
+turn, since the haystack is fixed dialogue — then the question runs as one
+real `explore`-mode turn on MiniMax-M3 with default recall (judge off).
+
+**Deviations from the official protocol**, all deliberate:
+- Judge is `anthropic/claude-haiku-4-5` with this repo's own binary prompt,
+  not GPT-4o with `evaluate_qa.py` (no OpenAI provider configured). The run
+  started on Gemini and exhausted its quota mid-way; every sample was then
+  re-graded by one judge so no two verdicts came from different graders.
+- 24 questions, not 500.
+- `extractMemories` truncates a transcript to its last 12 000 chars; longer
+  sessions lose their start. That is production behavior, kept as-is.
+- One question (`gpt4_70e84552`, "fixing the fence or trimming the goats'
+  hooves?") was excluded by the answer-leak guard. That is a guard false
+  positive — binary-choice questions contain their answer by design — so
+  23 were scored.
+
+**Results.**
+
+| | correct |
+| --- | ---: |
+| answerable questions | **1/18** |
+| — of which recalled from memory | **0/18** |
+| abstention questions (`_abs`, right answer is "I don't know") | 5/5 |
+
+The one answerable hit (`58470ed2`) quoted Borges from general knowledge
+after saying it had no access to the prior conversation. Per type,
+answerable: multi-session 0/6, temporal-reasoning 0/4, knowledge-update 0/2,
+single-session-user 0/1, single-session-preference 0/2,
+single-session-assistant 1/3 (the Borges one).
+
+**Why.** Extraction, not retrieval: **4 memories were saved from 1,090
+ingested sessions** (0.4%; 2 of 23 questions had any), so there was nothing
+to recall. `extractMemories`'s prompt asks for durable facts "from a coding
+session" in four types (user, feedback, project, reference), and
+LongMemEval's haystack is personal-assistant chat — what someone bought,
+when they started a class, who gave them a gift. The model answered
+honestly throughout: every miss was "I have no record of that", never an
+invented fact.
+
+**Cost.** Ingestion $0.713 (1,090 extraction calls), scored turns $0.080.
+The judge ran on an OAuth subscription, so it is unpriced (`undefined`, not
+$0).
+
+**Two judge bugs found and fixed along the way**, both of which would have
+inflated or blanked the number: at `maxTokens` 16 and 64 the judge's reply
+was cut mid-word (`"IN"`, `"INCOR"`) and parsed as no verdict; and a global
+"saying you don't know is correct" rule, meant for abstention questions,
+graded two answerable "I have no record" replies CORRECT. It is now scoped to
+`_abs` questions only, and the final numbers match a hand audit.
+
+**What this does and does not say.** It says the production memory system,
+as scoped, does not retain general personal-assistant facts from long chat
+histories. It says nothing about retrieval quality or consolidation on this
+corpus, because nothing reached them. Widening what extraction keeps is a
+product-scope decision (and a cost one: more saves, more injected bytes), not
+a fix to make against this benchmark — which ROADMAP #6 forbids tuning on.
+
 ## 8. Completion checklist
 
 - [x] Full runtime memory cost is measurable, including background calls.

@@ -66,6 +66,14 @@ export class LongMemEvalAdapterError extends Error {}
  * PyArrow conversion fails on it — so it is coerced to a string here rather
  * than assumed.
  */
+/**
+ * The real `longmemeval_s_cleaned.json` shape (checked against the pinned
+ * file, 2026-09-26) is three PARALLEL top-level arrays, not a list of
+ * `{session_id, date, turns}` objects: `haystack_sessions[i]` is itself the
+ * turn array for session i, matched by index to `haystack_session_ids[i]`
+ * and `haystack_dates[i]`. An earlier version of this parser assumed the
+ * nested-object shape and would have silently rejected every real record.
+ */
 export function parseLongMemEvalSample(raw: unknown): LongMemEvalSample {
   if (!raw || typeof raw !== "object") {
     throw new LongMemEvalAdapterError("sample is not an object");
@@ -76,7 +84,9 @@ export function parseLongMemEvalSample(raw: unknown): LongMemEvalSample {
   const question_type = r.question_type;
   const question_date = r.question_date;
   const answerRaw = r.answer;
-  const haystack_sessions = r.haystack_sessions;
+  const haystackSessionsRaw = r.haystack_sessions;
+  const haystackSessionIdsRaw = r.haystack_session_ids;
+  const haystackDatesRaw = r.haystack_dates;
   const answer_session_ids = r.answer_session_ids;
 
   if (typeof question_id !== "string" || !question_id) {
@@ -88,36 +98,43 @@ export function parseLongMemEvalSample(raw: unknown): LongMemEvalSample {
   if (answerRaw === undefined || answerRaw === null) {
     throw new LongMemEvalAdapterError(`${question_id}: missing answer`);
   }
-  if (!Array.isArray(haystack_sessions)) {
+  if (!Array.isArray(haystackSessionsRaw)) {
     throw new LongMemEvalAdapterError(
       `${question_id}: haystack_sessions must be an array`,
     );
   }
+  if (!Array.isArray(haystackSessionIdsRaw) || !Array.isArray(haystackDatesRaw)) {
+    throw new LongMemEvalAdapterError(
+      `${question_id}: haystack_session_ids and haystack_dates must be arrays`,
+    );
+  }
+  if (
+    haystackSessionsRaw.length !== haystackSessionIdsRaw.length ||
+    haystackSessionsRaw.length !== haystackDatesRaw.length
+  ) {
+    throw new LongMemEvalAdapterError(
+      `${question_id}: haystack_sessions/haystack_session_ids/haystack_dates length mismatch ` +
+        `(${haystackSessionsRaw.length}/${haystackSessionIdsRaw.length}/${haystackDatesRaw.length})`,
+    );
+  }
 
-  const sessions: LongMemEvalHaystackSession[] = haystack_sessions.map(
-    (s, i) => {
-      if (!s || typeof s !== "object") {
-        throw new LongMemEvalAdapterError(
-          `${question_id}: haystack_sessions[${i}] is not an object`,
-        );
-      }
-      const so = s as Record<string, unknown>;
-      const session_id = so.session_id;
-      const date = so.date;
-      const turnsRaw = so.turns;
+  const sessions: LongMemEvalHaystackSession[] = haystackSessionsRaw.map(
+    (turnsRaw, i) => {
+      const session_id = haystackSessionIdsRaw[i];
+      const date = haystackDatesRaw[i];
       if (typeof session_id !== "string" || !session_id) {
         throw new LongMemEvalAdapterError(
-          `${question_id}: haystack_sessions[${i}] missing session_id`,
+          `${question_id}: haystack_session_ids[${i}] is not a non-empty string`,
         );
       }
       if (typeof date !== "string" || !date) {
         throw new LongMemEvalAdapterError(
-          `${question_id}: session ${session_id} missing date`,
+          `${question_id}: haystack_dates[${i}] is not a non-empty string`,
         );
       }
       if (!Array.isArray(turnsRaw)) {
         throw new LongMemEvalAdapterError(
-          `${question_id}: session ${session_id} missing turns`,
+          `${question_id}: haystack_sessions[${i}] must be an array of turns`,
         );
       }
       const turns: LongMemEvalTurn[] = turnsRaw.map((t, j) => {
@@ -169,7 +186,11 @@ export function sessionsChronological(
   sample: LongMemEvalSample,
 ): LongMemEvalHaystackSession[] {
   const withTime = sample.haystack_sessions.map((s) => {
-    const t = Date.parse(s.date);
+    // Real dates look like "2023/05/30 (Tue) 23:40" — V8 parses that leniently
+    // today, but the day-of-week parenthetical is stripped rather than relied
+    // on, since nothing pins this to a specific engine.
+    const cleaned = s.date.replace(/\s*\([A-Za-z]+\)\s*/, " ");
+    const t = Date.parse(cleaned);
     return { s, t: Number.isNaN(t) ? Number.POSITIVE_INFINITY : t };
   });
   withTime.sort((a, b) => a.t - b.t);
@@ -194,7 +215,9 @@ export function renderSessionTranscript(
  * `answer_session_ids`, or other scoring metadata leaking into the question
  * itself — which would trivialize the test rather than measure recall.
  * Advisory, not a proof: a paraphrase ("she only drinks oat milk" vs answer
- * "oat milk") will not trip this.
+ * "oat milk") will not trip this. It over-fires on binary-choice questions
+ * ("…fixing the fence or trimming the hooves?"), whose answer is one of the
+ * options by design — such a question is excluded, not scored.
  */
 export function assertNoAnswerLeak(text: string, sample: LongMemEvalSample): void {
   const answer = sample.answer.trim();
