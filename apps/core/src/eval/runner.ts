@@ -28,6 +28,7 @@ import { RolloutRecorder } from "../rollout/recorder.js";
 import { runConsolidationIfDue } from "../memory/consolidate-run.js";
 import type { ConsolidationResult } from "../memory/consolidate.js";
 import { subscriptionAuth } from "../providers/config.js";
+import { traceCost, traceCostByOperation } from "../rollout/cost.js";
 
 export interface RunnerConfig {
   provider: string;
@@ -194,6 +195,11 @@ async function runTrialIn(
   // are collected so the prompt handlers below answer for them too, and so
   // their cost is summed into the trial.
   const earlierSessionIds: string[] = [];
+  // Per-session memory snapshots for the long-horizon suite. Pushed after
+  // each teaching session's end-of-session flush, and once more for the
+  // scored session. Cost per entry is `null` when the model is unpriced for
+  // any call in that session — same convention as `costUsd` on the trial.
+  const memorySnapshots: NonNullable<TrialResult["memorySnapshots"]> = [];
   let consolidation: ConsolidationResult | null | undefined;
   const ownsSession = (id: string | undefined) =>
     id === undefined || id === sessionId || earlierSessionIds.includes(id);
@@ -314,6 +320,33 @@ async function runTrialIn(
         memoryJobsPending += (
           await drainMemoryJobs(sid, MEMORY_DRAIN_TIMEOUT_MS)
         ).pending;
+        // Snapshot the store after the flush so a long-horizon trial can
+        // answer "how much had memory learned by session N?" without
+        // re-running. The per-session cost is folded from the session's own
+        // rollout log (`traceCost` keys partial separately, so an unpriced
+        // call in the session makes this entry `null` rather than zero).
+        // `memoriesCaptured` is the delta against the previous snapshot —
+        // the same number the savings curve needs, derived rather than
+        // re-counted so a passing flush that did nothing shows zero.
+        if (sandbox && (kase.memories || kase.sessions)) {
+          const earlierEvents = loadSessionEvents(sid);
+          const earlierTrace = earlierEvents
+            ? buildTrace(sid, earlierEvents.events)
+            : null;
+          const sessionCost = earlierTrace
+            ? traceCost(earlierTrace)
+            : undefined;
+          const storeSize = countMemories(sandbox.dir);
+          const previousSize = memorySnapshots.at(-1)?.storeSize ?? storeSize;
+          memorySnapshots.push({
+            sessionId: sid,
+            index: sessionIndex,
+            storeSize,
+            memoriesCaptured: Math.max(0, storeSize - previousSize),
+            costUsd: sessionCost?.usd ?? null,
+            scored: false,
+          });
+        }
       }
       if (kase.consolidateBeforeFinal) {
         // `runTrial` temporarily set this gate to keep automatic background
@@ -373,6 +406,23 @@ async function runTrialIn(
             agentMode,
           }),
         );
+      }
+      // Final snapshot: the scored session's own cost and the store size
+      // immediately after its answer — what a savings-curve point at
+      // `sessions.length` plots against. `costUsd` is taken from the trial's
+      // own cost fold below, so this snapshot is filled in once that number
+      // is computed (here we only carry the store state).
+      if (sandbox && (kase.memories || kase.sessions)) {
+        const storeSize = countMemories(sandbox.dir);
+        const previousSize = memorySnapshots.at(-1)?.storeSize ?? storeSize;
+        memorySnapshots.push({
+          sessionId,
+          index: memorySnapshots.length,
+          storeSize,
+          memoriesCaptured: Math.max(0, storeSize - previousSize),
+          costUsd: null,
+          scored: true,
+        });
       }
     })();
     await Promise.race([
@@ -494,7 +544,6 @@ async function runTrialIn(
   }
 
   const { JUDGE_CASE_FLOOR } = await import("./gate.js");
-  const { traceCost, traceCostByOperation } = await import("../rollout/cost.js");
   // The bill covers every session of the trial; scoring stays on the final
   // one, which is the session the case's expectations describe.
   const earlierTraces = earlierSessionIds.flatMap((id) => {
@@ -516,6 +565,32 @@ async function runTrialIn(
     ]),
   );
   const echoed = echoedModels(trace);
+
+  // Back-fill the scored session's snapshot with its own USD. The teaching
+  // sessions already carry theirs from the per-session `traceCost` fold above;
+  // this entry was deliberately left `null` because its cost is the trial's
+  // `costUsd` minus the sum of the teaching sessions. `null` stays `null`
+  // when the trial has no priced cost (unpriced calls, drain timeout).
+  let teachingCostUsd: number | undefined;
+  if (memorySnapshots.length > 0) {
+    const teachingSnapshots = memorySnapshots.filter((s) => !s.scored);
+    const pricedTeaching = teachingSnapshots.filter(
+      (s) => typeof s.costUsd === "number",
+    );
+    if (
+      pricedTeaching.length === teachingSnapshots.length &&
+      typeof cost?.usd === "number"
+    ) {
+      const teachingSum = pricedTeaching.reduce(
+        (n, s) => n + (s.costUsd as number),
+        0,
+      );
+      const scoredCost = cost.usd - teachingSum;
+      teachingCostUsd = teachingSum;
+      const scoredSnapshot = memorySnapshots.find((s) => s.scored);
+      if (scoredSnapshot) scoredSnapshot.costUsd = scoredCost;
+    }
+  }
 
   // A judged case that scored below the floor is a failure; one the judge
   // could not answer for keeps the deterministic verdict, because an outage
@@ -550,6 +625,8 @@ async function runTrialIn(
     ...(sandbox && (kase.memories || kase.sessions)
       ? { storeSize: countMemories(sandbox.dir) }
       : {}),
+    ...(memorySnapshots.length > 0 ? { memorySnapshots } : {}),
+    ...(typeof teachingCostUsd === "number" ? { teachingCostUsd } : {}),
     ...(kase.consolidateBeforeFinal
       ? {
           consolidation: consolidation

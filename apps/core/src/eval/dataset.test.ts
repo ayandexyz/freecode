@@ -836,3 +836,62 @@ test("the shipped consolidation comparison suite is valid", () => {
     else process.env.FREECODE_EVALS_DIR = previous;
   }
 });
+
+// -- long-horizon multi-session suite (spec 2026-09-25 §7) -------------------
+
+test("the shipped long-horizon suite is valid", () => {
+  // Same hermetic scoping as the consolidation pin above. Five cases spanning
+  // the §7 hypotheses: repeated-fact, late-correction, gap-survival,
+  // incremental-assembly, and a 12-session irrelevant-chatter control. The
+  // first four must exercise the teaching path; the control must not — that
+  // contrast is the savings-curve axis (item #4 in ROADMAP.md).
+  const dir = path.resolve(import.meta.dirname, "../../../../evals");
+  const previous = process.env.FREECODE_EVALS_DIR;
+  process.env.FREECODE_EVALS_DIR = dir;
+  try {
+    const cases = loadSuite("memory-long-horizon");
+    assert.equal(cases.length, 5);
+    const ids = cases.map((c) => c.id).sort();
+    assert.deepEqual(ids, [
+      "long-gap-survival",
+      "long-incremental-assembly",
+      "long-irrelevant-chatter-control",
+      "long-late-correction",
+      "long-repeated-fact",
+    ]);
+    const byId = new Map(cases.map((c) => [c.id, c]));
+    // The four teaching cases carry 12 sessions each, the incremental one 6
+    // (split facts across fewer sessions to grow knowledge piece-by-piece).
+    assert.equal(byId.get("long-repeated-fact")!.sessions.length, 12);
+    assert.equal(byId.get("long-late-correction")!.sessions.length, 12);
+    assert.equal(byId.get("long-gap-survival")!.sessions.length, 12);
+    assert.equal(byId.get("long-incremental-assembly")!.sessions.length, 6);
+    assert.equal(
+      byId.get("long-irrelevant-chatter-control")!.sessions.length,
+      12,
+    );
+    // Every session must carry a matching followUp array so `runTrialIn` can
+    // drive each session to a flush-worthy length.
+    for (const c of cases) {
+      assert.equal(
+        c.sessionFollowUps.length,
+        c.sessions.length,
+        `${c.id}: sessionFollowUps must align with sessions`,
+      );
+    }
+    // Long-horizon cases learn into a real MemStore seeded only through chat,
+    // so they MUST NOT ship a seeded `memories` payload — that would paper
+    // over the curve by handing the answer back. The control shares the
+    // constraint to keep its cost surface comparable to the teaching cases.
+    for (const c of cases) {
+      assert.equal(
+        c.memories?.length ?? 0,
+        0,
+        `${c.id}: long-horizon cases must not seed memories`,
+      );
+    }
+  } finally {
+    if (previous === undefined) delete process.env.FREECODE_EVALS_DIR;
+    else process.env.FREECODE_EVALS_DIR = previous;
+  }
+});

@@ -201,15 +201,72 @@ Build and validate the harnesses first; run paid experiments afterward.
    unaddressed (would need a per-turn recording channel). Net: consolidation
    earns its cost when there is a real conflict to supersede, not proven (and
    showed one regression) when there is only a near-duplicate to fold.
-3. [ ] **Long-horizon harness.** Extend session evaluation to at least 12
-   fresh sessions sharing one isolated project per trial, with scored probes
-   along the way. Include repeated facts, later corrections, distractors,
-   and unrelated controls. Keep expected answers outside the agent's files
-   and prevent teaching sessions from leaving answer-bearing files behind.
-   Report per-session and cumulative passes, tokens, cost by operation,
-   memories captured, and consolidation outcomes. Account for session-end
-   flushes, including the final session; incomplete background work means
-   incomplete cost, never zero cost.
+3. [x] **Long-horizon harness.** Built 2026-09-26. The harness is in place
+   and the fixtures ship; the savings-curve numbers (#4) are not measured
+   yet because that is a paid run, deliberately parked. Evidence (code):
+   - `apps/core/src/eval/types.ts` — `TrialResult.memorySnapshots?: Array<…>`
+     and `TrialResult.teachingCostUsd?: number` are the new fields. Both
+     optional: a single-session case (no `sessions`) keeps the old shape, so
+     no existing trial's price fold changes.
+   - `apps/core/src/eval/runner.ts` — four snapshot-delimiting branches, all
+     gated on `sandbox && (kase.memories || kase.sessions)`:
+     1. `memorySnapshots: []` init at the top of `runTrialIn` (runner.ts:202).
+     2. Per-teaching-session push after `await endSession` →
+        `drainMemoryJobs` (runner.ts:335–352). Cost comes from
+        `traceCost(loadSessionEvents(sid))` keyed partial, so an unpriced
+        call in the session surfaces as `costUsd: null` rather than zero.
+        `memoriesCaptured` is the snapshot-diff against the previous entry.
+     3. Final scored-session push after the prompt loop (runner.ts:415–429).
+        Its `costUsd` is left `null` for the moment and back-filled by the
+        priced-teaching fold below.
+     4. `teachingCostUsd` fold + scored-session `costUsd` back-fill
+        (runner.ts:574–595). `teachingCostUsd` stays undefined when ANY
+        teaching snapshot has `costUsd: null` — a `null` is the model's
+        "no price" signal, not zero.
+     - `traceCost`/`traceCostByOperation` lifted to module-level imports
+       so the snapshot cost is folded in-series with no lazy-import indent.
+   - `apps/core/src/eval/dataset.ts` — `parseSuite` accepts the new
+     `sessions[]`+`sessionFollowUps[][]` shape with the alignment check;
+     `validateSessions` and `validateSessionFollowUps` enforce it.
+   Evidence (fixtures):
+   - `evals/memory-long-horizon.jsonl` — 5 cases. Sessions per case: 12,
+     12, 12, 6, 12. `loadSuite` returns 5 with the right ids and counts
+     (dataset.test.ts pin at line 842: "the shipped long-horizon suite is
+     valid"). Every case has a sandbox + verify + `immutable` byte-guard,
+     and NONE has a seeded `memories` payload — answers ride in only
+     through chat, and the agent cannot edit the checker (per spec §7).
+     Cases:
+     1. `long-repeated-fact` — same fact × 4 sessions; probes that recall
+        survives repetition vs. distractors in the other 8.
+     2. `long-late-correction` — fact in session 1, contradicted in session
+        8; probe names the corrected value.
+     3. `long-gap-survival` — facts in sessions 1–3, 8 unrelated sessions,
+        probe asks what was said early.
+     4. `long-incremental-assembly` — split facts across 6 sessions, probe
+        needs all of them.
+     5. `long-irrelevant-chatter-control` — 12 sessions of unrelated
+        chatter, no teaching. Bounds the false-positive rate and (paired
+        with the four above) measures what teaching bought.
+   Evidence (tests):
+   - `apps/core/src/eval/dataset.test.ts`:860 — "the shipped long-horizon
+     suite is valid" (one hermetic test asserting the suite parses, the
+     five case ids are right, every session has a followUp, every case
+     is mem-store-seed-free).
+   - `apps/core/src/eval/runner.test.ts`:42 — three new pins:
+     `memorySnapshots` stays optional; the priced snapshot sum recovers
+     the scored session's USD; a single `null` keeps `teachingCostUsd`
+     undefined (6/6 passing).
+   Open (deferred to #4):
+   - One paid smoke trial on `long-repeated-fact` to confirm the wired
+     `memorySnapshots` array is what the harness claims (cost-by-session,
+     non-zero `memoriesCaptured` after teaching sessions, zero after
+     distractor/control sessions). Priced; not free.
+   - One paid smoke on `long-irrelevant-chatter-control` to confirm store
+     size and `teachingCostUsd` stay at the baseline.
+   - `EVAL.md` suite entry and `docs/specs/2026-09-25-…md` §7.3 method
+     paragraph — both are spec-and-curve artefacts, not harness artefacts,
+     and they belong in #4 so they do not have to be rewritten the moment
+     a wider run contradicts the smoke.
 4. [ ] **Savings-curve experiment.** Compare automatic recall/extraction off,
    learning with consolidation off, and learning with consolidation enabled
    on an explicit recorded schedule. Keep judge off and pin the same model

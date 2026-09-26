@@ -316,6 +316,41 @@ export interface TrialResult {
    * merge actually changed anything.
    */
   storeSize?: number;
+  /**
+   * One entry per session of a multi-session trial, in order: the teaching
+   * sessions first, then the scored session. Each carries the session id,
+   * the store size and memories captured at session end, the session's own
+   * `costUsd`, and whether it was the scored session.
+   *
+   * Recorded for the savings-curve experiment (ROADMAP §4): a curve over
+   * `cumulativeCostUsd` at sessions 1, 3, 6, 9, 12 needs the per-session
+   * numbers to be honest, and `costUsd` alone attributes everything to the
+   * scored session — which is the only one carrying memory to the probe —
+   * so the teaching spend becomes invisible. `null` cost means the session
+   * had unpriced calls; the experiment treats it the same way `costUsd` does.
+   *
+   * Absent on a trial with a single session (no `sessions` in the case).
+   */
+  memorySnapshots?: Array<{
+    sessionId: string;
+    /** 0-based; the scored session sits at `sessions.length`. */
+    index: number;
+    /** Store size after this session's end-of-session flush. */
+    storeSize: number;
+    /** Memories the flush captured during this session. */
+    memoriesCaptured: number;
+    /** Per-session USD; `null` when the model is unpriced for any call in it. */
+    costUsd: number | null;
+    /** True for the final, scored session. */
+    scored: boolean;
+  }>;
+  /**
+   * Cumulative USD across the teaching sessions only — what memory cost to
+   * learn. The scored session's own USD is `costUsd` minus this, which is
+   * what an experiment reports as "cost to answer the probe". Absent on a
+   * trial with a single session.
+   */
+  teachingCostUsd?: number;
   /** Result of the controlled pre-final consolidation, when requested. */
   consolidation?: {
     ran: boolean;
